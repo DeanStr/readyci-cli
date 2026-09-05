@@ -1,0 +1,27 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "skipped",
+  "mode": "affected_rules",
+  "intent": "edit-loop",
+  "reason": "no_affected_rules_matched",
+  "run_group_id": null,
+  "group_status": null,
+  "group_kind": "affected_rules",
+  "terminal": true,
+  "cli_exit_code": 0,
+  "classification": "success",
+  "retryable": false,
+  "agent_action": "none",
+  "summary": "No affected rules matched changed files.",
+  "checks": [],
+  "runs": [],
+  "policy": {
+    "network_mode": "none",
+    "network_allowlist": [],
+    "secrets_requested": false,
+    "secrets_authorized": false,
+    "token_scopes_required": [],
+    "token_scopes_missing": [],
+    "upload_preview_command": "readyci sync --dry-run --json --changes working"
+  }
+}

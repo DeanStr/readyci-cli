@@ -1,0 +1,77 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "ready",
+  "run_id": "run_fixture",
+  "dry_run": true,
+  "confirmed": false,
+  "paths": [
+    "test-results/**",
+    "playwright-report/**"
+  ],
+  "artifacts": [
+    {
+      "id": "artifact_fixture",
+      "run_id": "run_fixture",
+      "name": "readyci-artifacts",
+      "path": "readyci-artifacts.tar.gz",
+      "size_bytes": 64,
+      "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "created_at": "2026-07-02T12:00:00Z",
+      "expires_at": "2026-07-16T12:00:00Z"
+    }
+  ],
+  "matched_count": 2,
+  "applied_count": 0,
+  "files": [
+    {
+      "path": "test-results/login/trace.zip",
+      "size_bytes": 512
+    },
+    {
+      "path": "playwright-report/index.html",
+      "size_bytes": 256
+    }
+  ],
+  "evidence_packs": [
+    {
+      "name": "playwright report: playwright-report/**",
+      "kind": "playwright_report",
+      "path": "playwright-report/**",
+      "source": "artifact_file",
+      "size_bytes": 256,
+      "preview_command": "readyci agent artifacts plan --json run_fixture --paths 'playwright-report/**'",
+      "description": "Playwright HTML report with browser journey diagnostics.",
+      "files": [
+        "playwright-report/index.html"
+      ]
+    },
+    {
+      "name": "playwright trace: test-results/login/trace.zip",
+      "kind": "playwright_trace",
+      "path": "test-results/login/trace.zip",
+      "source": "artifact_file",
+      "size_bytes": 512,
+      "preview_command": "readyci agent artifacts plan --json run_fixture --paths test-results/login/trace.zip",
+      "description": "Browser trace suitable for replaying the failing UI journey.",
+      "files": [
+        "test-results/login/trace.zip"
+      ]
+    }
+  ],
+  "apply_command": "readyci agent artifacts apply --json run_fixture --paths 'test-results/**' --paths 'playwright-report/**'",
+  "confirm_command": "readyci agent artifacts apply --json run_fixture --confirm --paths 'test-results/**' --paths 'playwright-report/**'",
+  "next_actions": [
+    {
+      "kind": "artifacts_apply_dry_run",
+      "command": "readyci agent artifacts apply --json run_fixture --paths 'test-results/**' --paths 'playwright-report/**'",
+      "path": "test-results/**,playwright-report/**",
+      "reason": "Preview generated artifacts before changing the working tree."
+    },
+    {
+      "kind": "artifacts_apply_confirm",
+      "command": "readyci agent artifacts apply --json run_fixture --confirm --paths 'test-results/**' --paths 'playwright-report/**'",
+      "path": "test-results/**,playwright-report/**",
+      "reason": "Apply the previewed artifact files only after the paths are expected."
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "run_id": "run_web",
+  "status": "failed",
+  "terminal": true,
+  "exit_code": 1,
+  "check": "web",
+  "command": "pnpm test -- --runInBand",
+  "diagnosis": {
+    "kind": "test_failed",
+    "confidence": 0.82,
+    "summary": "React test failed in web/src/App.test.tsx.",
+    "retryable": false,
+    "agent_action": "fix_code",
+    "primary_file": "web/src/App.test.tsx"
+  },
+  "repair": {
+    "classification": "test_failed",
+    "agent_action": "fix_code",
+    "summary": "React test failed in web/src/App.test.tsx.",
+    "root_cause": "The command reached the test runner and at least one test failed.",
+    "primary_file": "web/src/App.test.tsx",
+    "target_files": [
+      {
+        "path": "web/src/App.test.tsx",
+        "reason": "primary file from failure analysis"
+      }
+    ],
+    "failing_command": "pnpm test -- --runInBand",
+    "failing_test": "renders login button",
+    "evidence": [
+      {
+        "stream": "stderr",
+        "seq": 1,
+        "line": 42,
+        "path": "web/src/App.test.tsx",
+        "text": "expected button to be visible"
+      }
+    ],
+    "evidence_packs": [
+      {
+        "name": "playwright report: playwright-report/**",
+        "kind": "playwright_report",
+        "path": "playwright-report/**",
+        "source": "artifact_path",
+        "artifact_id": "artifact_web",
+        "size_bytes": 512,
+        "preview_command": "readyci agent artifacts plan --json run_web --paths 'playwright-report/**'",
+        "description": "Playwright HTML report with browser journey diagnostics."
+      }
+    ],
+    "commands": [
+      {
+        "kind": "inspect_logs",
+        "command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
+        "reason": "Read lifecycle and recent log evidence before editing."
+      },
+      {
+        "kind": "inspect_evidence_pack",
+        "command": "readyci agent artifacts plan --json run_web --paths 'playwright-report/**'",
+        "reason": "Preview playwright_report evidence retained by the run."
+      },
+      {
+        "kind": "rerun",
+        "command": "readyci verify --json --progress=status --check web",
+        "reason": "Rerun the same verification after applying the repair."
+      }
+    ],
+    "rerun_command": "readyci verify --json --progress=status --check web",
+    "logs_command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
+    "policy_reasons": [
+      "network_mode none enforced by project policy"
+    ],
+    "confidence": 0.82,
+    "confidence_note": "medium: classification came from status and log heuristics"
+  },
+  "evidence": [
+    {
+      "stream": "stderr",
+      "seq": 1,
+      "line": 42,
+      "path": "web/src/App.test.tsx",
+      "text": "expected button to be visible"
+    }
+  ],
+  "evidence_packs": [
+    {
+      "name": "playwright report: playwright-report/**",
+      "kind": "playwright_report",
+      "path": "playwright-report/**",
+      "source": "artifact_path",
+      "artifact_id": "artifact_web",
+      "size_bytes": 512,
+      "preview_command": "readyci agent artifacts plan --json run_web --paths 'playwright-report/**'",
+      "description": "Playwright HTML report with browser journey diagnostics."
+    }
+  ],
+  "recommended_next_step": "Edit the failing test or code and rerun web.",
+  "rerun_command": "readyci verify --json --progress=status --check web",
+  "logs_command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
+  "policy_reasons": [
+    "network_mode none enforced by project policy"
+  ],
+  "log_truncated": false,
+  "spec": {
+    "run_id": "run_web",
+    "project_id": "proj_dev",
+    "region": "iad1",
+    "image": "ubuntu-24.04-base",
+    "command": "pnpm test -- --runInBand",
+    "command_alias": "web",
+    "runner_size": "standard",
+    "timeout_seconds": 600,
+    "cache_mode": "cache-only",
+    "artifact_paths": [
+      "playwright-report/**"
+    ],
+    "network_mode": "none",
+    "docker": false,
+    "git": {
+      "dirty": true
+    }
+  }
+}

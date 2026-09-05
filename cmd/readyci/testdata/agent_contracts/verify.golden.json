@@ -1,0 +1,81 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "failed",
+  "mode": "affected_rules",
+  "intent": "pre-pr",
+  "goal": "prepare PR",
+  "reason": "matched_changed_paths",
+  "run_group_id": "group_123",
+  "group_status": "failed",
+  "group_kind": "affected_rules",
+  "run_id": "run_web",
+  "check": "web",
+  "terminal": true,
+  "exit_code": 1,
+  "cli_exit_code": 1,
+  "classification": "test_failed",
+  "retryable": false,
+  "agent_action": "fix_code",
+  "summary": "Ready CI check web failed.",
+  "checks": [
+    {
+      "check": "web",
+      "selected": true,
+      "network_mode": "none",
+      "matched_paths": [
+        "web/src/pages/Login.tsx"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "run_web",
+      "run_group_id": "group_123",
+      "phase": "verify",
+      "status": "failed",
+      "check": "web",
+      "terminal": true,
+      "exit_code": 1,
+      "classification": "test_failed",
+      "retryable": false,
+      "agent_action": "fix_code",
+      "summary": "Tests failed.",
+      "logs_command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
+      "explain_command": "readyci agent explain --json run_web",
+      "idempotency_key": "task-123:check=web",
+      "evidence": [
+        {
+          "stream": "stderr",
+          "seq": 1,
+          "line": 42,
+          "path": "web/src/App.test.tsx",
+          "text": "expected button to be visible"
+        }
+      ]
+    }
+  ],
+  "policy": {
+    "network_mode": "none",
+    "network_allowlist": [],
+    "secrets_requested": false,
+    "secrets_authorized": false,
+    "token_scopes_required": [
+      "runs:create",
+      "runs:read",
+      "cache:read",
+      "projects:read",
+      "account:read"
+    ],
+    "token_scopes_missing": [],
+    "upload_preview_command": "readyci sync --dry-run --json --changes working"
+  },
+  "next_actions": [
+    {
+      "kind": "explain",
+      "command": "readyci agent explain --json run_web",
+      "reason": "Inspect the compact repair packet for the failing run."
+    }
+  ],
+  "logs_command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
+  "explain_command": "readyci agent explain --json run_web"
+}

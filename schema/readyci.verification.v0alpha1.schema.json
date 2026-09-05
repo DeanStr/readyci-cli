@@ -1,0 +1,1311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://readyci.com/schema/readyci.verification.v0alpha1.schema.json",
+  "title": "Ready CI agent verification protocol",
+  "description": "Pre-release machine contract for durable verification sessions and agent-facing reports.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/verificationSession"
+    },
+    {
+      "$ref": "#/$defs/agentPlanReport"
+    },
+    {
+      "$ref": "#/$defs/agentVerifyReport"
+    },
+    {
+      "$ref": "#/$defs/agentExplainReport"
+    },
+    {
+      "$ref": "#/$defs/agentArtifactHandoffReport"
+    },
+    {
+      "$ref": "#/$defs/agentInstructionsDoctorReport"
+    }
+  ],
+  "$defs": {
+    "schemaVersion": {
+      "const": "readyci.verification.v0alpha1"
+    },
+    "intent": {
+      "enum": [
+        "edit-loop",
+        "pre-commit",
+        "pre-pr",
+        "fixture-update",
+        "security-sensitive",
+        "final-handoff"
+      ]
+    },
+    "verificationSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "session_id", "idempotency_key", "project_id", "state", "verdict", "assurance", "currentness", "recipe", "secrets_requested", "secrets_authorized", "snapshot", "coverage", "plan", "nodes", "created_at", "updated_at"],
+      "properties": {
+        "schema_version": {"$ref": "#/$defs/schemaVersion"},
+        "session_id": {"type": "string", "minLength": 1},
+        "idempotency_key": {"type": "string", "minLength": 1},
+        "task_id": {"type": "string"},
+        "team_id": {"type": "string"},
+        "project_id": {"type": "string", "minLength": 1},
+        "predecessor_id": {"type": "string"},
+        "successor_id": {"type": "string"},
+        "intent": {"type": "string"},
+        "goal": {"type": "string"},
+        "recipe": {"$ref": "#/$defs/verificationRecipe"},
+        "secrets_requested": {"type": "boolean"},
+        "secrets_authorized": {"type": "boolean"},
+        "state": {"enum": ["open", "sealed", "terminal"]},
+        "verdict": {"enum": ["pending", "verified", "checks_passed", "failed", "insufficient_evidence", "no_change_required", "no_verification_needed", "blocked", "stale", "cancelled"]},
+        "assurance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "execution", "evaluator"],
+          "properties": {
+            "scope": {"const": "configured_checks"},
+            "execution": {"enum": ["pending", "production_runner_receipt", "not_established"]},
+            "evaluator": {"const": "candidate_workspace_unassessed"}
+          }
+        },
+        "classification": {"type": "string"},
+        "terminal_reason": {"type": "string"},
+        "currentness": {"enum": ["current", "stale"]},
+        "current_snapshot_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "currentness_observation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "observed_snapshot_digest", "observed_at", "observed_by"],
+          "properties": {
+            "state": {"enum": ["current", "stale"]},
+            "observed_snapshot_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "observed_at": {"type": "string", "format": "date-time"},
+            "observed_by": {"enum": ["user", "token", "team"]}
+          }
+        },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "dirty", "change_mode", "changed_files"],
+          "properties": {
+            "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+            "git_head": {"type": "string"},
+            "git_branch": {"type": "string"},
+            "dirty": {"type": "boolean"},
+            "change_mode": {"enum": ["working", "staged", "all"]},
+            "changed_files": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matched_files", "ignored_files", "uncovered_files"],
+          "properties": {
+            "matched_files": {"type": "array", "items": {"type": "string"}},
+            "ignored_files": {"type": "array", "items": {"type": "string"}},
+            "uncovered_files": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "plan": {"$ref": "#/$defs/verificationPlan"},
+        "proposed_plan": {"$ref": "#/$defs/verificationPlan"},
+        "plan_authorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {"type": "string"},
+            "policy_digest": {"type": "string"},
+            "base_commit": {"type": "string"},
+            "planner_version": {"type": "string"}
+          }
+        },
+        "plan_divergence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "added_nodes": {"type": "array", "items": {"type": "string"}},
+            "removed_nodes": {"type": "array", "items": {"type": "string"}},
+            "changed_commands": {"type": "array", "items": {"type": "string"}},
+            "changed_coverage": {"type": "array", "items": {"type": "string"}},
+            "changed_policy": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "kind", "required", "status", "scheduling", "attempts"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "kind": {"type": "string", "minLength": 1},
+              "required": {"type": "boolean"},
+              "status": {"type": "string", "minLength": 1},
+              "scheduling": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["state"],
+                "properties": {
+                  "state": {
+                    "enum": ["ready", "waiting_for_dependency", "waiting_for_matrix_slot", "retry_pending", "active", "skipped_dependency", "skipped_plan_fail_fast", "skipped_matrix_fail_fast", "terminal"]
+                  },
+                  "reason": {"type": "string"},
+                  "dependency_id": {"type": "string"},
+                  "matrix_group_id": {"type": "string"}
+                }
+              },
+              "attempts": {"type": "array", "items": {"$ref": "#/$defs/verificationAttempt"}}
+            }
+          }
+        },
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "result_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "client_interruption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["signal", "resource_id", "cancellation_acknowledged", "status_command", "cancel_command"],
+          "properties": {
+            "signal": {"type": "string", "minLength": 1},
+            "resource_id": {"type": "string", "minLength": 1},
+            "cancellation_acknowledged": {"type": "boolean"},
+            "status_command": {"type": "string", "minLength": 1},
+            "cancel_command": {"type": "string", "minLength": 1}
+          }
+        },
+        "client_error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "classification", "retryable", "message"],
+          "properties": {
+            "code": {"type": "string", "minLength": 1},
+            "classification": {"type": "string", "minLength": 1},
+            "retryable": {"type": "boolean"},
+            "retry_after_seconds": {"type": "integer", "minimum": 0},
+            "message": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "verificationRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "digest", "rerunnable", "change_mode", "request_secrets", "retry_count", "retry_provided", "source"],
+      "properties": {
+        "schema_version": {"const": "readyci.verification_recipe.v1"},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "rerunnable": {"type": "boolean"},
+        "check": {"type": "string"},
+        "change_mode": {"enum": ["working", "staged", "all"]},
+        "request_secrets": {"type": "boolean"},
+        "retry_count": {"type": "integer", "minimum": 0, "maximum": 9},
+        "retry_provided": {"type": "boolean"},
+        "source": {"$ref": "#/$defs/verificationSourceRecipe"}
+      }
+    },
+    "verificationSourceRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclude_patterns", "default_exclude_patterns", "include_untracked", "use_project_ignore"],
+      "properties": {
+        "exclude_patterns": {"type": "array", "items": {"type": "string"}},
+        "default_exclude_patterns": {"type": "array", "items": {"type": "string"}},
+        "include_untracked": {"type": "boolean"},
+        "use_project_ignore": {"type": "boolean"},
+        "source_policy_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "verificationPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "authority", "fail_fast", "nodes"],
+      "properties": {
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "authority": {"enum": ["client_proposed", "server_authorized"]},
+        "fail_fast": {"type": "boolean"},
+        "matrix_groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "max_parallel", "fail_fast"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "max_parallel": {"type": "integer", "minimum": 0},
+              "fail_fast": {"type": "boolean"}
+            }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name", "kind", "phase", "condition", "required", "retry", "run"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "kind": {"type": "string", "minLength": 1},
+              "phase": {"enum": ["warm", "verify"]},
+              "condition": {"enum": ["always", "on_success"]},
+              "matrix_group": {"type": "string", "minLength": 1},
+              "required": {"type": "boolean"},
+              "depends_on": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "success_depends_on": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "retry": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["max_attempts"],
+                "properties": {
+                  "max_attempts": {"type": "integer", "minimum": 1, "maximum": 10},
+                  "retryable_classifications": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+                }
+              },
+              "run": {"type": "object"}
+            }
+          }
+        }
+      }
+    },
+    "verificationAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "attempt", "status", "retryable", "artifact_count", "retained_artifact_count", "artifacts_available", "evidence_attested", "created_at"],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "attempt": {"type": "integer", "minimum": 1},
+        "status": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer"},
+        "classification": {"type": "string"},
+        "retryable": {"type": "boolean"},
+        "artifact_count": {"type": "integer", "minimum": 0},
+        "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "retained_artifact_count": {"type": "integer", "minimum": 0},
+        "artifacts_available": {"type": "boolean"},
+        "evidence_attested": {"type": "boolean"},
+        "evidence_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "evidence_receipt": {"$ref": "#/$defs/runnerEvidenceReceipt"},
+        "created_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "runnerEvidenceAttestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "run_id", "run_group_id", "logical_child_id", "attempt", "workspace_digest", "execution_digest", "status", "exit_code"],
+      "properties": {
+        "schema_version": {"const": "readyci.runner_evidence.v1"},
+        "run_id": {"type": "string", "minLength": 1},
+        "run_group_id": {"type": "string", "minLength": 1},
+        "logical_child_id": {"type": "string", "minLength": 1},
+        "attempt": {"type": "integer", "minimum": 1},
+        "workspace_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "execution_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "status": {"type": "string", "minLength": 1},
+        "exit_code": {"type": "integer", "minimum": 0, "maximum": 255}
+      }
+    },
+    "runnerEvidenceReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "attestation", "worker_id", "worker_version", "worker_release_state", "worker_release_digest", "claim_sequence", "artifact_count", "artifact_digest", "attested_at", "digest"],
+      "properties": {
+        "schema_version": {"const": "readyci.runner_evidence_receipt.v3"},
+        "attestation": {"$ref": "#/$defs/runnerEvidenceAttestation"},
+        "worker_id": {"type": "string", "minLength": 1},
+        "worker_version": {"type": "string", "minLength": 1},
+        "worker_release_state": {"const": "production"},
+        "worker_release_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "claim_sequence": {"type": "integer", "minimum": 1},
+        "artifact_count": {"type": "integer", "minimum": 0, "maximum": 1},
+        "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "artifact_content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "attested_at": {"type": "string", "format": "date-time"},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"artifact_count": {"const": 1}}},
+          "then": {"required": ["artifact_content_sha256"]}
+        },
+        {
+          "if": {"properties": {"artifact_count": {"const": 0}}},
+          "then": {"not": {"required": ["artifact_content_sha256"]}}
+        }
+      ]
+    },
+    "agentPlanReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "intent",
+        "reason",
+        "change_mode",
+        "verify_command"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "status": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "change_mode": {
+          "type": "string"
+        },
+        "runner_size": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matrix_variants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/affectedCheck"
+          }
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkAlternative"
+          }
+        },
+        "estimated": {
+          "$ref": "#/$defs/estimatedCost"
+        },
+        "plan": {
+          "type": "object"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          }
+        },
+        "verify_command": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "agentVerifyReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "run_group_id",
+        "group_status",
+        "terminal",
+        "cli_exit_code",
+        "classification",
+        "retryable",
+        "agent_action",
+        "summary",
+        "checks",
+        "runs"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "status": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/$defs/intent"
+        },
+        "goal": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "run_group_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group_kind": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "cli_exit_code": {
+          "type": "integer"
+        },
+        "classification": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "agent_action": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "recommendation": {
+          "$ref": "#/$defs/checkRecommendation"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/affectedCheck"
+          }
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/verifyRun"
+          }
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nextAction"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          }
+        },
+        "artifact_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "logs_url": {
+          "type": "string"
+        },
+        "logs_command": {
+          "type": "string"
+        },
+        "explain_command": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "agentExplainReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "run_id",
+        "status",
+        "terminal",
+        "command",
+        "diagnosis",
+        "repair",
+        "recommended_next_step",
+        "logs_command",
+        "log_truncated",
+        "spec"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "check": {
+          "type": "string"
+        },
+        "matrix_variant": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "diagnosis": {
+          "$ref": "#/$defs/diagnosis"
+        },
+        "repair": {
+          "$ref": "#/$defs/repair"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "evidence_packs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidencePack"
+          }
+        },
+        "recommended_next_step": {
+          "type": "string"
+        },
+        "rerun_command": {
+          "type": "string"
+        },
+        "logs_command": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "policy_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          }
+        },
+        "log_truncated": {
+          "type": "boolean"
+        },
+        "spec": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "agentArtifactHandoffReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "run_id",
+        "dry_run",
+        "confirmed",
+        "paths",
+        "artifacts",
+        "matched_count",
+        "applied_count",
+        "files",
+        "next_actions"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "status": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "confirmed": {
+          "type": "boolean"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactSummary"
+          }
+        },
+        "matched_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "applied_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactFile"
+          }
+        },
+        "evidence_packs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidencePack"
+          }
+        },
+        "apply_command": {
+          "type": "string"
+        },
+        "confirm_command": {
+          "type": "string"
+        },
+        "next_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nextAction"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          }
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentInstructionsDoctorReport": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "status",
+        "checks"
+      ],
+      "properties": {
+        "schema_version": {
+          "$ref": "#/$defs/schemaVersion"
+        },
+        "status": {
+          "type": "string"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/instructionsDoctorCheck"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warning"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "instructionsDoctorCheck": {
+      "type": "object",
+      "required": [
+        "name",
+        "status",
+        "message"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "network_mode",
+        "network_allowlist",
+        "secrets_requested",
+        "secrets_authorized",
+        "token_scopes_required",
+        "token_scopes_missing"
+      ],
+      "properties": {
+        "network_mode": {
+          "type": "string"
+        },
+        "network_allowlist": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "secrets_requested": {
+          "type": "boolean"
+        },
+        "secrets_authorized": {
+          "type": "boolean"
+        },
+        "token_scopes_required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "token_scopes_missing": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "upload_preview_command": {
+          "type": "string"
+        },
+        "policy_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "affectedCheck": {
+      "type": "object",
+      "required": [
+        "check",
+        "selected"
+      ],
+      "properties": {
+        "check": {
+          "type": "string"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "network_mode": {
+          "type": "string"
+        },
+        "matched_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "verifyRun": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "status",
+        "check",
+        "terminal",
+        "classification",
+        "retryable",
+        "agent_action",
+        "summary"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "run_group_id": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "check": {
+          "type": "string"
+        },
+        "matrix_variant": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "classification": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "agent_action": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "logs_url": {
+          "type": "string"
+        },
+        "logs_command": {
+          "type": "string"
+        },
+        "explain_command": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkRecommendation": {
+      "type": "object",
+      "required": [
+        "check",
+        "reason"
+      ],
+      "properties": {
+        "check": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/checkAlternative"
+          }
+        },
+        "estimated": {
+          "$ref": "#/$defs/estimatedCost"
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkAlternative": {
+      "type": "object",
+      "required": [
+        "check",
+        "reason"
+      ],
+      "properties": {
+        "check": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "estimatedCost": {
+      "type": "object",
+      "required": [
+        "runner_size",
+        "timeout_seconds"
+      ],
+      "properties": {
+        "runner_size": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "run_id",
+        "name",
+        "path",
+        "size_bytes",
+        "content_sha256",
+        "created_at",
+        "expires_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "download_url": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactFile": {
+      "type": "object",
+      "required": [
+        "path",
+        "size_bytes"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "nextAction": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "diagnosis": {
+      "type": "object",
+      "required": [
+        "kind",
+        "confidence",
+        "summary",
+        "retryable",
+        "agent_action"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "agent_action": {
+          "type": "string"
+        },
+        "primary_file": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "repair": {
+      "type": "object",
+      "required": [
+        "classification",
+        "agent_action",
+        "failing_command",
+        "logs_command",
+        "confidence"
+      ],
+      "properties": {
+        "classification": {
+          "type": "string"
+        },
+        "agent_action": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "root_cause": {
+          "type": "string"
+        },
+        "primary_file": {
+          "type": "string"
+        },
+        "target_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/repairTarget"
+          }
+        },
+        "failing_command": {
+          "type": "string"
+        },
+        "failing_test": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "evidence_packs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidencePack"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/repairCommand"
+          }
+        },
+        "rerun_command": {
+          "type": "string"
+        },
+        "logs_command": {
+          "type": "string"
+        },
+        "policy_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "confidence_note": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "repairTarget": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "repairCommand": {
+      "type": "object",
+      "required": [
+        "kind",
+        "command"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidencePack": {
+      "type": "object",
+      "required": [
+        "name",
+        "kind",
+        "path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "artifact_id": {
+          "type": "string"
+        },
+        "download_url": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "preview_command": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "event_id": {
+          "type": "integer"
+        },
+        "stream": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "time": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "warning": {
+      "type": "object",
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "section": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

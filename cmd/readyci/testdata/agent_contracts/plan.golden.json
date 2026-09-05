@@ -1,0 +1,56 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "ready",
+  "mode": "affected_rules",
+  "intent": "pre-pr",
+  "goal": "prepare PR",
+  "reason": "matched_changed_paths",
+  "project_id": "proj_dev",
+  "change_mode": "working",
+  "checks": [
+    {
+      "check": "web",
+      "selected": true,
+      "network_mode": "none",
+      "matched_paths": [
+        "web/src/pages/Login.tsx"
+      ],
+      "reasons": [
+        "affected.rules[1] matched web/src/pages/Login.tsx with web/src/**"
+      ]
+    },
+    {
+      "check": "web-e2e",
+      "selected": true,
+      "network_mode": "none",
+      "matched_paths": [
+        "web/src/pages/Login.tsx"
+      ],
+      "reasons": [
+        "agent intent pre-pr selected because web/src/pages/Login.tsx changed"
+      ]
+    }
+  ],
+  "policy": {
+    "network_mode": "none",
+    "network_allowlist": [],
+    "secrets_requested": false,
+    "secrets_authorized": false,
+    "token_scopes_required": [
+      "runs:create",
+      "runs:read",
+      "cache:read",
+      "projects:read",
+      "account:read"
+    ],
+    "token_scopes_missing": [],
+    "upload_preview_command": "readyci sync --dry-run --json --changes working"
+  },
+  "warnings": [
+    {
+      "section": "affected.profiles",
+      "message": "profile expanded to browser checks"
+    }
+  ],
+  "verify_command": "readyci verify --json --progress=status --project proj_dev --intent pre-pr --changes working"
+}

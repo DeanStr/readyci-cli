@@ -1,0 +1,15 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "error",
+  "run_group_id": null,
+  "group_status": null,
+  "terminal": true,
+  "cli_exit_code": 2,
+  "classification": "config_invalid",
+  "retryable": false,
+  "agent_action": "report_setup",
+  "summary": "invalid Ready CI config",
+  "checks": [],
+  "runs": [],
+  "error": "invalid Ready CI config"
+}

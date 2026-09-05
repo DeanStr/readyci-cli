@@ -1,0 +1,6 @@
+/dist/
+/bin/
+/coverage/
+.env
+.env.*
+!.env.example

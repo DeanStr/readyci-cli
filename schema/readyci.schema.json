@@ -1,0 +1,909 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://readyci.com/schema/readyci.schema.json",
+  "title": "Ready CI project configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "region": {
+      "$ref": "#/$defs/region"
+    },
+    "image": {
+      "type": "string"
+    },
+    "runner_size": {
+      "enum": ["small", "standard", "large", "xlarge"]
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeout": {
+      "type": "string"
+    },
+    "retries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "concurrency_group": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "concurrency_limit": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "cache_mode": {
+      "enum": ["ephemeral", "cache-only"]
+    },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include_untracked": {
+          "type": "boolean"
+        },
+        "respect_gitignore": {
+          "const": true
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["ephemeral", "cache-only"]
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^[0-9]+\\s*([bB]|[kKmMgGtT]([iI]?[bB])?)?$"
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "key_files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactPattern"
+          }
+        }
+      }
+    },
+    "affected": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["docs", "go", "readyci", "shell"]
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/affectedRule"
+          }
+        },
+        "unmatched_checks": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "subsumes": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          }
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/affectedTest"
+          }
+        },
+        "audit_ignore": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": ["none", "default", "allowlist"]
+        },
+        "allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warm_mode": {
+          "enum": ["default", "allowlist"]
+        },
+        "warm_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/resource"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/resource"
+          }
+        }
+	  }
+    },
+    "services": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/service"
+      }
+    }
+  },
+  "$defs": {
+    "artifactPattern": {
+      "type": "string",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/failedWorkspaceArtifactPattern"
+        },
+        {
+          "$ref": "#/$defs/ordinaryArtifactPattern"
+        }
+      ]
+    },
+    "failedWorkspaceArtifactPattern": {
+      "type": "string",
+      "pattern": "^\\s*(?:\\./)?(?:\\.readyci/\\.\\./)*\\.readyci/failed-workspace\\.tar\\.gz\\s*$"
+    },
+    "ordinaryArtifactPattern": {
+      "type": "string",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "[\\x00-\\x1F\\x7F]"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*(?:\\./)?(?:/|\\\\|[A-Za-z]:|//)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "^\\s*(?:\\./)?\\.\\.(?:[\\\\/]|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:^\\s*|[\\\\/])\\.\\.(?:[\\\\/]|$)"
+          }
+        },
+        {
+          "not": {
+            "pattern": "(?:^\\s*(?:\\./)?|[\\\\/])\\.[gG][iI][tT](?:[\\\\/]|$)"
+          }
+        }
+      ]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["health"],
+      "allOf": [
+        {
+          "anyOf": [
+            {
+              "required": ["type"]
+            },
+            {
+              "required": ["image"]
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "postgres"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["image"]
+                },
+                {
+                  "required": ["ports"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "container"
+                  }
+                },
+                "required": ["type"]
+              },
+              {
+                "required": ["image"],
+                "not": {
+                  "required": ["type"]
+                }
+              }
+            ]
+          },
+          "then": {
+            "required": ["image"],
+            "not": {
+              "required": ["version"]
+            }
+          }
+        }
+      ],
+      "properties": {
+        "type": {
+          "enum": ["postgres", "container"]
+        },
+        "version": {
+          "enum": ["15", "16", "17"]
+        },
+        "image": {
+          "description": "Container image for a generic service. The worker must already have this image preloaded; Ready CI does not pull service images during runs.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[A-Za-z0-9._:@+/-]+$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "^-"
+              },
+              {
+                "pattern": "^/"
+              },
+              {
+                "pattern": "/$"
+              },
+              {
+                "pattern": "://"
+              },
+              {
+                "pattern": "//"
+              },
+              {
+                "pattern": "(^|/)[^/:@]*[A-Z][^/:@]*(:|@|/|$)"
+              },
+              {
+                "pattern": "@$"
+              },
+              {
+                "pattern": "@.*@"
+              },
+              {
+                "pattern": "@[^@/:]+:$"
+              },
+              {
+                "pattern": "(^|/)[^/]*:$"
+              },
+              {
+                "pattern": "(^|/)[^/]*:[^/]*:"
+              }
+            ]
+          }
+        },
+        "ports": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^(6553[0-5]|655[0-2][0-9]|65[0-4][0-9]{2}|6[0-4][0-9]{3}|[1-5][0-9]{4}|[1-9][0-9]{0,3})/(tcp|udp)$"
+          }
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timeout": {
+              "type": "string"
+            },
+            "interval": {
+              "type": "string"
+            }
+          }
+        },
+        "logs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "allOf": [
+              {
+                "pattern": "\\S"
+              },
+              {
+                "not": {
+                  "pattern": "[\\x00-\\x1F\\x7F]"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "matrixAxes": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "matrixEntry": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"]
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "enum": ["small", "standard", "large", "xlarge"]
+        },
+        "timeout": {
+          "type": "string"
+        },
+        "docker": {
+          "type": "boolean"
+        }
+      }
+    },
+    "affectedRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks"],
+      "anyOf": [
+        {
+          "required": ["paths"]
+        },
+        {
+          "required": ["paths_from"]
+        }
+      ],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "paths_from": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/affectedPathsFrom"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/affectedPathsFrom"
+              }
+            }
+          ]
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checks": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        }
+      }
+    },
+    "affectedPathsFrom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "affectedTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks"],
+      "anyOf": [
+        {
+          "required": ["path"]
+        },
+        {
+          "required": ["paths"]
+        }
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "checks": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        }
+      }
+    },
+    "check": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "command"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 63,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "always": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "type": "object",
+                    "maxProperties": 32,
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "pattern": "^[A-Z_][A-Z0-9_]*$"
+                    }
+                  },
+                  "timeout": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "prepare": {
+              "$ref": "#/$defs/commandList"
+            },
+            "post": {
+              "$ref": "#/$defs/commandList"
+            },
+            "always": {
+              "$ref": "#/$defs/commandList"
+            },
+            "changes": {
+              "enum": ["working", "staged", "all"]
+            },
+            "region": {
+              "$ref": "#/$defs/region"
+            },
+            "image": {
+              "type": "string"
+            },
+            "runner_size": {
+              "enum": ["small", "standard", "large", "xlarge"]
+            },
+            "size": {
+              "enum": ["small", "standard", "large", "xlarge"]
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "timeout": {
+              "type": "string"
+            },
+            "retries": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "concurrency_group": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "concurrency_limit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "matrix": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/matrixAxes"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "axes": {
+                      "$ref": "#/$defs/matrixAxes"
+                    },
+                    "include": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/matrixEntry"
+                      }
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/matrixEntry"
+                      }
+                    },
+                    "fail_fast": {
+                      "type": "boolean"
+                    },
+                    "max_parallel": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "sync": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "include_untracked": {
+                  "type": "boolean"
+                },
+                "respect_gitignore": {
+                  "const": true
+                },
+                "exclude": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "cache_mode": {
+              "enum": ["ephemeral", "cache-only"]
+            },
+            "cache": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "enum": ["ephemeral", "cache-only"]
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+\\s*([bB]|[kKmMgGtT]([iI]?[bB])?)?$"
+                },
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "key_files": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "network_mode": {
+              "enum": ["none", "default", "allowlist"]
+            },
+            "network_allowlist": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "docker": {
+              "type": "boolean"
+            },
+            "browser": {
+              "enum": ["chromium", "firefox", "webkit"]
+            },
+            "services": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "when": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "event": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "branch": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "tag": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "env": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Z_][A-Z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "status": {
+                  "const": "success"
+                },
+                "changes": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "include": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "exclude": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "worker_selector": {
+              "type": "object",
+              "maxProperties": 32,
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_.\\-/]+$"
+              },
+              "propertyNames": {
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_.-]+$",
+                "not": {
+                  "pattern": "^readyci\\."
+                }
+              }
+            },
+            "keep_failed": {
+              "type": "boolean"
+            },
+            "artifact_paths": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/artifactPattern"
+              }
+            },
+            "outputs": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "reviewable": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/artifactPattern"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$"
+    },
+    "commandList": {
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    }
+  }
+}

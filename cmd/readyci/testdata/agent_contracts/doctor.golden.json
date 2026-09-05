@@ -1,0 +1,35 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "ok",
+  "checks": [
+    {
+      "name": "instructions_file",
+      "status": "ok",
+      "path": ".agents/skills/readyci-verify/SKILL.md",
+      "message": "file is installed"
+    },
+    {
+      "name": "token_values_absent",
+      "status": "ok",
+      "path": ".agents/skills/readyci-verify/SKILL.md",
+      "message": "no Ready CI token values detected"
+    },
+    {
+      "name": "reporting_fields",
+      "status": "ok",
+      "message": "instructions require check/run_id/status/classification/exit code reporting"
+    },
+    {
+      "name": "readyci_config",
+      "status": "ok",
+      "path": ".readyci.yml",
+      "message": "Ready CI config validates"
+    },
+    {
+      "name": "affected_rules",
+      "status": "warn",
+      "path": ".readyci.yml",
+      "message": "no affected rules or profiles configured; agents may use fallback check selection"
+    }
+  ]
+}

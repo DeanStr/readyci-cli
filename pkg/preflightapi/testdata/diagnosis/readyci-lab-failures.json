@@ -1,0 +1,78 @@
+[
+  {
+    "name": "escape-string-regexp typecheck failure",
+    "run_id": "run_8f60ad2c6ed03409",
+    "lab_report": "20260709T084412Z",
+    "status": "failed",
+    "command": "npm test",
+    "exit_code": 1,
+    "events": [
+      {
+        "type": "stderr",
+        "data": "npm warn deprecated @humanwhocodes/config-array@0.5.0: Use @eslint/config-array instead\n\n  node_modules/@types/node/http2.d.ts:948:8\n  x 948:8 Required type parameters may not follow optional type parameters.\n  x 948:65 Cannot find name Http1Request.\n"
+      }
+    ],
+    "want_classification": "typecheck_failed",
+    "want_agent_action": "fix_code",
+    "want_primary_file": "node_modules/@types/node/http2.d.ts",
+    "want_summary_contains": "node_modules/@types/node/http2.d.ts",
+    "want_summary_not_contains": "deprecated"
+  },
+  {
+    "name": "debug-js-debug lint failure",
+    "run_id": "run_e8cfbec29cf9f76b",
+    "lab_report": "20260709T084412Z",
+    "status": "failed",
+    "command": "npm run lint",
+    "exit_code": 1,
+    "events": [
+      {
+        "type": "stderr",
+        "data": "src/common.js:53:2  error  Unexpected control character(s) in regular expression: \\\\x00  no-control-regex\nnpm warn deprecated eslint@5.16.0: This version is no longer supported.\n✖ 1 problem (1 error, 0 warnings)\n"
+      }
+    ],
+    "want_classification": "lint_failed",
+    "want_agent_action": "fix_code",
+    "want_primary_file": "src/common.js",
+    "want_summary_contains": "src/common.js:53:2",
+    "want_summary_not_contains": "deprecated"
+  },
+  {
+    "name": "python-click pytest failure",
+    "run_id": "run_ab142a35ba4acbe7",
+    "lab_report": "20260709T084412Z",
+    "status": "failed",
+    "command": "python -m pytest -q",
+    "exit_code": 1,
+    "events": [
+      {
+        "type": "stdout",
+        "data": "........................................                           [100%]\n=================================== FAILURES ===================================\n_______________________ test_echo_via_pager[test0-less] ________________________\n\ntest = EchoViaPagerTest(description='Plain string argument', expected_pager='just text\\n', expected_stdout='', expected_stderr='', expected_error=None)\n\ntests/test_utils/test_echo_via_pager.py:182: AssertionError: expected pager output\nFAILED tests/test_utils/test_echo_via_pager.py::test_echo_via_pager[test0-less] - AssertionError\n"
+      }
+    ],
+    "want_classification": "test_failed",
+    "want_agent_action": "fix_code",
+    "want_primary_file": "tests/test_utils/test_echo_via_pager.py",
+    "want_summary_contains": "tests/test_utils/test_echo_via_pager.py:182",
+    "want_summary_not_contains": "FAILURES"
+  },
+  {
+    "name": "python-flask pytest failure",
+    "run_id": "run_6d62abebfc8f593a",
+    "lab_report": "20260709T084412Z",
+    "status": "failed",
+    "command": "python -m pytest -q",
+    "exit_code": 1,
+    "events": [
+      {
+        "type": "stdout",
+        "data": "=================================== FAILURES ===================================\n_______________________________ test_load_dotenv _______________________________\n\n>       assert os.environ[\"FOO\"] == \"env\"\nE       AssertionError: assert 'flaskenv' == 'env'\n\ntests/test_cli.py:547: AssertionError\nFAILED tests/test_cli.py::test_load_dotenv - AssertionError: assert 'flaskenv' == 'env'\n"
+      }
+    ],
+    "want_classification": "test_failed",
+    "want_agent_action": "fix_code",
+    "want_primary_file": "tests/test_cli.py",
+    "want_summary_contains": "tests/test_cli.py:547",
+    "want_summary_not_contains": "FAILURES"
+  }
+]

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://readyci.com/schema/readyci.evidence.v0alpha1.schema.json",
+  "title": "Ready CI evidence manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "execution", "claims", "files"],
+  "properties": {
+    "schema_version": {"const": "readyci.evidence.v0alpha1"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {"name": {"type": "string", "minLength": 1}, "version": {"type": "string"}}
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace_digest", "attempt"],
+      "properties": {
+        "workspace_digest": {"$ref": "#/$defs/digest"},
+        "test_digest": {"$ref": "#/$defs/digest"},
+        "command_digest": {"$ref": "#/$defs/digest"},
+        "environment_digest": {"$ref": "#/$defs/digest"},
+        "network_policy": {"type": "string"},
+        "service_digest": {"$ref": "#/$defs/digest"},
+        "seed": {"type": "string"},
+        "shard": {"type": "string"},
+        "attempt": {"type": "integer", "minimum": 1}
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "outcome", "trust_level"],
+        "properties": {
+          "criterion": {"type": "string", "minLength": 1},
+          "outcome": {"type": "string", "minLength": 1},
+          "trust_level": {"enum": ["T0", "T1", "T2", "T3", "T4"]},
+          "source": {"type": "string"},
+          "confidence": {"type": "string"}
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "kind", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/digest"},
+          "size_bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}

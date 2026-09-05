@@ -1,0 +1,31 @@
+{
+  "schema_version": "readyci.verification.v0alpha1",
+  "status": "succeeded",
+  "run_group_id": null,
+  "group_status": null,
+  "run_id": "run_pass",
+  "check": "web",
+  "terminal": true,
+  "exit_code": 0,
+  "cli_exit_code": 0,
+  "classification": "success",
+  "retryable": false,
+  "agent_action": "none",
+  "summary": "Ready CI check web passed.",
+  "checks": [],
+  "runs": [
+    {
+      "run_id": "run_pass",
+      "status": "succeeded",
+      "check": "web",
+      "terminal": true,
+      "exit_code": 0,
+      "classification": "success",
+      "retryable": false,
+      "agent_action": "none",
+      "summary": "Ready CI check web passed.",
+      "logs_command": "readyci runs logs --tail 200 --include-lifecycle --json run_pass",
+      "explain_command": "readyci agent explain --json run_pass"
+    }
+  ]
+}
