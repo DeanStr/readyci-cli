@@ -213,37 +213,16 @@ func parseArtifactApplyArgs(args []string) (artifactApplyOptions, error) {
 		case arg == "--allow-empty":
 			collectingPaths = false
 			options.AllowEmpty = true
-		case arg == "--api-url" || arg == "--token" || arg == "--paths" || arg == "--content-sha256":
-			if i+1 >= len(args) {
-				return artifactApplyOptions{}, cliConfigError(fmt.Sprintf("%s requires a value", arg), nil)
+		case artifactValueFlag(arg):
+			name, value, inline := strings.Cut(arg, "=")
+			if !inline {
+				if i+1 >= len(args) {
+					return artifactApplyOptions{}, cliConfigError(fmt.Sprintf("%s requires a value", arg), nil)
+				}
+				i++
+				value = args[i]
 			}
-			i++
-			switch arg {
-			case "--api-url":
-				options.APIURL = args[i]
-				collectingPaths = false
-			case "--token":
-				options.APIToken = args[i]
-				collectingPaths = false
-			case "--paths":
-				options.Paths = append(options.Paths, splitCSV(args[i])...)
-				collectingPaths = true
-			case "--content-sha256":
-				options.ContentSHA256 = args[i]
-				collectingPaths = false
-			}
-		case strings.HasPrefix(arg, "--api-url="):
-			collectingPaths = false
-			options.APIURL = strings.TrimPrefix(arg, "--api-url=")
-		case strings.HasPrefix(arg, "--token="):
-			collectingPaths = false
-			options.APIToken = strings.TrimPrefix(arg, "--token=")
-		case strings.HasPrefix(arg, "--paths="):
-			options.Paths = append(options.Paths, splitCSV(strings.TrimPrefix(arg, "--paths="))...)
-			collectingPaths = true
-		case strings.HasPrefix(arg, "--content-sha256="):
-			collectingPaths = false
-			options.ContentSHA256 = strings.TrimPrefix(arg, "--content-sha256=")
+			collectingPaths = applyArtifactValueFlag(name, value, &options.APIURL, &options.APIToken, &options.ContentSHA256, &options.Paths)
 		case arg == "-h" || arg == "--help":
 			return artifactApplyOptions{}, cliConfigError("usage: readyci artifacts apply RUN_ID --paths PATTERN [--paths PATTERN] [--dry-run] [--json] [--allow-empty]", nil)
 		case strings.HasPrefix(arg, "-"):

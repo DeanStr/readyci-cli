@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -83,58 +82,7 @@ func executeRemoteRunInternal(options remoteRunOptions, outputMode remoteRunOutp
 		printUntrackedUploadWarning(bundle)
 	}
 
-	artifactPaths := append([]string(nil), options.ArtifactPaths...)
-	if options.KeepFailed {
-		artifactPaths = appendUniqueString(artifactPaths, preflightapi.FailedWorkspaceArtifactPath)
-	}
-	createCommand, createSteps := createRunCommandAndSteps(options, command)
-	repository := gitRepository()
-	cacheMode := defaultString(options.CacheMode, "cache-only")
-	cacheLaneSizeBytes := cacheLaneSizeForMode(cacheMode, options.CacheLaneSizeBytes)
-	networkMode := defaultString(strings.TrimSpace(options.NetworkMode), preflightapi.DefaultNetworkMode)
-	request := preflightapi.CreateRunRequest{
-		ProjectID:             projectID,
-		Region:                createRunRequestRegion(options.Region),
-		IdempotencyKey:        idempotencyKey,
-		RunGroupKey:           options.RunGroupKey,
-		RunGroupKind:          options.RunGroupKind,
-		RunGroupName:          options.RunGroupName,
-		RunGroupPredecessorID: options.RunGroupPredecessorID,
-		LogicalChildID:        options.LogicalChildID,
-		LogicalChildName:      options.LogicalChildName,
-		MatrixVariant:         options.MatrixVariant,
-		Attempt:               options.Attempt,
-		Image:                 defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage),
-		Command:               createCommand,
-		CommandAlias:          options.CommandAlias,
-		Steps:                 createSteps,
-		ConcurrencyGroup:      options.ConcurrencyGroup,
-		ConcurrencyLimit:      options.ConcurrencyLimit,
-		RunnerSize:            defaultString(options.RunnerSize, "standard"),
-		TimeoutSeconds:        defaultInt(options.TimeoutSeconds, defaultRunTimeoutSeconds),
-		CacheMode:             cacheMode,
-		CacheLaneSizeBytes:    cacheLaneSizeBytes,
-		ArtifactPaths:         artifactPaths,
-		NetworkMode:           networkMode,
-		NetworkAllowlist:      append([]string(nil), options.NetworkAllowlist...),
-		Docker:                options.Docker,
-		Services:              cloneRunServices(options.Services),
-		WorkerSelector:        copyStringMap(options.WorkerSelector),
-		SnapshotDigest:        bundle.Manifest.SnapshotDigest,
-		BundleBaselineKey:     bundle.Manifest.BaselineKey,
-		SecretsRequested:      options.SecretsRequested,
-		Client: preflightapi.ClientInfo{
-			Version:  version,
-			Platform: runtime.GOOS + "-" + runtime.GOARCH,
-		},
-		Git: preflightapi.GitInfo{
-			Branch:          bundle.Manifest.Git.Branch,
-			Head:            bundle.Manifest.Git.Head,
-			Dirty:           bundle.Manifest.Git.Dirty,
-			Materialization: "minimal_git",
-			Repository:      repository,
-		},
-	}
+	request := buildRemoteRunRequest(options, bundle, command, projectID, idempotencyKey)
 	createRequest = &request
 	createResp, err := client.CreateRun(ctx, request)
 	if err != nil {
@@ -146,7 +94,7 @@ func executeRemoteRunInternal(options remoteRunOptions, outputMode remoteRunOutp
 		EventsURL:      createResp.EventsURL,
 		IdempotencyKey: idempotencyKey,
 		Status:         createResp.Status,
-		NetworkMode:    networkMode,
+		NetworkMode:    request.NetworkMode,
 		ExitCode:       1,
 	}
 	if options.Progress != nil {
@@ -162,20 +110,7 @@ func executeRemoteRunInternal(options remoteRunOptions, outputMode remoteRunOutp
 	}
 
 	if createResp.Status == preflightapi.StatusAwaitingUpload {
-		upload := remoteBundleUpload{path: bundlePath, bundle: bundle}
-		if createResp.BundleBaselineReusable && deltaBundlePath != "" {
-			if deltaBundle.Manifest.BaselineKey == bundle.Manifest.BaselineKey && deltaBundle.Size < bundle.Size {
-				upload = remoteBundleUpload{path: deltaBundlePath, bundle: deltaBundle, delta: true}
-			}
-		}
-		uploadOptions := api.UploadBundleOptions{
-			Method:  createResp.UploadMethod,
-			Headers: createResp.UploadHeaders,
-		}
-		if len(createResp.UploadHeaders) > 0 {
-			uploadOptions.AllowCrossOrigin = true
-			uploadOptions.TreatAlreadyUploadedAsSuccess = strings.TrimSpace(createResp.UploadWorkerID) == ""
-		}
+		upload, uploadOptions := selectRemoteBundleUpload(createResp, remoteBundleUpload{path: bundlePath, bundle: bundle}, remoteBundleUpload{path: deltaBundlePath, bundle: deltaBundle})
 		if options.Progress != nil {
 			options.Progress.Emit(agentProgressEvent{
 				Kind:      agentProgressUploadStarted,
@@ -203,36 +138,7 @@ func executeRemoteRunInternal(options remoteRunOptions, outputMode remoteRunOutp
 		return result, nil
 	}
 
-	observer := remoteRunEventObserver{
-		result:     &result,
-		outputMode: outputMode,
-		keepFailed: options.KeepFailed,
-		progress:   options.Progress,
-		runName:    displayRunName(options),
-	}
-	streamErr := client.StreamEvents(ctx, createResp.EventsURL, observer.handle)
-	if streamErr != nil {
-		var terminalErr terminalRunError
-		if errors.As(streamErr, &terminalErr) {
-			applyRemoteRunDetailDiagnosis(ctx, client, &result)
-			return result, terminalErr
-		}
-		var exitErr exitCodeError
-		if errors.As(streamErr, &exitErr) {
-			applyRemoteRunDetailDiagnosis(ctx, client, &result)
-			return result, exitErr
-		}
-		var eventStreamErr api.EventStreamError
-		if errors.As(streamErr, &eventStreamErr) {
-			if err := recoverRunEventStream(ctx, client, &observer, streamErr); err != nil {
-				return result, err
-			}
-			return result, runStreamEndedError{runID: result.RunID, status: result.Status}
-		}
-		return result, streamErr
-	}
-
-	return result, runStreamEndedError{runID: result.RunID, status: result.Status}
+	return observeRemoteRun(ctx, client, options, outputMode, result)
 }
 
 func reconcileAndCancelInterruptedRun(
