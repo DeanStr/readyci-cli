@@ -193,6 +193,11 @@
       "required": ["schema_version", "digest", "rerunnable", "change_mode", "request_secrets", "retry_count", "retry_provided", "source"],
       "properties": {
         "schema_version": {"const": "readyci.verification_recipe.v1"},
+        "purpose": {"const": "execution"},
+        "warm_checks": {"type":"array", "items":{"type":"string", "minLength":1}},
+        "skip_confirm": {"type":"boolean"},
+        "skip_warm": {"type":"boolean"},
+        "command": {"type": "string"},
         "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "rerunnable": {"type": "boolean"},
         "check": {"type": "string"},
@@ -212,6 +217,7 @@
         "default_exclude_patterns": {"type": "array", "items": {"type": "string"}},
         "include_untracked": {"type": "boolean"},
         "use_project_ignore": {"type": "boolean"},
+        "upload_baseline_session_id": {"type": "string", "maxLength": 160},
         "source_policy_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
       }
     },
@@ -285,6 +291,9 @@
         "evidence_attested": {"type": "boolean"},
         "evidence_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
         "evidence_receipt": {"$ref": "#/$defs/runnerEvidenceReceipt"},
+        "queued_at": {"type": "string", "format": "date-time"},
+        "claimed_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
         "created_at": {"type": "string", "format": "date-time"}
       }
     },

@@ -112,3 +112,29 @@ func TestNewPathFilterReturnsValidationAndRepositoryErrors(t *testing.T) {
 		t.Fatalf("NewPathFilter invalid mode error = %v, want invalid change mode", err)
 	}
 }
+
+func TestRegisteredSourceFilterIgnoresCandidateRulesInPreview(t *testing.T) {
+	repo := t.TempDir()
+	initRepo(t, repo)
+	writeFile(t, repo, ".readyciignore", "candidate.txt\n")
+	writeFile(t, repo, "candidate.txt", "actual")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "baseline")
+	writeFile(t, repo, "candidate.txt", "edited")
+	no := false
+	options := BuildOptions{UseProjectIgnore: &no, SourcePolicyDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", DefaultExcludePatterns: syncbundle.DefaultSourceExcludePatterns()}
+	filter, err := NewPathFilter(context.Background(), repo, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if included, err := filter.Includes("candidate.txt"); err != nil || !included {
+		t.Fatalf("registered preview applied candidate exclusions: included=%v err=%v", included, err)
+	}
+	preview, err := ChangedFiles(context.Background(), repo, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.ChangedFiles) != 1 || preview.ChangedFiles[0] != "candidate.txt" {
+		t.Fatalf("preview=%v", preview.ChangedFiles)
+	}
+}

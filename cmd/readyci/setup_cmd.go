@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
+	"golang.org/x/term"
 )
 
 type setupReport struct {
@@ -25,6 +26,8 @@ type setupReport struct {
 
 	warmProfileAvailable   bool
 	affectedAuditAvailable bool
+	authError              error
+	configError            error
 }
 
 func setupCommand(args []string) error {
@@ -34,9 +37,14 @@ func setupCommand(args []string) error {
 	projectID := fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id")
 	checkName := fs.String("check", "", "preferred configured check for first-run commands")
 	profile := fs.String("profile", "remote-ci", "setup profile: remote-ci or strict")
+	image := fs.String("image", "", "runner image for the generated configuration")
+	printConfig := fs.Bool("print", false, "print starter configuration locally without authentication or writes")
+	preview := fs.Bool("preview", false, "inspect setup without writing files, signing in, or running checks")
+	yes := fs.Bool("yes", false, "save configuration and run the first check without prompts; requires authentication")
+	runCheck := fs.Bool("run", false, "preview and run the selected remote check")
 	writeConfig := fs.Bool("write-config", false, "write .readyci.yml when no config exists")
 	detect := fs.Bool("detect", true, "detect common project checks when writing config")
-	force := fs.Bool("force", false, "overwrite an existing Ready CI config with --write-config")
+	force := fs.Bool("force", false, "allow replacing existing Ready CI configuration")
 	makefile := fs.Bool("makefile", false, "print Makefile wrapper targets for Ready CI")
 	writeMakefile := fs.Bool("write-makefile", false, "write Ready CI Makefile wrapper targets to readyci.mk")
 	helper := fs.String("helper", "", "print helper script: shell-syntax or ops-config")
@@ -47,10 +55,36 @@ func setupCommand(args []string) error {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci setup [--api-url URL] [--token TOKEN] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--write-config] [--write-makefile] [--write-helpers] [--detect=false] [--force] [--makefile] [--helper NAME] [--write-helper] [--json]", nil)
+		return cliConfigError("usage: readyci setup [--yes|--preview] [--api-url URL] [--token TOKEN] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--write-config] [--run] [--write-makefile] [--write-helpers] [--detect=false] [--force] [--makefile] [--helper NAME] [--write-helper] [--json]", nil)
 	}
 	if *profile != "remote-ci" && *profile != "strict" {
 		return cliConfigError(fmt.Sprintf("unknown setup profile %q", *profile), nil)
+	}
+	explicitAction := flagProvided(fs, "write-config") || flagProvided(fs, "run") || *writeMakefile || *writeHelpers || *writeHelper
+	inspection := *preview || *printConfig || *jsonOutput || *makefile || *helper != ""
+	if *yes && (explicitAction || inspection) {
+		return cliConfigError("--yes runs guided setup; do not combine it with preview, JSON, or explicit write/run options", nil)
+	}
+	if *preview && (explicitAction || *printConfig || *makefile || *helper != "") {
+		return cliConfigError("--preview cannot be combined with writes, execution, or helper output", nil)
+	}
+	if *runCheck && (*jsonOutput || *makefile || *helper != "" || *writeHelper) {
+		return cliConfigError("--run cannot be combined with --json or helper output; use readyci check --json for execution", nil)
+	}
+	if *printConfig {
+		if *runCheck || *writeConfig || *writeMakefile || *writeHelpers || *writeHelper || *makefile || *helper != "" || *jsonOutput {
+			return cliConfigError("--print cannot be combined with execution, writes, helper output, or --json", nil)
+		}
+		project := resolveSetupProjectID(*projectID, config.ProjectConfig{})
+		if err := validateControlFreeValue("project_id", project); err != nil {
+			return err
+		}
+		if *detect {
+			fmt.Print(detectedProjectTemplateWithProfile(".", project, *image, *profile))
+		} else {
+			fmt.Print(remoteCIProjectTemplateWithProfile(project, *image, *profile))
+		}
+		return nil
 	}
 	if *makefile && *writeConfig {
 		return cliConfigError("--makefile cannot be combined with --write-config", nil)
@@ -120,18 +154,26 @@ func setupCommand(args []string) error {
 	if !flagProvided(fs, "project") {
 		reportProjectID = ""
 	}
-	report, err := buildSetupReport(setupOptions{
+	options := setupOptions{
 		APIURL:        *apiURL,
 		APIToken:      *apiToken,
 		ProjectID:     reportProjectID,
 		CheckName:     *checkName,
 		Profile:       *profile,
+		Image:         *image,
 		WriteConfig:   *writeConfig,
 		WriteMakefile: *writeMakefile,
 		WriteHelpers:  *writeHelpers,
 		Detect:        *detect,
 		Force:         *force,
-	})
+	}
+	if !explicitAction && !inspection {
+		if !*yes && !term.IsTerminal(int(os.Stdin.Fd())) {
+			return cliConfigError("guided setup requires a terminal; use readyci setup --yes for automation or --preview to inspect setup", nil)
+		}
+		return guidedSetup(options, os.Stdin, os.Stdout, *yes)
+	}
+	report, err := buildSetupReport(options)
 	if err != nil {
 		return err
 	}
@@ -139,5 +181,11 @@ func setupCommand(args []string) error {
 		return writeJSONOutput(report)
 	}
 	printSetupReport(report)
+	if *runCheck {
+		if err := setupCheck(options, report, true); err != nil {
+			return err
+		}
+		return setupCheck(options, report, false)
+	}
 	return nil
 }

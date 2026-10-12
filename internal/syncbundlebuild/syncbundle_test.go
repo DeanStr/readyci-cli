@@ -547,7 +547,7 @@ func TestPlanIndexPathsAvoidsLargePathArgv(t *testing.T) {
 	}
 	paths = append(paths, "kept.txt")
 
-	entries, err := planIndexPaths(ctx, repo, paths, newIgnoreMatcher(nil))
+	entries, err := planIndexPaths(ctx, repo, paths, newIgnoreMatcher(nil), retainSourceContent)
 	if err != nil {
 		t.Fatalf("plan index paths: %v", err)
 	}
@@ -660,7 +660,7 @@ func TestBuildWithOptionsAppliesSyncExclusionsAndUntrackedMode(t *testing.T) {
 	assertNotExists(t, workspace, "untracked.txt")
 }
 
-func TestChangedFilesCollectsNamesWithoutBundlingContents(t *testing.T) {
+func TestChangedFilesCollectsNamesWithoutCompressingArchive(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
 	initRepo(t, repo)

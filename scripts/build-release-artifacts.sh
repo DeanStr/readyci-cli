@@ -164,7 +164,7 @@ for target in "${targets[@]}"; do
   (
     cd "$cli_root"
     GOWORK=off GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 GOTOOLCHAIN=go1.25.13+auto \
-      go build -trimpath -ldflags "-s -w -X main.version=$version -X main.releaseDefaultAPIURL=https://api.readyci.com" \
+      go build -trimpath -ldflags "-s -w -X main.version=$version" \
       -o "$package_dir/$binary_name" ./cmd/readyci
   )
   cp "$cli_root/README.md" "$package_dir/README.md"

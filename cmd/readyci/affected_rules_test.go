@@ -380,7 +380,7 @@ checks:
 
 	var serverURL string
 	var created []preflightapi.CreateRunRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			var req preflightapi.CreateRunRequest
@@ -408,20 +408,19 @@ checks:
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 	serverURL = server.URL
 
-	err := touchedCommand([]string{
+	err := affectedCommand([]string{"--check", "touched",
 		"--api-url", server.URL,
 		"--token", "pfl_warm",
 		"--check", "db",
-		"--warm-dependencies",
 		"--network-mode", "allowlist",
 		"--network-allowlist", "crates.io",
 	})
 	if err != nil && !isSuccessfulExit(err) {
-		t.Fatalf("touched --warm-dependencies: %v", err)
+		t.Fatalf("affected automatic preparation: %v", err)
 	}
 	if len(created) != 2 {
 		t.Fatalf("created runs = %d, want warm and selected check: %+v", len(created), created)
@@ -485,7 +484,7 @@ func newWarmRunCLITestServer(t *testing.T, runPrefix string) (*httptest.Server, 
 	t.Helper()
 	var serverURL string
 	var created []preflightapi.CreateRunRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			var req preflightapi.CreateRunRequest
@@ -513,7 +512,7 @@ func newWarmRunCLITestServer(t *testing.T, runPrefix string) (*httptest.Server, 
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	serverURL = server.URL
 	t.Cleanup(server.Close)
 	return server, &created
@@ -533,26 +532,23 @@ func TestAffectedJSONActualRunWarmsDependenciesAndIncludesPlan(t *testing.T) {
 	server, created := newWarmRunCLITestServer(t, "run_affected_json_")
 
 	output, err := captureStdoutForCLITest(t, func() error {
-		return affectedCommand([]string{"--api-url", server.URL, "--token", "pfl_warm_json", "--json", "--warm-dependencies"})
+		return affectedCommand([]string{"--api-url", server.URL, "--token", "pfl_warm_json", "--json"})
 	})
 	if err != nil && !isSuccessfulExit(err) {
-		t.Fatalf("affected --json --warm-dependencies: %v\n%s", err, output)
+		t.Fatalf("affected --json: %v\n%s", err, output)
 	}
-	var report checkExecutionReport
+	var report executionSessionReport
 	if err := json.Unmarshal([]byte(output), &report); err != nil {
 		t.Fatalf("decode execution report: %v\n%s", err, output)
 	}
 	if report.Plan == nil || len(report.Plan.Selected) != 1 || report.Plan.Selected[0].Name != "db" {
 		t.Fatalf("execution plan = %+v, want selected db", report.Plan)
 	}
-	if len(report.CreatedRuns) != 2 {
-		t.Fatalf("created runs = %+v, want warm and verify runs", report.CreatedRuns)
+	if len(report.Session.Plan.Nodes) != 2 || report.Session.Plan.Nodes[0].Phase != "warm" || report.Session.Plan.Nodes[1].Name != "db" {
+		t.Fatalf("plan: %+v", report.Session.Plan)
 	}
-	if report.CreatedRuns[0].Check != "dependencies" || report.CreatedRuns[0].Phase != "warm" {
-		t.Fatalf("warm run = %+v, want dependencies warm phase", report.CreatedRuns[0])
-	}
-	if report.CreatedRuns[1].Check != "db" || report.CreatedRuns[1].Phase != "verify" {
-		t.Fatalf("verify run = %+v, want db verify phase", report.CreatedRuns[1])
+	if report.Session.Recipe.Check != "" {
+		t.Fatal("affected rerun narrowed to one check")
 	}
 	createdRequests := *created
 	if len(createdRequests) != 2 {

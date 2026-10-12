@@ -1,68 +1,14 @@
 package main
 
 import (
-	"flag"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/DeanStr/readyci-cli/pkg/config"
 )
 
 const remoteCIToolchainImage = "ubuntu-24.04-ci-docker"
-
-func initCommand(args []string) error {
-	fs := flag.NewFlagSet("init", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	profile := fs.String("profile", "remote-ci", "project template profile")
-	image := fs.String("image", "", "runner image to pin in the generated config")
-	detect := fs.Bool("detect", false, "keep local generation conservative; use plan --recommend --suggest-config for hosted smart detection")
-	printConfig := fs.Bool("print", false, "print the generated config instead of writing it")
-	force := fs.Bool("force", false, "overwrite an existing Ready CI config")
-	if err := fs.Parse(args); err != nil {
-		return cliConfigError(err.Error(), err)
-	}
-	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci init [--profile remote-ci|strict] [--image IMAGE] [--detect] [--print] [--force]", nil)
-	}
-	if *profile != "remote-ci" && *profile != "strict" {
-		return cliConfigError(fmt.Sprintf("unknown init profile %q", *profile), nil)
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	template := remoteCIProjectTemplateWithProfile(inferProjectID(cwd), *image, *profile)
-	if *detect {
-		fmt.Fprintln(os.Stderr, "readyci: local init --detect now emits the conservative starter; run readyci plan --recommend --suggest-config for hosted smart config suggestions")
-		template = detectedProjectTemplateWithProfile(cwd, inferProjectID(cwd), *image, *profile)
-	}
-	if *printConfig {
-		fmt.Fprint(os.Stdout, template)
-		return nil
-	}
-	path, err := initConfigPath(*force)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, []byte(template), 0o644); err != nil {
-		return err
-	}
-	fmt.Fprintf(os.Stdout, "wrote %s\n", path)
-	fmt.Fprintln(os.Stdout, "next: readyci config validate")
-	if cfg, _, err := config.LoadProjectConfig("."); err == nil {
-		if check := preferredSetupCheck(sortedCheckNames(cfg.Checks)); check != "" {
-			fmt.Fprintf(os.Stdout, "next: readyci doctor --check %s\n", shellQuoteArg(check))
-			fmt.Fprintf(os.Stdout, "next: readyci check --dry-run %s\n", shellQuoteArg(check))
-		}
-	}
-	if strings.TrimSpace(*image) == "" {
-		fmt.Fprintf(os.Stdout, "hint: Makefile-oriented checks expect project toolchains; uncomment the image line or rerun with --force --image %s once your worker advertises it\n", remoteCIToolchainImage)
-	}
-	return nil
-}
 
 func initConfigPath(force bool) (string, error) {
 	for _, existingPath := range []string{".readyci.yml", ".readyci.yaml"} {
@@ -76,6 +22,45 @@ func initConfigPath(force bool) (string, error) {
 		}
 	}
 	return ".readyci.yml", nil
+}
+
+func writeSetupConfig(path, content string, force bool) error {
+	info, err := os.Lstat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if !info.Mode().IsRegular() {
+			return cliConfigError("configuration write target must be a regular file: "+path, nil)
+		}
+		if !force {
+			return cliConfigError("configuration already exists; run setup again to review it", nil)
+		}
+	} else {
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString(content)
+		return errors.Join(writeErr, file.Close())
+	}
+
+	// Replacing the directory entry avoids following a symlink swapped in after
+	// the check above and preserves the previous configuration on write failure.
+	file, err := os.CreateTemp(filepath.Dir(path), ".readyci-config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if err := file.Chmod(info.Mode().Perm()); err != nil {
+		file.Close()
+		return err
+	}
+	_, writeErr := file.WriteString(content)
+	if err := errors.Join(writeErr, file.Close()); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
 
 func inferProjectID(cwd string) string {

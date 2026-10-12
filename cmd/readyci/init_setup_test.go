@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"os"
@@ -11,10 +13,10 @@ import (
 	"testing"
 )
 
-func TestInitCommandWritesRemoteCITemplate(t *testing.T) {
+func TestSetupConfigGenerationWritesRemoteCITemplate(t *testing.T) {
 	chdirCLITestRepo(t, "Airline Project")
 
-	if err := initCommand(nil); err != nil {
+	if err := generateSetupConfigForTest(nil); err != nil {
 		t.Fatalf("init command: %v", err)
 	}
 	data, err := os.ReadFile(".readyci.yml")
@@ -47,8 +49,11 @@ func TestInitCommandWritesRemoteCITemplate(t *testing.T) {
 	if loadedConfig.Image != preflightapi.DefaultImage {
 		t.Fatalf("generated default config image = %q, want %q", loadedConfig.Image, preflightapi.DefaultImage)
 	}
-	if err := initCommand(nil); err == nil {
-		t.Fatal("init command overwrote existing config without --force")
+	if err := generateSetupConfigForTest(nil); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged, _ := os.ReadFile(".readyci.yml"); string(unchanged) != configText {
+		t.Fatal("setup changed existing config")
 	}
 	if err := os.Remove(".readyci.yml"); err != nil {
 		t.Fatalf("remove generated config: %v", err)
@@ -56,10 +61,13 @@ func TestInitCommandWritesRemoteCITemplate(t *testing.T) {
 	if err := os.WriteFile(".readyci.yaml", []byte("version: 1\n"), 0o644); err != nil {
 		t.Fatalf("write alternate config: %v", err)
 	}
-	if err := initCommand(nil); err == nil {
-		t.Fatal("init command ignored existing .readyci.yaml")
+	if err := generateSetupConfigForTest(nil); err != nil {
+		t.Fatal(err)
 	}
-	if err := initCommand([]string{"--force"}); err != nil {
+	if unchanged, _ := os.ReadFile(".readyci.yaml"); string(unchanged) != "version: 1\n" {
+		t.Fatal("setup changed existing alternate config")
+	}
+	if err := generateSetupConfigForTest([]string{"--force"}); err != nil {
 		t.Fatalf("init command force overwrite .readyci.yaml: %v", err)
 	}
 	if _, err := os.Stat(".readyci.yml"); !os.IsNotExist(err) {
@@ -92,10 +100,10 @@ func TestGeneratedAPIURLCommandsNormalizeSensitiveComponents(t *testing.T) {
 	}
 }
 
-func TestInitCommandCanPinConfiguredImage(t *testing.T) {
+func TestSetupConfigGenerationCanPinConfiguredImage(t *testing.T) {
 	chdirCLITestRepo(t, "")
 
-	if err := initCommand([]string{"--image", " ubuntu-24.04-ci-docker "}); err != nil {
+	if err := generateSetupConfigForTest([]string{"--image", " ubuntu-24.04-ci-docker "}); err != nil {
 		t.Fatalf("init command with image: %v", err)
 	}
 	data, err := os.ReadFile(".readyci.yml")
@@ -150,9 +158,31 @@ func TestDetectedTemplateKeepsExampleEnvFilesSyncable(t *testing.T) {
 	if strings.Contains(template, "- .env*\n") {
 		t.Fatalf("detected template excludes all .env* files:\n%s", template)
 	}
-	if !strings.Contains(template, "- .env\n") || !strings.Contains(template, "- .env.*.local\n") {
-		t.Fatalf("detected template missing enumerated env excludes:\n%s", template)
+	cfg, err := config.ParseProjectConfig([]byte(template), "generated")
+	if err != nil {
+		t.Fatal(err)
 	}
+	runGitForCLITest(t, "init")
+	for name, data := range map[string]string{".env": "private", ".env.example": "example"} {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest, err := syncbundlebuild.SnapshotWithOptions(context.Background(), repo, syncbundlebuild.BuildOptions{ExcludePatterns: cfg.Sync.Exclude, IncludeUntracked: boolPtr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range manifest.Workspace {
+		if entry.Path == ".env" {
+			t.Fatal("generated config uploaded .env")
+		}
+		found = found || entry.Path == ".env.example"
+	}
+	if !found {
+		t.Fatal("generated config excluded .env.example")
+	}
+
 }
 
 func TestDetectedTemplateAddsAffectedCoverageForEveryGeneratedCheck(t *testing.T) {
@@ -234,10 +264,10 @@ func TestDetectedTemplateUsesRustWorkspaceCommand(t *testing.T) {
 	}
 }
 
-func TestInitCommandStrictProfileUsesNetworkNone(t *testing.T) {
+func TestSetupConfigGenerationStrictProfileUsesNetworkNone(t *testing.T) {
 	chdirCLITestRepo(t, "")
 
-	if err := initCommand([]string{"--profile", "strict"}); err != nil {
+	if err := generateSetupConfigForTest([]string{"--profile", "strict"}); err != nil {
 		t.Fatalf("init command with strict profile: %v", err)
 	}
 	data, err := os.ReadFile(".readyci.yml")
@@ -249,10 +279,10 @@ func TestInitCommandStrictProfileUsesNetworkNone(t *testing.T) {
 	}
 }
 
-func TestInitCommandQuotesYAMLProjectID(t *testing.T) {
+func TestSetupConfigGenerationQuotesYAMLProjectID(t *testing.T) {
 	chdirCLITestRepo(t, "NULL")
 
-	if err := initCommand(nil); err != nil {
+	if err := generateSetupConfigForTest(nil); err != nil {
 		t.Fatalf("init command: %v", err)
 	}
 	data, err := os.ReadFile(".readyci.yml")
@@ -285,10 +315,10 @@ func TestSetupReportDoesNotWriteConfigByDefault(t *testing.T) {
 	if _, err := os.Stat(".readyci.yml"); !os.IsNotExist(err) {
 		t.Fatalf("setup wrote config without --write-config: %v", err)
 	}
-	if !containsString(report.Next, "readyci setup --write-config --detect --api-url https://api.readyci.test --project airline") {
+	if !containsString(report.Next, "readyci setup --api-url https://api.readyci.test --project airline") {
 		t.Fatalf("setup next commands = %+v, want guided setup command", report.Next)
 	}
-	if !containsString(report.Next, "readyci init --detect --print") {
+	if !containsString(report.Next, "readyci setup --print") {
 		t.Fatalf("setup next commands = %+v, want inspect-only init command", report.Next)
 	}
 	if !containsString(report.Next, "export READYCI_API_URL=https://api.readyci.test READYCI_API_TOKEN='<token>'") {
@@ -299,6 +329,28 @@ func TestSetupReportDoesNotWriteConfigByDefault(t *testing.T) {
 	}
 	if !containsString(report.Next, "readyci runs latest --api-url https://api.readyci.test --project airline") {
 		t.Fatalf("setup next commands = %+v, want self-contained latest command", report.Next)
+	}
+}
+
+func TestSetupReportPreservesHostedAPIOverrideInNextCommands(t *testing.T) {
+	t.Setenv("READYCI_API_URL", "http://127.0.0.1:8080")
+	t.Setenv("READYCI_API_TOKEN", "")
+	t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
+	chdirCLITestRepo(t, "")
+
+	report, err := buildSetupReport(setupOptions{APIURL: "https://api.readyci.com", ProjectID: "airline"})
+	if err != nil {
+		t.Fatalf("build setup report: %v", err)
+	}
+	for _, want := range []string{
+		"readyci setup --api-url https://api.readyci.com --project airline",
+		"export READYCI_API_URL=https://api.readyci.com READYCI_API_TOKEN='<token>'",
+		"readyci run --api-url https://api.readyci.com --project airline 'go test ./...'",
+		"readyci runs latest --api-url https://api.readyci.com --project airline",
+	} {
+		if !containsString(report.Next, want) {
+			t.Errorf("setup next commands = %+v, want %q to override ambient localhost", report.Next, want)
+		}
 	}
 }
 
@@ -328,9 +380,10 @@ func TestSetupReportCanWriteDetectedConfig(t *testing.T) {
 	if loaded.ProjectID != "airline" || loaded.Checks["go"].Command != "go test ./..." {
 		t.Fatalf("generated config = %+v, want airline go starter", loaded)
 	}
-	if !containsString(report.Warnings, "smart local config detection moved to hosted analysis; run readyci plan --recommend --suggest-config") {
-		t.Fatalf("warnings = %+v, want hosted analyzer warning", report.Warnings)
+	if len(report.Warnings) != 0 {
+		t.Fatalf("unexpected warnings: %+v", report.Warnings)
 	}
+
 	if !containsString(report.Next, "readyci check --api-url https://api.readyci.test --project airline --open go") {
 		t.Fatalf("setup next commands = %+v, want self-contained check command", report.Next)
 	}
@@ -1005,4 +1058,16 @@ func TestWriteSetupHelperScriptForceSetsExecutableAndRejectsSymlink(t *testing.T
 	if _, err := os.Stat(filepath.Join(outside, "helper.sh")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("outside helper stat error = %v, want not created", err)
 	}
+}
+
+func generateSetupConfigForTest(args []string) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	args = append([]string{"--api-url", "http://127.0.0.1:1", "--project", inferProjectID(cwd)}, args...)
+	if containsString(args, "--print") {
+		return setupCommand(append([]string{"--detect=false"}, args...))
+	}
+	return setupCommand(append([]string{"--write-config", "--detect=false"}, args...))
 }

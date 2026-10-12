@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
@@ -25,11 +26,13 @@ func checkCommand(args []string) error {
 	keepFailed := fs.Bool("keep-failed", false, "retain failed workspace archive in the persistent cache")
 	concurrencyGroup := fs.String("concurrency-group", "", "serialize runs in this per-project concurrency group")
 	concurrencyLimit := fs.Int("concurrency-limit", 0, "max active runs in --concurrency-group; defaults to 1 when group is set")
+	requestSecrets := fs.Bool("request-secrets", false, "request authorized project secrets for selected tests")
+	skipWarm := fs.Bool("skip-warm", false, "skip automatic dependency preparation, including watch iterations")
 	retryCount := fs.Int("retry", -1, "retry failed commands this many times")
 	watch := fs.Bool("watch", false, "rerun the check when the git workspace changes")
 	watchInterval := fs.Duration("watch-interval", 2*time.Second, "poll interval for --watch")
 	dryRun := fs.Bool("dry-run", false, "preview the resolved check without creating a run")
-	jsonOutput := fs.Bool("json", false, "print machine-readable JSON for --dry-run, --list, or --why")
+	jsonOutput := fs.Bool("json", false, "print machine-readable selection or execution results")
 	summaryOutput := fs.Bool("summary", false, "print a compact dry-run summary")
 	why := fs.Bool("why", false, "explain why Ready CI selected or skipped checks")
 	listChecks := fs.Bool("list", false, "list configured checks")
@@ -52,11 +55,8 @@ func checkCommand(args []string) error {
 	if *summaryOutput && *jsonOutput {
 		return cliConfigError("--summary and --json cannot be combined", nil)
 	}
-	if *jsonOutput && !*listChecks && !*dryRun && !*why {
-		return cliConfigError("--json is only valid with --list, --dry-run, or --why", nil)
-	}
-	if *jsonOutput && *why && *watch && !*dryRun {
-		return cliConfigError("--why --json is not valid with --watch", nil)
+	if *jsonOutput && *watch && !*dryRun {
+		return cliConfigError("--json is not valid with --watch", nil)
 	}
 
 	loaded, err := loadProjectConfigOrInfer(".")
@@ -80,6 +80,8 @@ func checkCommand(args []string) error {
 		ConcurrencyGroupProvided: flagProvided(fs, "concurrency-group"),
 		ConcurrencyLimit:         *concurrencyLimit,
 		ConcurrencyLimitProvided: flagProvided(fs, "concurrency-limit"),
+		RequestSecrets:           *requestSecrets,
+		SkipWarm:                 *skipWarm,
 		RetryCount:               *retryCount,
 		RetryProvided:            flagProvided(fs, "retry"),
 		Open:                     *openRun,
@@ -163,16 +165,8 @@ func affectedCommand(args []string) error {
 		}
 	}
 	return affectedLikeCommand(
-		"affected",
 		args,
-		true,
-		[]string{"affected", "touched", "go", "web", "node", "python", "rust", "test", "ci"},
-		[]string{"affected-staged", "staged", "affected", "touched", "go", "web", "node", "python", "rust", "test", "ci"},
 	)
-}
-
-func touchedCommand(args []string) error {
-	return affectedLikeCommand("touched", args, false, []string{"touched", "affected"}, []string{"staged", "affected-staged", "touched", "affected"})
 }
 
 func warmCommand(args []string) error {
@@ -230,38 +224,51 @@ func warmCommand(args []string) error {
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
-	var finalErr error
-	for _, name := range checks {
-		if err := executeWarmCheck(name, cfg, path, baseResolve, execOptions, *skipConfirm); err != nil {
-			if isSuccessfulExit(err) {
-				finalErr = err
-				continue
-			}
-			return err
-		}
-	}
-	return finalErr
+	return executeWarmChecks(checks, cfg, path, baseResolve, execOptions, *skipConfirm)
 }
 
-func executeWarmCheck(checkName string, cfg config.ProjectConfig, path string, baseResolve checkResolveOptions, execOptions checkExecutionOptions, skipConfirm bool) error {
-	warmResolve, err := warmDependencyResolveOptions(baseResolve, cfg)
+func executeWarmCheck(name string, cfg config.ProjectConfig, path string, base checkResolveOptions, options checkExecutionOptions, skipConfirm bool) error {
+	return executeWarmChecks([]string{name}, cfg, path, base, options, skipConfirm)
+}
+
+func executeWarmChecks(names []string, cfg config.ProjectConfig, path string, base checkResolveOptions, options checkExecutionOptions, skipConfirm bool) error {
+	options.SelectionMode = "warm"
+	warmResolve, err := warmDependencyResolveOptions(base, cfg)
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
-	if !skipConfirm {
-		warmResolve.Open = false
-	}
-	fmt.Fprintf(os.Stderr, "readyci: warming %s with explicit network-mode %s\n", checkName, warmResolve.NetworkMode)
-	if err := executeResolvedCheck(checkName, cfg, path, warmResolve, execOptions); err != nil {
-		if !isSuccessfulExit(err) {
+	var warm, checks []checkRunPlan
+	for _, name := range names {
+		preparation, err := resolveCheckRunPlan(name, cfg, warmResolve)
+		if err != nil {
 			return err
 		}
+		warm = append(warm, preparation)
+		if !skipConfirm {
+			confirm, err := resolveCheckRunPlan(name, cfg, base)
+			if err != nil {
+				return err
+			}
+			checks = append(checks, confirm)
+		}
 	}
-	if skipConfirm {
+	if options.DryRun {
+		if _, err := explicitDependencyWarmSessionBuildOptions(warm, checks, syncbundlebuild.BuildOptions{ChangeMode: base.Changes}); err != nil {
+			return err
+		}
+		for index, preparation := range warm {
+			if err := executeCheckPlan(preparation, cfg, path, options); err != nil {
+				return err
+			}
+			if !skipConfirm {
+				if err := executeCheckPlan(checks[index], cfg, path, options); err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "readyci: confirming %s with configured network policy\n", checkName)
-	return executeResolvedCheck(checkName, cfg, path, baseResolve, execOptions)
+	return executeSessionPlans(checks, warm, options.APIToken, options.JSONOutput, verificationPlan{Mode: "warm"})
 }
 
 func warmCheckNames(cfg config.ProjectConfig, checkName string, profile string) ([]string, error) {
@@ -310,7 +317,8 @@ func effectiveCheckDocker(cfg config.ProjectConfig, name string, check config.Ch
 	return effectiveDocker
 }
 
-func affectedLikeCommand(commandName string, args []string, useAffectedRules bool, workingCandidates, stagedCandidates []string) error {
+func affectedLikeCommand(args []string) error {
+	commandName := "affected"
 	fs := flag.NewFlagSet(commandName, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	apiURL, apiToken := apiFlags(fs)
@@ -326,10 +334,11 @@ func affectedLikeCommand(commandName string, args []string, useAffectedRules boo
 	keepFailed := fs.Bool("keep-failed", false, "retain failed workspace archive in the persistent cache")
 	concurrencyGroup := fs.String("concurrency-group", "", "serialize runs in this per-project concurrency group")
 	concurrencyLimit := fs.Int("concurrency-limit", 0, "max active runs in --concurrency-group; defaults to 1 when group is set")
+	requestSecrets := fs.Bool("request-secrets", false, "request authorized project secrets for selected tests")
+	skipWarm := fs.Bool("skip-warm", false, "skip automatic dependency preparation, including watch iterations")
 	retryCount := fs.Int("retry", -1, "retry failed commands this many times")
 	watch := fs.Bool("watch", false, "rerun the affected check when the git workspace changes")
 	watchInterval := fs.Duration("watch-interval", 2*time.Second, "poll interval for --watch")
-	warmDependencies := fs.Bool("warm-dependencies", false, "prewarm selected dependency caches before confirming affected checks")
 	dryRun := fs.Bool("dry-run", false, "preview the resolved affected check without creating a run")
 	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
 	summaryOutput := fs.Bool("summary", false, "print a compact dry-run summary")
@@ -341,7 +350,7 @@ func affectedLikeCommand(commandName string, args []string, useAffectedRules boo
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError(fmt.Sprintf("usage: readyci %s [--check NAME] [--staged] [--warm-dependencies] [--dry-run] [--json] [--watch]", commandName), nil)
+		return cliConfigError(fmt.Sprintf("usage: readyci %s [--check NAME] [--staged] [--dry-run] [--json] [--watch]", commandName), nil)
 	}
 	if flagProvided(fs, "retry") && *retryCount < 0 {
 		return cliConfigError("retry count must be non-negative", nil)
@@ -354,9 +363,6 @@ func affectedLikeCommand(commandName string, args []string, useAffectedRules boo
 	}
 	if *jsonOutput && *watch && !*dryRun {
 		return cliConfigError("--json is not valid with --watch", nil)
-	}
-	if *warmDependencies && *watch {
-		return cliConfigError("--warm-dependencies is not valid with --watch", nil)
 	}
 	changeMode := strings.TrimSpace(*changes)
 	if *staged {
@@ -388,6 +394,8 @@ func affectedLikeCommand(commandName string, args []string, useAffectedRules boo
 		ConcurrencyGroupProvided: flagProvided(fs, "concurrency-group"),
 		ConcurrencyLimit:         *concurrencyLimit,
 		ConcurrencyLimitProvided: flagProvided(fs, "concurrency-limit"),
+		RequestSecrets:           *requestSecrets,
+		SkipWarm:                 *skipWarm,
 		RetryCount:               *retryCount,
 		RetryProvided:            flagProvided(fs, "retry"),
 		Open:                     *openRun,
@@ -395,24 +403,23 @@ func affectedLikeCommand(commandName string, args []string, useAffectedRules boo
 		CachePaths:               []string(cachePaths),
 	}
 	executionOptions := checkExecutionOptions{
-		APIURL:           *apiURL,
-		APIToken:         *apiToken,
-		DryRun:           *dryRun,
-		JSONOutput:       *jsonOutput,
-		SummaryOutput:    *summaryOutput,
-		Watch:            *watch,
-		WatchInterval:    *watchInterval,
-		WarmDependencies: *warmDependencies,
+		APIURL:        *apiURL,
+		APIToken:      *apiToken,
+		DryRun:        *dryRun,
+		JSONOutput:    *jsonOutput,
+		SummaryOutput: *summaryOutput,
+		Watch:         *watch,
+		WatchInterval: *watchInterval,
 	}
-	if useAffectedRules && shouldUseAffectedRules(cfg, *checkName) {
+	if shouldUseAffectedRules(cfg, *checkName) {
 		printInferredConfigNotice(loaded, "affected checks")
 		return executeAffectedRules(".", cfg, path, resolveOptions, executionOptions)
 	}
 
-	selectedCheck, err := selectAffectedCheck(cfg, strings.TrimSpace(*checkName), changeMode == syncbundle.ChangeModeStaged, workingCandidates, stagedCandidates)
-	if err != nil {
-		return fmt.Errorf("readyci %s: %w", commandName, err)
+	if strings.TrimSpace(*checkName) == "" {
+		return cliConfigError("readyci affected requires affected.rules, affected.profiles, or check when.changes; use readyci check NAME to run a configured check", nil)
 	}
+	selectedCheck := strings.TrimSpace(*checkName)
 	printInferredConfigNotice(loaded, selectedCheck)
-	return executeAffectedResolvedCheck(selectedCheck, cfg, path, resolveOptions, executionOptions)
+	return executeResolvedCheck(selectedCheck, cfg, path, resolveOptions, executionOptions)
 }

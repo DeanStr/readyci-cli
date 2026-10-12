@@ -67,7 +67,7 @@ func doctorNextCommands(report doctorReport) []string {
 	apiFlag := apiURLFlag(report.APIURL)
 	if reportHasDiagnostic(report, "config", "warn", "no .readyci.yml") {
 		commands = append(commands, doctorSetupCommand(report))
-		commands = append(commands, "readyci init --detect --print")
+		commands = append(commands, "readyci setup --print")
 	}
 	if reportHasLevel(report, "config", "fail") {
 		commands = append(commands, "readyci config validate")

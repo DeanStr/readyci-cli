@@ -68,3 +68,28 @@ func matchIgnorePatternsSkipping(patterns []string, rel string, skip func(string
 	}
 	return false
 }
+
+// sourceIgnoreMatcher is shared by planning, packaging, currentness, and path
+// previews, including the independent registered-policy filter.
+func sourceIgnoreMatcher(root string, options BuildOptions) (ignoreMatcher, bool, error) {
+	useProjectIgnore := options.UseProjectIgnore == nil || *options.UseProjectIgnore
+	var extra []string
+	if useProjectIgnore {
+		var err error
+		extra, err = readProjectIgnore(root)
+		if err != nil {
+			return ignoreMatcher{}, false, err
+		}
+	}
+	extra = append(extra, options.ExcludePatterns...)
+	defaults := syncbundle.DefaultSourceExcludePatterns()
+	if strings.TrimSpace(options.SourcePolicyDigest) != "" {
+		defaults = options.DefaultExcludePatterns
+	}
+	for _, patterns := range [][]string{extra, defaults} {
+		if err := syncbundle.ValidateExcludePatterns(patterns); err != nil {
+			return ignoreMatcher{}, false, err
+		}
+	}
+	return newIgnoreMatcherWithDefaults(extra, defaults), useProjectIgnore, nil
+}

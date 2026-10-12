@@ -13,6 +13,7 @@ import (
 )
 
 var ErrNotGitRepository = errors.New("not a git repository")
+var ErrUnsupportedRepository = errors.New("unsupported repository content")
 
 func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
 	cmdArgs := append([]string{"-C", root}, args...)
@@ -34,9 +35,9 @@ func gitOutputAllowFailure(ctx context.Context, root string, args ...string) ([]
 	return cmd.Output()
 }
 
-func gitObjects(ctx context.Context, root string, objectIDs []string) ([][]byte, error) {
+func gitObjects(ctx context.Context, root string, objectIDs []string, consume func(string, int64, io.Reader) error) error {
 	if len(objectIDs) == 0 {
-		return nil, nil
+		return nil
 	}
 	uniqueIDs := make([]string, 0, len(objectIDs))
 	seen := make(map[string]struct{}, len(objectIDs))
@@ -51,21 +52,20 @@ func gitObjects(ctx context.Context, root string, objectIDs []string) ([][]byte,
 	cmd.Stdin = strings.NewReader(strings.Join(uniqueIDs, "\n") + "\n")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
-	abort := func(cause error) ([][]byte, error) {
+	abort := func(cause error) error {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return nil, cause
+		return cause
 	}
 
 	reader := bufio.NewReader(stdout)
-	objectsByID := make(map[string][]byte, len(uniqueIDs))
 	for _, requestedID := range uniqueIDs {
 		header, err := reader.ReadString('\n')
 		if err != nil {
@@ -79,9 +79,12 @@ func gitObjects(ctx context.Context, root string, objectIDs []string) ([][]byte,
 		if err != nil || size < 0 || size > int64(int(^uint(0)>>1)) {
 			return abort(fmt.Errorf("git object %s returned invalid size %q", requestedID, fields[2]))
 		}
-		data := make([]byte, int(size))
-		if _, err := io.ReadFull(reader, data); err != nil {
+		body := &io.LimitedReader{R: reader, N: size}
+		if err := consume(requestedID, size, body); err != nil {
 			return abort(fmt.Errorf("read git object %s body: %w", requestedID, err))
+		}
+		if body.N != 0 {
+			return abort(fmt.Errorf("git object %s body was not fully consumed", requestedID))
 		}
 		separator, err := reader.ReadByte()
 		if err != nil {
@@ -90,20 +93,15 @@ func gitObjects(ctx context.Context, root string, objectIDs []string) ([][]byte,
 		if separator != '\n' {
 			return abort(fmt.Errorf("git object %s returned invalid separator", requestedID))
 		}
-		objectsByID[requestedID] = data
 	}
 	if err := cmd.Wait(); err != nil {
 		message := strings.TrimSpace(stderr.String())
 		if message == "" {
-			return nil, fmt.Errorf("git cat-file --batch failed: %w", err)
+			return fmt.Errorf("git cat-file --batch failed: %w", err)
 		}
-		return nil, fmt.Errorf("git cat-file --batch failed: %w: %s", err, message)
+		return fmt.Errorf("git cat-file --batch failed: %w: %s", err, message)
 	}
-	objects := make([][]byte, len(objectIDs))
-	for index, objectID := range objectIDs {
-		objects[index] = objectsByID[objectID]
-	}
-	return objects, nil
+	return nil
 }
 
 func repositoryRoot(ctx context.Context, cwd string) (string, error) {

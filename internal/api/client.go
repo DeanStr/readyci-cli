@@ -336,6 +336,12 @@ func retryableAPIRequestError(ctx context.Context, err error) bool {
 			return false
 		}
 	}
+	// A nonexistent hostname requires a configuration/DNS correction, not
+	// transport recovery. Preserve retries for DNS timeouts and temporary errors.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return false
+	}
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if errors.Is(urlErr.Err, context.Canceled) {

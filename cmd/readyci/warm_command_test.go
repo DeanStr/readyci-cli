@@ -194,7 +194,7 @@ checks:
 
 	var serverURL string
 	var created []preflightapi.CreateRunRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			var req preflightapi.CreateRunRequest
@@ -222,13 +222,13 @@ checks:
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 	serverURL = server.URL
 
 	err = warmCommand([]string{"--api-url", server.URL, "--token", "token_warm", "--check", "ci"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("warmCommand error = %v, want successful exit sentinel", err)
 	}
 	if len(created) != 2 {

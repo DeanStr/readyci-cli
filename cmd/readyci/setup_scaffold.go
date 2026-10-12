@@ -12,16 +12,18 @@ import (
 )
 
 type setupOptions struct {
-	APIURL        string
-	APIToken      string
-	ProjectID     string
-	CheckName     string
-	Profile       string
-	WriteConfig   bool
-	WriteMakefile bool
-	WriteHelpers  bool
-	Detect        bool
-	Force         bool
+	APIURL         string
+	APIToken       string
+	ProjectID      string
+	CheckName      string
+	Profile        string
+	Image          string
+	WriteConfig    bool
+	WriteMakefile  bool
+	WriteHelpers   bool
+	Detect         bool
+	Force          bool
+	ConfigTemplate *string
 }
 
 func setupMakefileScaffold(apiURL, projectID string) string {

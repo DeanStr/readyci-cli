@@ -11,24 +11,14 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-var (
-	version              = "0.1.0-dev"
-	releaseDefaultAPIURL = ""
-)
+var version = "0.1.0-dev"
 
 const (
-	localDefaultAPIURL       = "http://127.0.0.1:8080"
 	publicDefaultAPIURL      = "https://api.readyci.com"
 	defaultRunTimeoutSeconds = 20 * 60
 )
 
 func defaultAPIURL() string {
-	if value := strings.TrimSpace(releaseDefaultAPIURL); value != "" {
-		return value
-	}
-	if strings.Contains(strings.ToLower(version), "dev") {
-		return localDefaultAPIURL
-	}
 	return publicDefaultAPIURL
 }
 
@@ -51,15 +41,15 @@ func run(args []string) error {
 		return nil
 	}
 	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		if len(args) == 2 && args[1] == "--all" {
+			printFullUsage()
+			return nil
+		}
 		printUsage()
 		return nil
 	}
 
 	switch args[0] {
-	case "start":
-		return startCommand(args[1:])
-	case "init":
-		return initCommand(args[1:])
 	case "setup":
 		return setupCommand(args[1:])
 	case "login":
@@ -90,8 +80,6 @@ func run(args []string) error {
 		return checkCommand(args[1:])
 	case "affected":
 		return affectedCommand(args[1:])
-	case "touched":
-		return touchedCommand(args[1:])
 	case "warm":
 		return warmCommand(args[1:])
 	case "runs":
@@ -121,51 +109,78 @@ func run(args []string) error {
 	}
 }
 
-func runCommand(args []string) error {
+type runCommandFlags struct {
+	requestSecrets     *bool
+	apiURL             *string
+	apiToken           *string
+	projectID          *string
+	region             *string
+	runnerSizeOverride *string
+	timeoutOverride    *string
+	changes            *string
+	networkMode        *string
+	networkAllowlist   *string
+	docker             *bool
+	keepFailed         *bool
+	concurrencyGroup   *string
+	concurrencyLimit   *int
+	retryCount         *int
+	jsonOutput         *bool
+	detach             *bool
+	openRun            *bool
+	dashboardURL       *string
+	cachePaths         stringSliceFlag
+}
+
+func newRunCommandFlags() (*flag.FlagSet, *runCommandFlags) {
+	flags := &runCommandFlags{}
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	apiURL, apiToken := apiFlags(fs)
-	projectID := fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id")
-	region := fs.String("region", envDefault("READYCI_REGION", ""), "runner region/location")
-	runnerSizeOverride := fs.String("runner-size", envDefault("READYCI_RUNNER_SIZE", ""), "runner size: small, standard, large, or xlarge")
-	timeoutOverride := fs.String("timeout", envDefault("READYCI_TIMEOUT", ""), "run timeout, such as 20m, 1h, or seconds")
-	changes := fs.String("changes", "working", "changed-file mode: working, staged, or all")
-	networkMode := fs.String("network-mode", envDefault("READYCI_NETWORK_MODE", ""), "network mode: none, default, or allowlist")
-	networkAllowlist := fs.String("network-allowlist", envDefault("READYCI_NETWORK_ALLOWLIST", ""), "comma-separated hosts/IPs for --network-mode allowlist")
-	docker := fs.Bool("docker", false, "request Docker/Testcontainers support inside the runner")
-	keepFailed := fs.Bool("keep-failed", false, "retain failed workspace archive in the persistent cache")
-	concurrencyGroup := fs.String("concurrency-group", "", "serialize runs in this per-project concurrency group")
-	concurrencyLimit := fs.Int("concurrency-limit", 0, "max active runs in --concurrency-group; defaults to 1 when group is set")
-	retryCount := fs.Int("retry", 0, "retry failed commands this many times")
-	detach := fs.Bool("detach", false, "create and upload the run without waiting for completion")
-	openRun := fs.Bool("open", false, "open the dashboard run detail after creation")
-	dashboardURL := fs.String("dashboard-url", envDefault("READYCI_DASHBOARD_URL", ""), "Ready CI dashboard URL for --open")
-	var cachePaths stringSliceFlag
-	fs.Var(&cachePaths, "cache-path", "workspace or home-relative path to back with the persistent cache; repeatable")
+	flags.apiURL, flags.apiToken = apiFlags(fs)
+	flags.projectID = fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id")
+	flags.region = fs.String("region", envDefault("READYCI_REGION", ""), "runner region/location")
+	flags.runnerSizeOverride = fs.String("runner-size", envDefault("READYCI_RUNNER_SIZE", ""), "runner size: small, standard, large, or xlarge")
+	flags.timeoutOverride = fs.String("timeout", envDefault("READYCI_TIMEOUT", ""), "run timeout, such as 20m, 1h, or seconds")
+	flags.changes = fs.String("changes", "working", "changed-file mode: working, staged, or all")
+	flags.networkMode = fs.String("network-mode", envDefault("READYCI_NETWORK_MODE", ""), "network mode: none, default, or allowlist")
+	flags.networkAllowlist = fs.String("network-allowlist", envDefault("READYCI_NETWORK_ALLOWLIST", ""), "comma-separated hosts/IPs for --network-mode allowlist")
+	flags.docker = fs.Bool("docker", false, "request Docker/Testcontainers support inside the runner")
+	flags.keepFailed = fs.Bool("keep-failed", false, "retain failed workspace archive in the persistent cache")
+	flags.concurrencyGroup = fs.String("concurrency-group", "", "serialize runs in this per-project concurrency group")
+	flags.concurrencyLimit = fs.Int("concurrency-limit", 0, "max active runs in --concurrency-group; defaults to 1 when group is set")
+	flags.retryCount = fs.Int("retry", 0, "retry failed commands this many times")
+	flags.requestSecrets = fs.Bool("request-secrets", false, "request authorized project secrets for this command")
+	flags.jsonOutput = fs.Bool("json", false, "print the job, attempts, selection, and timings as JSON")
+	flags.detach = fs.Bool("detach", false, "create and upload the run without waiting for completion")
+	flags.openRun = fs.Bool("open", false, "open the dashboard run detail after creation")
+	flags.dashboardURL = fs.String("dashboard-url", envDefault("READYCI_DASHBOARD_URL", ""), "Ready CI dashboard URL for --open")
+	fs.Var(&flags.cachePaths, "cache-path", "workspace or home-relative path to back with the persistent cache; repeatable")
+	return fs, flags
+}
+
+func runCommand(args []string) error {
+	fs, flags := newRunCommandFlags()
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() == 0 {
 		return cliConfigError("usage: readyci run [--api-url URL] [--runner-size SIZE] [--timeout DURATION] [--detach] <command>", nil)
 	}
-	if *detach && *retryCount != 0 {
-		return cliConfigError("--detach cannot be combined with --retry", nil)
-	}
 	cfg, _, err := config.LoadProjectConfig(".")
 	if err != nil {
 		return err
 	}
-	if *projectID == "" {
-		*projectID = cfg.ProjectID
+	if *flags.projectID == "" {
+		*flags.projectID = cfg.ProjectID
 	}
-	effectiveRegion := *region
+	effectiveRegion := *flags.region
 	if effectiveRegion == "" {
 		effectiveRegion = cfg.Region
 	}
 	if err := preflightapi.ValidateRegion(effectiveRegion); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
-	effectiveNetworkMode := *networkMode
+	effectiveNetworkMode := *flags.networkMode
 	if effectiveNetworkMode == "" {
 		effectiveNetworkMode = cfg.Network.Mode
 	}
@@ -177,14 +192,14 @@ func runCommand(args []string) error {
 	}
 	effectiveDocker := boolValue(cfg.Resources.Default.Docker)
 	if flagProvided(fs, "docker") {
-		effectiveDocker = *docker
+		effectiveDocker = *flags.docker
 	}
-	networkModeExplicit := flagProvided(fs, "network-mode") || *networkMode != "" || cfg.Network.Mode != ""
+	networkModeExplicit := flagProvided(fs, "network-mode") || *flags.networkMode != "" || cfg.Network.Mode != ""
 	effectiveNetworkMode, err = effectiveRunNetworkMode(effectiveNetworkMode, effectiveDocker, networkModeExplicit)
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
-	allowlist := splitCSV(*networkAllowlist)
+	allowlist := splitCSV(*flags.networkAllowlist)
 	if effectiveNetworkMode == "allowlist" && len(allowlist) == 0 && len(cfg.Network.Allowlist) > 0 && !flagProvided(fs, "network-allowlist") {
 		allowlist = append([]string(nil), cfg.Network.Allowlist...)
 	}
@@ -197,22 +212,22 @@ func runCommand(args []string) error {
 	if cfg.Resources.Default.Size != "" {
 		runnerSize = cfg.Resources.Default.Size
 	}
-	if *runnerSizeOverride != "" {
-		runnerSize = *runnerSizeOverride
+	if *flags.runnerSizeOverride != "" {
+		runnerSize = *flags.runnerSizeOverride
 	}
 	if err := validateRunnerSize(runnerSize); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	timeoutText := defaultString(cfg.Resources.Default.Timeout, cfg.Timeout)
-	if *timeoutOverride != "" {
-		timeoutText = *timeoutOverride
+	if *flags.timeoutOverride != "" {
+		timeoutText = *flags.timeoutOverride
 	}
 	timeoutSeconds, err := parseTimeoutSeconds(cfg.TimeoutSeconds, timeoutText)
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	cachePathValues := append([]string(nil), cfg.Cache.Paths...)
-	cachePathValues = append(cachePathValues, []string(cachePaths)...)
+	cachePathValues = append(cachePathValues, []string(flags.cachePaths)...)
 	cacheKeyFiles := append([]string(nil), cfg.Cache.KeyFiles...)
 	cacheLaneSizeBytes, err := parseByteSize(cfg.Cache.Size)
 	if err != nil {
@@ -225,13 +240,13 @@ func runCommand(args []string) error {
 		return cliConfigError(err.Error(), err)
 	}
 	if flagProvided(fs, "concurrency-group") {
-		effectiveConcurrencyGroup = strings.TrimSpace(*concurrencyGroup)
+		effectiveConcurrencyGroup = strings.TrimSpace(*flags.concurrencyGroup)
 		if !flagProvided(fs, "concurrency-limit") {
 			effectiveConcurrencyLimit = 0
 		}
 	}
 	if flagProvided(fs, "concurrency-limit") {
-		effectiveConcurrencyLimit = *concurrencyLimit
+		effectiveConcurrencyLimit = *flags.concurrencyLimit
 		if effectiveConcurrencyLimit == 0 && !flagProvided(fs, "concurrency-group") {
 			effectiveConcurrencyGroup = ""
 		}
@@ -243,14 +258,15 @@ func runCommand(args []string) error {
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
-	token, err := effectiveAPIToken(*apiURL, *apiToken)
+	token, err := effectiveAPIToken(*flags.apiURL, *flags.apiToken)
 	if err != nil {
 		return err
 	}
 	options := remoteRunOptions{
-		APIURL:             *apiURL,
+		APIURL:             *flags.apiURL,
 		APIToken:           token,
-		ProjectID:          *projectID,
+		SecretsRequested:   boolPtr(*flags.requestSecrets),
+		ProjectID:          *flags.projectID,
 		Region:             effectiveRegion,
 		Command:            command,
 		Image:              cfg.Image,
@@ -264,15 +280,15 @@ func runCommand(args []string) error {
 		NetworkMode:        effectiveNetworkMode,
 		NetworkAllowlist:   allowlist,
 		Docker:             effectiveDocker,
-		ChangeMode:         *changes,
+		ChangeMode:         *flags.changes,
 		SyncExclude:        append([]string(nil), cfg.Sync.Exclude...),
 		IncludeUntracked:   cfg.Sync.IncludeUntracked,
 		CachePaths:         cachePathValues,
 		CacheKeyFiles:      cacheKeyFiles,
-		KeepFailed:         *keepFailed,
-		Open:               *openRun,
-		DashboardURL:       *dashboardURL,
-		Detach:             *detach,
+		KeepFailed:         *flags.keepFailed,
+		Open:               *flags.openRun,
+		DashboardURL:       *flags.dashboardURL,
+		Detach:             *flags.detach,
 	}
-	return executeRemoteRunWithRetries(options, *retryCount)
+	return executeSessionPlans([]checkRunPlan{{Name: "command", Options: options, Retries: literalCommandRetries(*flags.retryCount, flagProvided(fs, "retry")), RetryProvided: flagProvided(fs, "retry")}}, nil, token, *flags.jsonOutput)
 }

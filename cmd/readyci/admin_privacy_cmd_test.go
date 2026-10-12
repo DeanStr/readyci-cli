@@ -42,10 +42,10 @@ func TestDownloadAdminPrivacyExportDoesNotWritePartialOrInvalidOutput(t *testing
 		stub privacyExportDownloaderStub
 	}{
 		{name: "interrupted", stub: privacyExportDownloaderStub{payload: `{"schema_version":`, err: errors.New("connection reset")}},
-		{name: "truncated", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v1"`}},
-		{name: "wrong case", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v1","case_id":"case_2","digest":"sha256:test"}`}},
-		{name: "missing digest", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v1","case_id":"case_1"}`}},
-		{name: "noncanonical digest", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v1","case_id":"case_1","digest":"sha256:test"}`}},
+		{name: "truncated", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v2"`}},
+		{name: "wrong case", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v2","case_id":"case_2","digest":"sha256:test"}`}},
+		{name: "missing digest", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v2","case_id":"case_1"}`}},
+		{name: "noncanonical digest", stub: privacyExportDownloaderStub{payload: `{"schema_version":"readyci.privacy_export.v2","case_id":"case_1","digest":"sha256:test"}`}},
 		{name: "content digest mismatch", stub: privacyExportDownloaderStub{payload: strings.Replace(validPrivacyExportPayload(t, "case_1"), `"users":1`, `"users":2`, 1)}},
 	}
 	for _, test := range tests {
@@ -84,7 +84,7 @@ func validPrivacyExportPayload(t *testing.T, caseID string) string {
 }
 
 func TestValidateDownloadedPrivacyExportRejectsUnknownField(t *testing.T) {
-	err := validateDownloadedPrivacyExport(strings.NewReader(`{"schema_version":"readyci.privacy_export.v1","case_id":"case_1","unexpected":true,"digest":"sha256:test"}`), "case_1")
+	err := validateDownloadedPrivacyExport(strings.NewReader(`{"schema_version":"readyci.privacy_export.v2","case_id":"case_1","unexpected":true,"digest":"sha256:test"}`), "case_1")
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("error = %v, want unknown field failure", err)
 	}

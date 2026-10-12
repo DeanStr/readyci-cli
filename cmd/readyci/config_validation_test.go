@@ -236,13 +236,6 @@ func TestCheckCommandRejectsNegativeRetryFlag(t *testing.T) {
 	}
 }
 
-func TestCheckCommandRejectsJSONWithoutPreviewMode(t *testing.T) {
-	err := checkCommand([]string{"--json", "touched"})
-	if err == nil || !strings.Contains(err.Error(), "--json is only valid") {
-		t.Fatalf("checkCommand bare json error = %v, want preview-only error", err)
-	}
-}
-
 func TestNormalizeCachePathRejectsGitMetadata(t *testing.T) {
 	if _, err := normalizeCachePaths([]string{".git/objects"}); err == nil {
 		t.Fatal("cache path normalization accepted .git path")
@@ -958,7 +951,7 @@ checks:
 	var createBody []byte
 	var uploaded []byte
 	var serverURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			var err error
@@ -1001,13 +994,13 @@ checks:
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 	serverURL = server.URL
 
 	err = checkCommand([]string{"--api-url", server.URL, "--timeout", "45m", "touched"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("checkCommand error = %v, want exit code 0", err)
 	}
 	if created.ProjectID != "airline" || created.CommandAlias != "touched" {

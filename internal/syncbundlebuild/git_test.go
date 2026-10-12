@@ -3,6 +3,7 @@ package syncbundlebuild
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,17 +26,28 @@ func TestGitObjectsReadsOrderedBinaryBlobsInOneBatch(t *testing.T) {
 
 	firstID := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD:first.txt"))
 	binaryID := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD:binary.bin"))
-	objects, err := gitObjects(context.Background(), repo, []string{binaryID, firstID, binaryID})
+	objects := make(map[string][]byte)
+	err := gitObjects(context.Background(), repo, []string{binaryID, firstID, binaryID}, func(oid string, size int64, reader io.Reader) error {
+		data, err := io.ReadAll(reader)
+		if int64(len(data)) != size {
+			t.Fatalf("object %s size = %d, want %d", oid, len(data), size)
+		}
+		if _, duplicate := objects[oid]; duplicate {
+			t.Fatalf("object %s read twice", oid)
+		}
+		objects[oid] = data
+		return err
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := [][]byte{binary, first, binary}
-	if len(objects) != len(want) {
-		t.Fatalf("objects = %d, want %d", len(objects), len(want))
+	if len(objects) != 2 {
+		t.Fatalf("objects = %d, want 2 unique blobs", len(objects))
 	}
-	for index := range want {
-		if !bytes.Equal(objects[index], want[index]) {
-			t.Fatalf("object %d = %v, want %v", index, objects[index], want[index])
+	for index, oid := range []string{binaryID, firstID, binaryID} {
+		if !bytes.Equal(objects[oid], want[index]) {
+			t.Fatalf("object %d = %v, want %v", index, objects[oid], want[index])
 		}
 	}
 }
@@ -57,7 +69,7 @@ func TestPlanBaselineUsesRequestedHead(t *testing.T) {
 	runGitTest(t, repo, "add", "version.txt")
 	runGitTest(t, repo, "commit", "-m", "second")
 
-	entries, err := planBaseline(context.Background(), repo, firstHead, newIgnoreMatcher(nil))
+	entries, err := planBaseline(context.Background(), repo, firstHead, newIgnoreMatcher(nil), retainSourceContent)
 	if err != nil {
 		t.Fatal(err)
 	}

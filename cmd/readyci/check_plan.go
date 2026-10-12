@@ -9,6 +9,8 @@ import (
 )
 
 type checkResolveOptions struct {
+	SkipWarm                 bool
+	RequestSecrets           bool
 	APIURL                   string
 	ProjectID                string
 	Region                   string
@@ -31,6 +33,8 @@ type checkResolveOptions struct {
 }
 
 type checkRunPlan struct {
+	SkipWarm         bool
+	RetryProvided    bool
 	Name             string
 	Options          remoteRunOptions
 	Retries          int
@@ -45,19 +49,18 @@ type checkRunPlan struct {
 }
 
 type checkExecutionOptions struct {
-	APIURL           string
-	APIToken         string
-	DryRun           bool
-	JSONOutput       bool
-	SummaryOutput    bool
-	Why              bool
-	Inferred         bool
-	Signals          []string
-	SelectionMode    string
-	SelectedReason   string
-	Watch            bool
-	WatchInterval    time.Duration
-	WarmDependencies bool
+	APIURL         string
+	APIToken       string
+	DryRun         bool
+	JSONOutput     bool
+	SummaryOutput  bool
+	Why            bool
+	Inferred       bool
+	Signals        []string
+	SelectionMode  string
+	SelectedReason string
+	Watch          bool
+	WatchInterval  time.Duration
 }
 
 func checkPlanDiagnosticRegion(plan checkRunPlan) string {

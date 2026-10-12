@@ -41,6 +41,8 @@ type checkStepReport struct {
 }
 
 type checkDryRunReport struct {
+	SkipWarm           bool                          `json:"skip_warm"`
+	SecretsRequested   bool                          `json:"secrets_requested"`
 	Check              string                        `json:"check"`
 	ConfigPath         string                        `json:"config_path"`
 	ProjectID          string                        `json:"project_id"`
@@ -165,6 +167,8 @@ func buildCheckDryRunReport(ctx context.Context, cwd string, cfg config.ProjectC
 		}
 	}
 	report := checkDryRunReport{
+		SkipWarm:           plan.SkipWarm,
+		SecretsRequested:   plan.Options.SecretsRequested != nil && *plan.Options.SecretsRequested,
 		Check:              plan.Name,
 		ConfigPath:         configPath,
 		ProjectID:          defaultString(plan.Options.ProjectID, "proj_dev"),
@@ -206,6 +210,7 @@ func printCheckDryRunReport(report checkDryRunReport) {
 	fmt.Printf("name: %s\n", report.Check)
 	fmt.Printf("config: %s\n", report.ConfigPath)
 	fmt.Printf("project_id: %s\n", report.ProjectID)
+	fmt.Printf("secrets_requested: %t\n", report.SecretsRequested)
 	fmt.Printf("region: %s\n", report.Region)
 	fmt.Printf("command: %s\n", report.Command)
 	for _, step := range report.Steps {

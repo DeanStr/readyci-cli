@@ -371,7 +371,7 @@ func agentContractExplainReport() agentExplainReport {
 			Evidence:       evidence,
 			EvidencePacks:  evidencePacks,
 			Commands: []agentRepairCommand{
-				{Kind: "inspect_logs", Command: "readyci runs logs --tail 200 --include-lifecycle --json run_web", Reason: "Read lifecycle and recent log evidence before editing."},
+				{Kind: "inspect_logs", Command: "readyci runs logs --tail 200 --include-lifecycle --json run_web", Reason: "Read full logs if the supplied failure evidence is insufficient for repair."},
 				{Kind: "inspect_evidence_pack", Command: "readyci agent artifacts plan --json run_web --paths 'playwright-report/**'", Reason: "Preview playwright_report evidence retained by the run."},
 				{Kind: "rerun", Command: "readyci verify --json --progress=status --check web", Reason: "Rerun the same verification after applying the repair."},
 			},

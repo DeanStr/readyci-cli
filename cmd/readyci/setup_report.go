@@ -1,9 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
@@ -27,20 +27,23 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		return setupReport{}, err
 	}
 	var written []string
-	detectMovedToHosted := false
 	if options.WriteConfig && (configPath == "" || options.Force) {
-		template := remoteCIProjectTemplateWithProfile(projectID, "", options.Profile)
-		if options.Detect {
-			detectMovedToHosted = true
-			template = detectedProjectTemplateWithProfileOptions(".", projectID, "", options.Profile, options.WriteHelpers)
-		} else if options.WriteHelpers {
-			template = remoteCIProjectTemplateWithStandardHelpers(projectID, "", options.Profile)
+		var template string
+		if options.ConfigTemplate != nil {
+			template = *options.ConfigTemplate
+		} else {
+			template = remoteCIProjectTemplateWithProfile(projectID, options.Image, options.Profile)
+			if options.Detect {
+				template = detectedProjectTemplateWithProfileOptions(".", projectID, options.Image, options.Profile, options.WriteHelpers)
+			} else if options.WriteHelpers {
+				template = remoteCIProjectTemplateWithStandardHelpers(projectID, options.Image, options.Profile)
+			}
 		}
 		writePath, err := initConfigPath(options.Force)
 		if err != nil {
 			return setupReport{}, err
 		}
-		if err := os.WriteFile(writePath, []byte(template), 0o644); err != nil {
+		if err := writeSetupConfig(writePath, template, options.Force); err != nil {
 			return setupReport{}, err
 		}
 		written = append(written, writePath)
@@ -61,15 +64,14 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		Checks:    sortedCheckNames(cfg.Checks),
 		Written:   append([]string(nil), written...),
 	}
-	if detectMovedToHosted {
-		report.Warnings = append(report.Warnings, "smart local config detection moved to hosted analysis; run readyci plan --recommend --suggest-config")
-	}
+
 	var configErr error
 	if configLoadErr != nil {
 		configErr = configLoadErr
 	} else if configPath != "" {
 		configErr = validateProjectConfigForConfigPath(cfg, configPath)
 	}
+	report.configError = configErr
 	switch {
 	case configPath == "":
 		report.ConfigStatus = "missing"
@@ -110,6 +112,7 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 
 	token, err := effectiveAPIToken(options.APIURL, options.APIToken)
 	if err != nil {
+		report.authError = err
 		report.AuthStatus = "error"
 		report.Warnings = append(report.Warnings, err.Error())
 	} else if token == "" {
@@ -118,13 +121,19 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		ctx, stop := signalContext()
 		defer stop()
 		usage, err := api.NewClient(options.APIURL, api.WithToken(token)).AccountUsage(ctx)
-		if err != nil {
-			report.AuthStatus = "error"
-			report.Warnings = append(report.Warnings, "account check failed: "+err.Error())
-		} else {
+		var responseErr api.ResponseError
+		switch {
+		case err == nil:
 			report.AuthStatus = "ok"
 			report.TeamID = usage.TeamID
 			report.PlanID = usage.Plan.ID
+		case errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusForbidden && responseErr.Code == "auth_scope_required":
+			report.AuthStatus = "ok"
+			report.Warnings = append(report.Warnings, "account details are unavailable without account:read; run permissions will be checked when the check starts")
+		default:
+			report.authError = err
+			report.AuthStatus = "error"
+			report.Warnings = append(report.Warnings, "account check failed: "+err.Error())
 		}
 	}
 	report.Next = setupNextCommands(report)
@@ -147,8 +156,8 @@ func setupNextCommands(report setupReport) []string {
 	var commands []string
 	apiFlag := apiURLFlag(report.APIURL)
 	if report.ConfigStatus == "missing" {
-		commands = append(commands, "readyci setup --write-config --detect"+apiFlag+" --project "+shellQuoteArg(report.ProjectID))
-		commands = append(commands, "readyci init --detect --print")
+		commands = append(commands, "readyci setup"+apiFlag+" --project "+shellQuoteArg(report.ProjectID))
+		commands = append(commands, "readyci setup --print")
 	}
 	if report.AuthStatus != "ok" {
 		commands = append(commands, "readyci login"+apiFlag)
@@ -200,7 +209,11 @@ func setupAffectedAuditAvailable(cfg config.ProjectConfig) bool {
 
 func apiURLFlag(apiURL string) string {
 	normalized := normalizeAPIURL(apiURL)
-	if normalized == "" || normalized == normalizeAPIURL(defaultAPIURL()) {
+	if normalized == "" {
+		return ""
+	}
+	if normalized == normalizeAPIURL(defaultAPIURL()) &&
+		normalized == normalizeAPIURL(envDefault("READYCI_API_URL", defaultAPIURL())) {
 		return ""
 	}
 	return " --api-url " + shellQuoteArg(normalized)
@@ -209,7 +222,8 @@ func apiURLFlag(apiURL string) string {
 func readyCIAPIEnvCommand(apiURL, token string) string {
 	tokenExport := "READYCI_API_TOKEN=" + shellQuoteArg(token)
 	normalized := normalizeAPIURL(apiURL)
-	if normalized == normalizeAPIURL(defaultAPIURL()) {
+	if normalized == normalizeAPIURL(defaultAPIURL()) &&
+		normalized == normalizeAPIURL(envDefault("READYCI_API_URL", defaultAPIURL())) {
 		return "export " + tokenExport
 	}
 	return "export READYCI_API_URL=" + shellQuoteArg(normalized) + " " + tokenExport

@@ -54,6 +54,7 @@ func buildAffectedRulePlans(ctx context.Context, cwd string, cfg config.ProjectC
 		checkWarnings := artifactProducerWarningsForPaths(checkReport, checkSpecificArtifactPaths(plan.Options.ArtifactPaths, cfg.Artifacts.Paths))
 		plans = append(plans, selected)
 		reportChecks = append(reportChecks, affectedDryRunCheck{
+			SecretsRequested:   plan.Options.SecretsRequested != nil && *plan.Options.SecretsRequested,
 			Name:               plan.Name,
 			Command:            plan.Options.Command,
 			Image:              defaultString(plan.Options.Image, preflightapi.DefaultImage),
@@ -80,6 +81,7 @@ func buildAffectedRulePlans(ctx context.Context, cwd string, cfg config.ProjectC
 		return nil, affectedDryRunReport{}, err
 	}
 	report := affectedDryRunReport{
+		SkipWarm:       resolveOptions.SkipWarm,
 		ConfigPath:     configPath,
 		ProjectID:      defaultString(projectID, "proj_dev"),
 		ChangeMode:     changed.ChangeMode,

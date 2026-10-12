@@ -25,7 +25,7 @@ func prepareVerificationSessionRemoteContext(
 	if err != nil {
 		return verificationSessionRemoteContext{}, err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" && !(options.Purpose == preflightapi.ExecutionPurpose && localAPIEndpoint(options.APIURL)) {
 		return verificationSessionRemoteContext{}, cliAuthMissingError("No Ready CI credential is available.", nil)
 	}
 	baseKey, err := normalizeIdempotencyKey(options.IdempotencyKey)
@@ -74,6 +74,14 @@ func verificationSessionRequest(
 	nodes, matrixGroups, err := verificationNodesForPlans(warmPlans, plans, bundle)
 	if err != nil {
 		return preflightapi.CreateVerificationSessionRequest{}, err
+	}
+	if options.Purpose == preflightapi.ExecutionPurpose {
+		// Ordinary execution preserves its retry policy while the service still
+		// requires a retryable result and enforces the sealed attempt limit.
+		for index := range nodes {
+			nodes[index].Retry.RetryableClassifications = append(nodes[index].Retry.RetryableClassifications,
+				preflightapi.ClassificationDependencyDownloadFailed, preflightapi.ClassificationTimeout)
+		}
 	}
 	recipeRetryCount := options.RetryCount
 	if !options.RetryProvided {
@@ -204,5 +212,18 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 		return prepared, nil
 	}
 	prepared.Plans = []checkRunPlan{plan}
+	warmSelected, err := agentDependencyWarmPlansForAffected(".", []affectedCheckPlan{{Plan: plan}}, cfg, resolve, intent)
+	if err != nil {
+		return preparedVerificationSession{}, err
+	}
+	for _, selected := range warmSelected {
+		prepared.WarmPlans = append(prepared.WarmPlans, selected.Plan)
+	}
+	prepared.BuildOptions, err = compatibleAffectedSessionBuildOptions(
+		append(warmSelected, affectedCheckPlan{Plan: plan}), prepared.BuildOptions,
+	)
+	if err != nil {
+		return preparedVerificationSession{}, err
+	}
 	return prepared, nil
 }

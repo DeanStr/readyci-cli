@@ -368,3 +368,193 @@ func TestPrintPathSampleOmitsEmptyAndLimitsOutput(t *testing.T) {
 	}
 	requireCLITestOutputContains(t, output, "path: a", "path: b", "path: c", "path: ... 1 more")
 }
+
+func TestPrintVerificationSessionExplainsIncompleteResults(t *testing.T) {
+	for _, tc := range []struct {
+		name, verdict, classification, currentness string
+		uncovered                                  []string
+		want, absent                               []string
+	}{
+		{name: "stale passing result", verdict: "verified", currentness: "stale", want: []string{"currentness: stale", "does not describe your current workspace", "readyci sessions rerun"}},
+		{name: "partial check", verdict: "checks_passed", classification: "partial_verification", currentness: "current", uncovered: []string{"platform/session.go"}, want: []string{"Selected checks passed", "uncovered_file: platform/session.go", "readyci verify"}, absent: []string{"--check"}},
+		{name: "empty partial check", verdict: "insufficient_evidence", classification: "partial_verification", want: []string{"did not establish workspace verification", "readyci verify"}, absent: []string{"Selected checks passed"}},
+		{name: "stale coverage gap", verdict: "insufficient_evidence", classification: "harness_gap", currentness: "stale", uncovered: []string{"platform/session.go"}, want: []string{"currentness: stale", "uncovered_file: platform/session.go", "owner or admin", "Rerunning alone"}, absent: []string{"next_command:"}},
+		{name: "no registered policy", verdict: "checks_passed", classification: "client_proposed_plan", want: []string{"owner or admin", "registered verification policy"}, absent: []string{"next_command:"}},
+		{name: "untrusted evidence", verdict: "checks_passed", classification: "untrusted_execution_evidence", want: []string{"execution evidence", "operator"}, absent: []string{"next_command:"}},
+		{name: "current verified", verdict: "verified", currentness: "current", absent: []string{"next:", "next_command:", "incomplete"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := preflightapi.VerificationSession{SessionID: "session_123", State: "terminal", Verdict: tc.verdict, Classification: tc.classification, Currentness: tc.currentness, Recipe: recoveryTestRecipe(t), Coverage: preflightapi.VerificationCoverage{UncoveredFiles: tc.uncovered}}
+			output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, ""); return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			requireCLITestOutputContains(t, output, tc.want...)
+			for _, absent := range tc.absent {
+				if strings.Contains(output, absent) {
+					t.Errorf("unexpected %q in output:\n%s", absent, output)
+				}
+			}
+		})
+	}
+}
+
+func TestPrintAgentExplainSurfacesFailureEvidence(t *testing.T) {
+	report := agentExplainReport{
+		RunID: "run_123", Check: "api-tests", Status: "failed", Terminal: true,
+		Diagnosis: agentDiagnosis{Kind: "test_failed", Action: "fix_code", Confidence: 0.9},
+		Repair: agentRepairPacket{
+			FailingTest: "TestExpiredSession", PrimaryFile: "session_test.go",
+			ConfidenceNote: "high: classification came from structured run data or strong log signals",
+			Evidence:       []agentEvidence{{Path: "session_test.go", Text: "session_test.go:84: expected 401, received 200"}},
+		},
+		LogsCommand: "readyci runs logs run_123",
+	}
+	output, err := captureStdoutForCLITest(t, func() error { printAgentExplainReport(report); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireCLITestOutputContains(t, output, "failing_test: TestExpiredSession", "investigate_file: session_test.go", "expected 401, received 200", "classification_confidence:")
+	if strings.Index(output, "expected 401") > strings.Index(output, "logs:") {
+		t.Fatal("failure evidence should precede the full-log command")
+	}
+}
+
+func TestVerificationRecoveryPreservesRequestContext(t *testing.T) {
+	session := preflightapi.VerificationSession{
+		SessionID: "session_123", ProjectID: "project_123", Intent: "pre-commit", State: "terminal",
+		Verdict: "checks_passed", Classification: "partial_verification",
+		Recipe:   recoveryTestRecipe(t),
+		Coverage: preflightapi.VerificationCoverage{UncoveredFiles: samplePaths("remaining", 12)},
+	}
+	session.Recipe.Check = "web"
+	session.Recipe.ChangeMode = "staged"
+	session.Recipe.RequestSecrets = true
+	session.Recipe.RetryProvided = true
+	var err error
+	session.Recipe.Digest, err = preflightapi.VerificationRecipeDigest(session.Recipe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, "http://127.0.0.1:4321"); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireCLITestOutputContains(t, output, "--api-url http://127.0.0.1:4321", "--project project_123", "--intent pre-commit", "--changes staged", "--predecessor session_123", "--request-secrets", "--retry 0", "uncovered_file: ... 2 more")
+	for _, absent := range []string{"--check", "--idempotency-key", "remaining/11.go"} {
+		if strings.Contains(output, absent) {
+			t.Errorf("unexpected %q in output:\n%s", absent, output)
+		}
+	}
+}
+
+func TestVerificationRecoveryDoesNotAdviseOnPendingOrExecutionSessions(t *testing.T) {
+	for _, session := range []preflightapi.VerificationSession{
+		{State: "sealed", Verdict: "pending"},
+		{State: "terminal", Verdict: "verified", Currentness: "stale", Recipe: preflightapi.VerificationRecipe{Purpose: preflightapi.ExecutionPurpose}},
+	} {
+		output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, ""); return nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(output, "next:") || strings.Contains(output, "incomplete:") {
+			t.Fatalf("unexpected verification advice:\n%s", output)
+		}
+	}
+}
+
+func TestAgentExplainReportsIncompleteEvidence(t *testing.T) {
+	report := agentExplainReport{
+		Repair:   agentRepairPacket{Evidence: []agentEvidence{{Path: "session_test.go", Text: "expected 401\nreceived 200\x1b[31m"}}, EvidencePacks: []agentEvidencePack{{Kind: "playwright_trace", PreviewCommand: "readyci agent artifacts plan run_123"}}},
+		Warnings: []agentWarning{{Section: "artifacts", Message: "artifact listing failed"}}, LogTruncated: true,
+	}
+	output, err := captureStdoutForCLITest(t, func() error { printAgentExplainReport(report); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireCLITestOutputContains(t, output, "session_test.go: expected 401 received 200", "evidence_preview[playwright_trace]:", "warning[artifacts]: artifact listing failed", "log evidence is truncated")
+	if strings.Contains(output, "\x1b") || strings.Contains(output, "failing_test:") || strings.Contains(output, "investigate_file:") {
+		t.Fatalf("unexpected escape or invented diagnosis:\n%s", output)
+	}
+}
+
+func TestStaleVerificationReplaysSupportedRecipe(t *testing.T) {
+	recipe := preflightapi.VerificationRecipe{SchemaVersion: preflightapi.VerificationRecipeSchemaVersion, Rerunnable: true, ChangeMode: "working", Source: &preflightapi.VerificationSourceRecipe{}}
+	var err error
+	recipe.Digest, err = preflightapi.VerificationRecipeDigest(recipe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := preflightapi.VerificationSession{SessionID: "session_123", State: "terminal", Verdict: "verified", Currentness: "stale", Recipe: recipe}
+	output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, "http://127.0.0.1:4321"); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireCLITestOutputContains(t, output, "verdict: verified", "currentness: stale", "next_command: readyci sessions rerun --api-url http://127.0.0.1:4321 session_123")
+	if strings.Contains(output, "sessions retry") {
+		t.Fatal("retry would repeat the stale source")
+	}
+	if verificationVerdictExit(session) == nil {
+		t.Fatal("stale passing result must still exit nonzero")
+	}
+}
+
+func TestVerificationRecoveryRejectsInvalidRecipes(t *testing.T) {
+	for _, classification := range []string{"", preflightapi.ClassificationPartialVerification} {
+		for _, invalid := range []string{"missing", "unsupported", "tampered", "non-rerunnable"} {
+			t.Run(classification+"/"+invalid, func(t *testing.T) {
+				recipe := recoveryTestRecipe(t)
+				switch invalid {
+				case "missing":
+					recipe = preflightapi.VerificationRecipe{}
+				case "unsupported":
+					recipe.SchemaVersion = "future.v2"
+				case "tampered":
+					recipe.ChangeMode = "staged"
+					recipe.RequestSecrets = true
+				case "non-rerunnable":
+					recipe.Rerunnable = false
+				}
+				session := preflightapi.VerificationSession{SessionID: "session_123", State: "terminal", Verdict: "verified", Currentness: "stale", Classification: classification, Recipe: recipe}
+				if classification != "" {
+					session.Verdict = "checks_passed"
+				}
+				output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, ""); return nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				if strings.Contains(output, "next_command:") {
+					t.Fatalf("recovery used an invalid recipe:\n%s", output)
+				}
+				requireCLITestOutputContains(t, output, "recipe", "reviewed settings")
+			})
+		}
+	}
+}
+
+func TestStaleFailureDoesNotRecommendBlindRerun(t *testing.T) {
+	for _, verdict := range []string{"failed", "blocked", "insufficient_evidence"} {
+		t.Run(verdict, func(t *testing.T) {
+			session := preflightapi.VerificationSession{SessionID: "session_123", State: "terminal", Verdict: verdict, Currentness: "stale", Recipe: recoveryTestRecipe(t), TerminalReason: "Required check did not succeed"}
+			output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, ""); return nil })
+			if err != nil {
+				t.Fatal(err)
+			}
+			requireCLITestOutputContains(t, output, "currentness: stale", "Inspect")
+			if strings.Contains(output, "next_command:") {
+				t.Fatalf("rerun guidance ignored recorded failure:\n%s", output)
+			}
+		})
+	}
+}
+
+func recoveryTestRecipe(t *testing.T) preflightapi.VerificationRecipe {
+	t.Helper()
+	recipe := preflightapi.VerificationRecipe{SchemaVersion: preflightapi.VerificationRecipeSchemaVersion, Rerunnable: true, ChangeMode: "working", Source: &preflightapi.VerificationSourceRecipe{}}
+	var err error
+	recipe.Digest, err = preflightapi.VerificationRecipeDigest(recipe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return recipe
+}

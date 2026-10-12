@@ -12,7 +12,26 @@ import (
 
 const dependencyWarmCheckName = "dependencies"
 
+func dependencyWarmPreview(cwd string, plans []affectedCheckPlan, cfg config.ProjectConfig, resolve checkResolveOptions) ([]string, error) {
+	if resolve.SkipWarm {
+		return []string{"Automatic dependency preparation skipped (--skip-warm); tests retain their configured network policy"}, nil
+	}
+	warm, err := dependencyWarmPlansForAffected(cwd, plans, cfg, resolve)
+	if err != nil {
+		return nil, cliConfigError(err.Error(), err)
+	}
+	var notes []string
+	for _, selected := range warm {
+		p := selected.Plan
+		notes = append(notes, fmt.Sprintf("Automatic dependency preparation: %s; command=%q; network_mode=%s; network_allowlist=%s", p.Name, p.Options.Command, p.Options.NetworkMode, strings.Join(p.Options.NetworkAllowlist, ",")))
+	}
+	return notes, nil
+}
+
 func dependencyWarmPlansForAffected(_ string, plans []affectedCheckPlan, cfg config.ProjectConfig, resolveOptions checkResolveOptions) ([]affectedCheckPlan, error) {
+	if resolveOptions.SkipWarm {
+		return nil, nil
+	}
 	const warmCheck = dependencyWarmCheckName
 	if _, ok := cfg.Checks[warmCheck]; !ok {
 		return nil, nil
@@ -185,6 +204,8 @@ func warmDependencyResolveOptions(resolveOptions checkResolveOptions, cfg config
 		return checkResolveOptions{}, fmt.Errorf("dependency warming requires an explicit network.warm_mode; use allowlist with network.warm_allowlist on public deployments, or default only on local/private deployments")
 	}
 	warmResolve := resolveOptions
+	warmResolve.RequestSecrets = false
+	warmResolve.SkipWarm = false
 	warmResolve.NetworkMode = warmMode
 	warmResolve.NetworkAllowlist = strings.Join(cfg.Network.WarmAllowlist, ",")
 	return warmResolve, nil

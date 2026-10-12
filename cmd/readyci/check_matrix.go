@@ -10,31 +10,6 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-func executeRemoteRunWithRetries(options remoteRunOptions, retries int) error {
-	if retries < 0 {
-		return fmt.Errorf("retry count must be non-negative")
-	}
-	attempts := retries + 1
-	baseIdempotencyKey := options.IdempotencyKey
-	for attempt := 1; attempt <= attempts; attempt++ {
-		runOptions := options
-		runOptions.Attempt = attempt
-		if baseIdempotencyKey != "" && attempt > 1 {
-			runOptions.IdempotencyKey = fmt.Sprintf("%s:__readyci_attempt=%d", baseIdempotencyKey, attempt)
-		}
-		err := executeRemoteRun(runOptions)
-		if err == nil {
-			return nil
-		}
-		exitCode, retryable := retryableRemoteRunError(err)
-		if !retryable || attempt == attempts {
-			return err
-		}
-		fmt.Fprintf(os.Stderr, "readyci: retrying %s after exit code %d (attempt %d/%d)\n", displayRunName(options), exitCode, attempt+1, attempts)
-	}
-	return nil
-}
-
 func retryableRemoteRunError(err error) (int, bool) {
 	var terminalErr terminalRunError
 	terminalEventType := ""
@@ -81,113 +56,7 @@ func retryableRemoteRunResult(result remoteRunResult, err error, command string)
 }
 
 func executeCheckMatrix(options remoteRunOptions, matrix config.MatrixConfig, retries int) error {
-	variants, err := expandMatrix(matrix)
-	if err != nil {
-		return err
-	}
-	options.IdempotencyKey, err = normalizeIdempotencyKey(options.IdempotencyKey)
-	if err != nil {
-		return err
-	}
-	if options.IdempotencyKey == "" {
-		options.IdempotencyKey, err = newIdempotencyKey()
-		if err != nil {
-			return err
-		}
-	}
-	options = withDefaultRunGroup(options)
-	maxParallel := matrix.MaxParallel
-	if maxParallel < 1 {
-		maxParallel = 1
-	}
-	if maxParallel > 1 && len(variants) > 1 {
-		return executeCheckMatrixParallel(options, variants, retries, matrix.FailFast, maxParallel, executeRemoteRunWithRetries)
-	}
-	var lastErr error
-	var successErr error
-	for _, variant := range variants {
-		runOptions := optionsForMatrixVariant(options, variant)
-		if len(variants) > 1 {
-			fmt.Fprintf(os.Stderr, "readyci: running %s\n", displayRunName(runOptions))
-		}
-		err := executeRemoteRunWithRetries(runOptions, retries)
-		if err == nil {
-			continue
-		}
-		if isSuccessfulExit(err) {
-			successErr = err
-			continue
-		}
-		lastErr = err
-		var exitErr exitCodeError
-		if !errors.As(err, &exitErr) {
-			return err
-		}
-		if matrix.FailFast {
-			break
-		}
-	}
-	if lastErr != nil {
-		return lastErr
-	}
-	return successErr
-}
-
-type matrixRunFunc func(remoteRunOptions, int) error
-
-func executeCheckMatrixParallel(options remoteRunOptions, variants []matrixVariant, retries int, failFast bool, maxParallel int, run matrixRunFunc) error {
-	type result struct {
-		err error
-	}
-	results := make(chan result, len(variants))
-	scheduled := 0
-	completed := 0
-	active := 0
-	stopScheduling := false
-	var lastErr error
-	var successErr error
-
-	for (!stopScheduling && scheduled < len(variants)) || completed < scheduled {
-		for !stopScheduling && scheduled < len(variants) && active < maxParallel {
-			variant := variants[scheduled]
-			scheduled++
-			runOptions := optionsForMatrixVariant(options, variant)
-			active++
-			go func() {
-				if len(variants) > 1 {
-					fmt.Fprintf(os.Stderr, "readyci: running %s\n", displayRunName(runOptions))
-				}
-				err := run(runOptions, retries)
-				results <- result{err: err}
-			}()
-		}
-		if completed >= scheduled {
-			continue
-		}
-		runResult := <-results
-		completed++
-		active--
-		err := runResult.err
-		if err == nil {
-			continue
-		}
-		if isSuccessfulExit(err) {
-			successErr = err
-			continue
-		}
-		var exitErr exitCodeError
-		exitFailure := errors.As(err, &exitErr)
-		if shouldReplaceMatrixError(lastErr, err) {
-			lastErr = err
-		}
-		if !exitFailure || failFast {
-			stopScheduling = true
-		}
-	}
-	if lastErr != nil {
-		return lastErr
-	}
-	return successErr
+	return executeSessionPlans([]checkRunPlan{{Name: defaultString(options.CommandAlias, "check"), Options: options, Matrix: matrix, Retries: retries}}, nil, options.APIToken, false)
 }
 
 func shouldReplaceMatrixError(current, candidate error) bool {
@@ -207,7 +76,8 @@ func shouldReplaceMatrixError(current, candidate error) bool {
 	return currentIsExit
 }
 
-func watchCheck(options remoteRunOptions, matrix config.MatrixConfig, retries int, interval time.Duration) error {
+func watchCheck(plan checkRunPlan, warm []checkRunPlan, token string, interval time.Duration) error {
+	options := plan.Options
 	if interval <= 0 {
 		return cliConfigError("--watch-interval must be positive", nil)
 	}
@@ -223,7 +93,7 @@ func watchCheck(options remoteRunOptions, matrix config.MatrixConfig, retries in
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "readyci: watching %s every %s\n", displayRunName(options), interval)
-	if err := executeCheckMatrix(options, matrix, retries); err != nil {
+	if err := executeSessionPlans([]checkRunPlan{plan}, warm, token, false); err != nil {
 		if !isSuccessfulExit(err) {
 			var exitErr exitCodeError
 			if !errors.As(err, &exitErr) {
@@ -253,7 +123,7 @@ func watchCheck(options remoteRunOptions, matrix config.MatrixConfig, retries in
 			}
 			fingerprint = next
 			fmt.Fprintln(os.Stderr, "readyci: change detected")
-			if err := executeCheckMatrix(options, matrix, retries); err != nil {
+			if err := executeSessionPlans([]checkRunPlan{plan}, warm, token, false); err != nil {
 				if !isSuccessfulExit(err) {
 					var exitErr exitCodeError
 					if errors.As(err, &exitErr) {

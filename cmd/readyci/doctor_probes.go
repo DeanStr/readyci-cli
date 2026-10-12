@@ -47,7 +47,7 @@ func probeDoctorRepository(ctx context.Context, cfg config.ProjectConfig, path s
 		if repoPath == inferredConfigPath {
 			details = append(details, "using inferred Ready CI config for context")
 		}
-		report.addDiagnostic("repo", "warn", "no committed Ready CI config to validate yet", details, []string{"run readyci start --write-config", "run readyci plan --repo-map --json"})
+		report.addDiagnostic("repo", "warn", "no committed Ready CI config to validate yet", details, []string{"run readyci setup --write-config", "run readyci plan --repo-map --json"})
 		report.Summary.Warnings++
 	} else if len(repo.UndefinedChecks) == 0 {
 		report.ok("repo", "cross-file Ready CI references are consistent")

@@ -14,6 +14,8 @@ import (
 
 const VerificationSchemaVersion = "readyci.verification.v0alpha1"
 
+const ExecutionPurpose = "execution"
+
 const VerificationRecipeSchemaVersion = "readyci.verification_recipe.v1"
 
 const (
@@ -162,6 +164,12 @@ type VerificationPlanDivergence struct {
 // successor against a new workspace. It never grants plan authority: the
 // service still derives and authorizes the execution plan from trusted policy.
 type VerificationRecipe struct {
+	SkipWarm    bool     `json:"skip_warm,omitempty"`
+	WarmChecks  []string `json:"warm_checks,omitempty"`
+	SkipConfirm bool     `json:"skip_confirm,omitempty"`
+	// Purpose is immutable and never grants plan authority. Empty means verification.
+	Command        string                    `json:"command,omitempty"`
+	Purpose        string                    `json:"purpose,omitempty"`
 	SchemaVersion  string                    `json:"schema_version"`
 	Digest         string                    `json:"digest,omitempty"`
 	Rerunnable     bool                      `json:"rerunnable"`
@@ -177,11 +185,12 @@ type VerificationRecipe struct {
 // recompute whether a completed session still describes the caller's current
 // workspace. It is untrusted input and never grants source-policy authority.
 type VerificationSourceRecipe struct {
-	ExcludePatterns        []string `json:"exclude_patterns"`
-	DefaultExcludePatterns []string `json:"default_exclude_patterns"`
-	IncludeUntracked       bool     `json:"include_untracked"`
-	UseProjectIgnore       bool     `json:"use_project_ignore"`
-	SourcePolicyDigest     string   `json:"source_policy_digest,omitempty"`
+	UploadBaselineSessionID string   `json:"upload_baseline_session_id,omitempty"`
+	ExcludePatterns         []string `json:"exclude_patterns"`
+	DefaultExcludePatterns  []string `json:"default_exclude_patterns"`
+	IncludeUntracked        bool     `json:"include_untracked"`
+	UseProjectIgnore        bool     `json:"use_project_ignore"`
+	SourcePolicyDigest      string   `json:"source_policy_digest,omitempty"`
 }
 
 type CreateVerificationSessionRequest struct {
@@ -219,10 +228,11 @@ const (
 // service materializes it into every physical node attempt, including deferred
 // nodes and retries. There is no per-node upload and no client-driven advance.
 type CreateVerificationSessionResponse struct {
-	SchemaVersion          string              `json:"schema_version"`
-	Session                VerificationSession `json:"session"`
-	SourceUploadMode       string              `json:"source_upload_mode"`
-	SourceUploadPrepareURL string              `json:"source_upload_prepare_url,omitempty"`
+	SchemaVersion                 string              `json:"schema_version"`
+	Session                       VerificationSession `json:"session"`
+	SourceUploadMode              string              `json:"source_upload_mode"`
+	SourceUploadBaselineSessionID string              `json:"source_upload_baseline_session_id,omitempty"`
+	SourceUploadPrepareURL        string              `json:"source_upload_prepare_url,omitempty"`
 }
 
 type PrepareVerificationSessionSourceUploadRequest struct {
@@ -255,6 +265,10 @@ type VerificationAttempt struct {
 	RetainedArtifactCount int       `json:"retained_artifact_count"`
 	ArtifactsAvailable    bool      `json:"artifacts_available"`
 	CreatedAt             time.Time `json:"created_at"`
+	// Lifecycle timestamps are service observations for turnaround diagnostics.
+	QueuedAt   *time.Time `json:"queued_at,omitempty"`
+	ClaimedAt  *time.Time `json:"claimed_at,omitempty"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	// EvidenceAttested is assigned only after the service validates a
 	// runner-generated attestation. Callers and artifact filenames cannot set it.
 	EvidenceAttested bool `json:"evidence_attested"`
@@ -404,6 +418,42 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 	if req.Recipe.SchemaVersion != VerificationRecipeSchemaVersion {
 		return req, fmt.Errorf("unsupported verification recipe schema version %q", req.Recipe.SchemaVersion)
 	}
+	if req.Recipe.SkipWarm {
+		if req.Recipe.Purpose != ExecutionPurpose || len(req.Recipe.WarmChecks) > 0 || req.Recipe.SkipConfirm {
+			return req, fmt.Errorf("skip_warm is only valid for ordinary execution without explicit warming")
+		}
+		for _, node := range req.Plan.Nodes {
+			if strings.TrimSpace(node.Phase) == VerificationNodePhaseWarm {
+				return req, fmt.Errorf("skip_warm cannot include warm nodes")
+			}
+		}
+	}
+	if len(req.Recipe.WarmChecks) > 0 {
+		if req.Recipe.Purpose != ExecutionPurpose || req.Recipe.Check != "" || req.Recipe.Command != "" {
+			return req, fmt.Errorf("warm recipe requires execution purpose and cannot select another check or command")
+		}
+		for _, name := range req.Recipe.WarmChecks {
+			if strings.TrimSpace(name) == "" || containsVerificationControl(name) {
+				return req, fmt.Errorf("invalid warm check name")
+			}
+		}
+	}
+	if req.Recipe.SkipConfirm && len(req.Recipe.WarmChecks) == 0 {
+		return req, fmt.Errorf("skip_confirm requires warm_checks")
+	}
+
+	if req.Recipe.Command != "" && req.Recipe.Purpose != ExecutionPurpose {
+		return req, fmt.Errorf("recipe command is only valid for requested execution")
+	}
+	if req.Recipe.Purpose != "" && req.Recipe.Purpose != ExecutionPurpose {
+		return req, fmt.Errorf("unsupported recipe purpose %q", req.Recipe.Purpose)
+	}
+	if req.Recipe.Purpose == ExecutionPurpose && strings.TrimSpace(req.Plan.Authority) == VerificationPlanAuthorityServer {
+		return req, fmt.Errorf("requested execution cannot have verification plan authority")
+	}
+	if req.Recipe.Purpose == ExecutionPurpose && len(req.Plan.Nodes) == 0 {
+		return req, fmt.Errorf("requested execution requires at least one check")
+	}
 	req.Recipe.Check = strings.TrimSpace(req.Recipe.Check)
 	if strings.TrimSpace(req.Recipe.ChangeMode) == "" {
 		return req, fmt.Errorf("recipe.change_mode is required")
@@ -424,6 +474,11 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 	}
 	req.Recipe.Source.ExcludePatterns = normalizedStrings(req.Recipe.Source.ExcludePatterns)
 	req.Recipe.Source.DefaultExcludePatterns = normalizedStrings(req.Recipe.Source.DefaultExcludePatterns)
+	if id := req.Recipe.Source.UploadBaselineSessionID; id != "" {
+		if req.Recipe.Purpose != ExecutionPurpose || len(id) > 160 || strings.ContainsAny(id, "/\\") || containsVerificationControl(id) {
+			return req, fmt.Errorf("invalid source upload baseline session")
+		}
+	}
 	req.Recipe.Source.SourcePolicyDigest = strings.TrimSpace(req.Recipe.Source.SourcePolicyDigest)
 	for _, pattern := range append(append([]string(nil), req.Recipe.Source.ExcludePatterns...), req.Recipe.Source.DefaultExcludePatterns...) {
 		if containsVerificationControl(pattern) {

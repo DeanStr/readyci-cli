@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,10 +74,16 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 		return cfg, configError(fmt.Errorf("%s: unsupported config version %d", source, loaded.Version))
 	}
 	cfg.merge(loaded)
+	if err := syncbundle.ValidateExcludePatterns(cfg.Sync.Exclude); err != nil {
+		return cfg, configError(fmt.Errorf("%s: sync.exclude: %w", source, err))
+	}
 	if cfg.Sync.RespectGitignore != nil && !*cfg.Sync.RespectGitignore {
 		return cfg, configError(fmt.Errorf("%s: sync.respect_gitignore=false is not supported yet", source))
 	}
 	for name, check := range cfg.Checks {
+		if err := syncbundle.ValidateExcludePatterns(check.Sync.Exclude); err != nil {
+			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.exclude: %w", source, name, err))
+		}
 		if check.Sync.RespectGitignore != nil && !*check.Sync.RespectGitignore {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.respect_gitignore=false is not supported yet", source, name))
 		}

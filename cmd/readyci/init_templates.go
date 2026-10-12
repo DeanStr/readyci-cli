@@ -12,7 +12,7 @@ func remoteCIProjectTemplate(projectID, image string) string {
 
 func remoteCIProjectTemplateWithProfile(projectID, image, profile string) string {
 	image = strings.TrimSpace(image)
-	networkMode := "default"
+	networkMode := "none"
 	if profile == "strict" {
 		networkMode = "none"
 	}
@@ -27,26 +27,8 @@ func remoteCIProjectTemplateWithProfile(projectID, image, profile string) string
 project_id: %s
 %ssync:
   include_untracked: false
-  respect_gitignore: true
-  exclude:
-    - .env
-    - .env.local
-    - .env.development
-    - .env.test
-    - .env.staging
-    - .env.production
-    - .env.preview
-    - .env.*.local
-    - .envrc
-    - .envrc.local
-    - .npmrc
-    - .npmrc.local
-    - node_modules
-    - target
-    - dist
-    - coverage
-    - test-results
-    - tmp
+  # Built-in filtering excludes .env*, build outputs, and dependency directories.
+  exclude: [".npmrc*", "test-results", "tmp"]
 
 cache:
   mode: cache-only
@@ -66,11 +48,6 @@ checks:
       include_untracked: true
     timeout: 20m
 
-resources:
-  default:
-    size: standard
-    timeout: 20m
-
 network:
   mode: %s
 `, strconv.Quote(projectID), imageLine, networkMode)
@@ -78,7 +55,7 @@ network:
 
 func remoteCIProjectTemplateWithStandardHelpers(projectID, image, profile string) string {
 	image = strings.TrimSpace(image)
-	networkMode := "default"
+	networkMode := "none"
 	if profile == "strict" {
 		networkMode = "none"
 	}
@@ -93,26 +70,8 @@ func remoteCIProjectTemplateWithStandardHelpers(projectID, image, profile string
 project_id: %s
 %ssync:
   include_untracked: false
-  respect_gitignore: true
-  exclude:
-    - .env
-    - .env.local
-    - .env.development
-    - .env.test
-    - .env.staging
-    - .env.production
-    - .env.preview
-    - .env.*.local
-    - .envrc
-    - .envrc.local
-    - .npmrc
-    - .npmrc.local
-    - node_modules
-    - target
-    - dist
-    - coverage
-    - test-results
-    - tmp
+  # Built-in filtering excludes .env*, build outputs, and dependency directories.
+  exclude: [".npmrc*", "test-results", "tmp"]
 
 cache:
   mode: cache-only
@@ -165,11 +124,6 @@ checks:
     sync:
       include_untracked: true
     timeout: 10m
-
-resources:
-  default:
-    size: standard
-    timeout: 20m
 
 network:
   mode: %s

@@ -211,7 +211,7 @@ func TestPrintRunFailureDiagnosisIncludesClassificationAndHint(t *testing.T) {
 	var output strings.Builder
 	printRunFailureDiagnosis(&output, result, terminalRunError{eventType: preflightapi.EventRunFailed, exitCode: 1}, "npx -y @stoplight/spectral-cli lint docs/api/openapi.yaml")
 	got := output.String()
-	for _, want := range []string{"run_dns failed", "dependency_download_failed", "retryable", "pin or prewarm dependencies", "readyci agent explain run_dns"} {
+	for _, want := range []string{"run_dns failed", "dependency_download_failed", "retryable", "readyci warm --check dependencies with an explicit network allowlist", "readyci agent explain run_dns"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diagnosis output %q does not contain %q", got, want)
 		}

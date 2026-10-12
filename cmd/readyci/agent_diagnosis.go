@@ -74,7 +74,7 @@ func buildAgentRepairPacket(diagnosis agentDiagnosis, command, rerunCommand, log
 		FailingTest:    failingTestFromEvidence(evidence),
 		Evidence:       append([]agentEvidence(nil), evidence...),
 		EvidencePacks:  append([]agentEvidencePack(nil), evidencePacks...),
-		Commands:       repairCommands(rerunCommand, logsCommand, evidencePacks),
+		Commands:       repairCommands(diagnosis, evidence, rerunCommand, logsCommand, evidencePacks),
 		RerunCommand:   rerunCommand,
 		LogsCommand:    logsCommand,
 		PolicyReasons:  append([]string(nil), policyReasons...),
@@ -161,13 +161,17 @@ func repairTargetsForDiagnosis(diagnosis agentDiagnosis, evidence []agentEvidenc
 	return targets
 }
 
-func repairCommands(rerunCommand, logsCommand string, evidencePacks []agentEvidencePack) []agentRepairCommand {
+func repairCommands(diagnosis agentDiagnosis, evidence []agentEvidence, rerunCommand, logsCommand string, evidencePacks []agentEvidencePack) []agentRepairCommand {
 	var commands []agentRepairCommand
+	logReason := "Read lifecycle and recent log evidence before deciding how to recover."
+	if diagnosis.Action == preflightapi.AgentActionFixCode && len(evidence) > 0 {
+		logReason = "Read full logs if the supplied failure evidence is insufficient for repair."
+	}
 	if strings.TrimSpace(logsCommand) != "" {
 		commands = append(commands, agentRepairCommand{
 			Kind:    "inspect_logs",
 			Command: logsCommand,
-			Reason:  "Read lifecycle and recent log evidence before editing.",
+			Reason:  logReason,
 		})
 	}
 	for _, pack := range evidencePacks {
@@ -321,7 +325,10 @@ func shouldRecommendAgentRerun(run agentVerifyRunReport) bool {
 func recommendedNextStep(diagnosis agentDiagnosis, apiURL, check string, requestSecrets bool) string {
 	switch diagnosis.Action {
 	case "fix_code":
-		return "Edit the failing code or test, then rerun the same Ready CI check."
+		if diagnosis.Kind == preflightapi.ClassificationTestFailed {
+			return "Inspect the failing test and implementation, repair the defect, then rerun the same Ready CI check."
+		}
+		return "Inspect the failure evidence and relevant source, repair the defect, then rerun the same Ready CI check."
 	case "retry", "retry_or_split":
 		return "Retry once; if it fails again, inspect logs and reduce the check scope."
 	case preflightapi.AgentActionReduceScope:

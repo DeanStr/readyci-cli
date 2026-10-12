@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
@@ -61,13 +62,16 @@ func projectPolicyPreviewCommand(args []string) error {
 	fs.SetOutput(os.Stderr)
 	apiURL, apiToken := apiFlags(fs)
 	projectID := fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id")
-	filePath := fs.String("file", ".readyci.yml", "policy YAML file")
+	filePath := fs.String("file", "", "policy YAML file (defaults to discovered project configuration)")
 	jsonOutput := fs.Bool("json", false, "print machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
 		return cliConfigError("usage: readyci project policy preview [--project PROJECT] [--file .readyci.yml] [--json]", nil)
+	}
+	if flagProvided(fs, "file") && strings.TrimSpace(*filePath) == "" {
+		return cliConfigError("--file must not be empty", nil)
 	}
 	projectIDValue, configYAML, err := projectPolicyCommandInput(*apiURL, *projectID, *filePath)
 	if err != nil {
@@ -91,11 +95,22 @@ func projectPolicyPreviewCommand(args []string) error {
 }
 
 func projectPolicyCommandInput(apiURL, projectID, filePath string) (string, string, error) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		_, discoveredPath, err := config.LoadProjectConfig(".")
+		if err != nil {
+			return "", "", err
+		}
+		if discoveredPath == "" {
+			return "", "", cliConfigError("no .readyci.yml or .readyci.yaml found", nil)
+		}
+		filePath = discoveredPath
+	}
 	projectIDValue, err := effectiveProjectID(apiURL, projectID)
 	if err != nil {
 		return "", "", err
 	}
-	data, err := os.ReadFile(strings.TrimSpace(filePath))
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", "", err
 	}

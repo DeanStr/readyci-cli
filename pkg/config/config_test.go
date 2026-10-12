@@ -574,3 +574,14 @@ commands:
 		t.Fatal("LoadProjectConfig accepted removed commands alias")
 	}
 }
+
+func TestSyncExclusionsFailFastOnMalformedOrUnsupportedRules(t *testing.T) {
+	for _, document := range []string{
+		"version: 1\nsync:\n  exclude: ['[broken']\n",
+		"version: 1\nchecks:\n  test:\n    command: echo ok\n    sync:\n      exclude: ['!secrets/**']\n",
+	} {
+		if _, err := ParseProjectConfig([]byte(document), "fixture.yml"); err == nil {
+			t.Fatal("invalid exclusion config was accepted")
+		}
+	}
+}

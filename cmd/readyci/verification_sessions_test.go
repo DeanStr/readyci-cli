@@ -229,6 +229,7 @@ func TestSessionsWatchJSONPreservesLatestReceiptOnPollingFailure(t *testing.T) {
 			})
 			return
 		}
+		w.Header().Set("Retry-After", "0")
 		http.Error(w, "observation unavailable", http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
@@ -244,7 +245,7 @@ func TestSessionsWatchJSONPreservesLatestReceiptOnPollingFailure(t *testing.T) {
 	if decodeErr := json.Unmarshal([]byte(output), &receipt); decodeErr != nil {
 		t.Fatalf("decode session receipt: %v\n%s", decodeErr, output)
 	}
-	if requests != 2 || receipt.SessionID != "session_watch" || receipt.ClientError == nil ||
+	if requests != 1+observationReadMaxAttempts || receipt.SessionID != "session_watch" || receipt.ClientError == nil ||
 		receipt.ClientError.Code != "platform_internal" || receipt.ClientError.Classification != preflightapi.ClassificationPlatformInternalError {
 		t.Fatalf("requests=%d receipt=%+v", requests, receipt)
 	}

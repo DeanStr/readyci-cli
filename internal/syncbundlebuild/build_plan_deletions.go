@@ -2,21 +2,31 @@ package syncbundlebuild
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
-func planDeleted(ctx context.Context, root, head string, baseline []plannedEntry, matcher ignoreMatcher, changeMode string) ([]string, error) {
+func planDeleted(ctx context.Context, root, head string, baseline []plannedEntry, matcher ignoreMatcher, changeMode string, eligiblePaths []string) ([]string, error) {
 	if changeMode == syncbundle.ChangeModeStaged {
 		return planStagedDeleted(ctx, root, head, baseline, matcher)
 	}
 	var deleted []string
+	eligible := make(map[string]struct{}, len(eligiblePaths))
+	for _, rel := range eligiblePaths {
+		eligible[rel] = struct{}{}
+	}
 	for _, item := range baseline {
+		if _, ok := eligible[item.entry.Path]; !ok {
+			deleted = append(deleted, item.entry.Path)
+			continue
+		}
 		if _, ok, err := symlinkAncestor(root, item.entry.Path); err != nil {
 			return nil, err
 		} else if ok {
@@ -25,7 +35,7 @@ func planDeleted(ctx context.Context, root, head string, baseline []plannedEntry
 		}
 		source := filepath.Join(root, filepath.FromSlash(item.entry.Path))
 		info, err := os.Lstat(source)
-		if os.IsNotExist(err) {
+		if workspacePathMissing(err) {
 			deleted = append(deleted, item.entry.Path)
 			continue
 		}
@@ -103,7 +113,7 @@ func symlinkAncestor(root, rel string) (string, bool, error) {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if err != nil {
-			if os.IsNotExist(err) {
+			if workspacePathMissing(err) {
 				return "", false, nil
 			}
 			return "", false, err
@@ -116,4 +126,8 @@ func symlinkAncestor(root, rel string) (string, bool, error) {
 		}
 	}
 	return "", false, nil
+}
+
+func workspacePathMissing(err error) bool {
+	return os.IsNotExist(err) || errors.Is(err, syscall.ENOTDIR)
 }

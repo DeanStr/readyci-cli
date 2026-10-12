@@ -1,6 +1,10 @@
 package syncbundlebuild
 
-import "github.com/DeanStr/readyci-cli/pkg/syncbundle"
+import (
+	"crypto/sha256"
+
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
+)
 
 type BuildResult struct {
 	Root             string
@@ -41,6 +45,7 @@ type plannedEntry struct {
 	entry  syncbundle.Entry
 	source string
 	data   []byte
+	digest [sha256.Size]byte
 }
 
 type plannedBundle struct {

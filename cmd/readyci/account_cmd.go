@@ -50,6 +50,9 @@ func printAccountUsage(account preflightapi.AccountUsageResponse) {
 	fmt.Printf("compute_slot_minute_allowance: %.2f\n", allowanceSlotMinutes)
 	computeSlotMinutes := accountComputeSlotMinutes(account.Usage)
 	fmt.Printf("compute_slot_minutes: %.2f\n", computeSlotMinutes)
+	fmt.Printf("monthly_remaining_slot_minutes: %.2f\n", account.Usage.MonthlyRemainingSlotMinutes)
+	fmt.Printf("prepaid_remaining_slot_minutes: %.2f\n", account.Usage.PrepaidRemainingSlotMinutes)
+	fmt.Printf("reserved_slot_minutes: %.2f\n", account.Usage.ReservedSlotMinutes)
 	if allowanceSlotMinutes > 0 {
 		percent := computeSlotMinutes / allowanceSlotMinutes * 100
 		fmt.Printf("compute_slot_percent: %.1f\n", percent)

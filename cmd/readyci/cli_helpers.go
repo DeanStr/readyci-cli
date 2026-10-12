@@ -169,10 +169,28 @@ func oneLine(value string) string {
 }
 
 func printUsage() {
+	fmt.Fprintln(os.Stderr, `Run tests remotely against your current workspace, including uncommitted changes.
+
+usage:
+  readyci login                           Sign in once
+  readyci setup                           Set up and run your first test
+  readyci setup --print                    Inspect generated config locally
+  readyci check [--json] [NAME]            Run configured or affected checks
+  readyci run [--detach] [--json] COMMAND  Run an ad hoc command
+  readyci affected --dry-run               Preview changed-file selection
+  readyci sessions get|watch|cancel ID     Inspect or stop a job
+  readyci sessions retry|rerun ID          Retry saved source or test current edits
+  readyci runs logs RUN_ID                 Read test output
+  readyci doctor                          Diagnose setup
+  readyci verify                          Advanced agent assurance
+  readyci version                         Print the installed version
+
+Use readyci COMMAND --help for flags, or readyci help --all for every command.`)
+}
+
+func printFullUsage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  readyci start [--write-config] [--run] [--json]")
-	fmt.Fprintln(os.Stderr, "  readyci init [--profile remote-ci|strict] [--image IMAGE] [--detect] [--print] [--force]")
-	fmt.Fprintln(os.Stderr, "  readyci setup [--api-url URL] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--write-config] [--write-makefile] [--write-helpers] [--makefile] [--helper NAME] [--write-helper] [--json]")
+	fmt.Fprintln(os.Stderr, "  readyci setup [--yes] [--preview] [--run] [--print] [--image IMAGE] [--api-url URL] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--write-config] [--write-makefile] [--write-helpers] [--makefile] [--helper NAME] [--write-helper] [--json]")
 	fmt.Fprintln(os.Stderr, "  readyci login [--api-url URL] [--sso SLUG] [--no-browser] [--timeout DURATION]")
 	fmt.Fprintln(os.Stderr, "  readyci auth status [--api-url URL]")
 	fmt.Fprintln(os.Stderr, "  readyci auth logout [--api-url URL]")
@@ -190,13 +208,12 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  readyci project get|set [--project PROJECT] [--trusted-secret-command COMMAND] [--trusted-secret-command-hash HASH]")
 	fmt.Fprintln(os.Stderr, "  readyci project policy get|preview [--project PROJECT] [--file .readyci.yml] (activation is browser-only)")
 	fmt.Fprintln(os.Stderr, "  readyci secrets list|set|delete [--project PROJECT]")
-	fmt.Fprintln(os.Stderr, "  readyci run [--api-url URL] [--token TOKEN] [--retry N] [--detach] [--open] [--changes MODE] [--runner-size SIZE] [--timeout DURATION] [--cache-path PATH] [--keep-failed] [--concurrency-group GROUP] [--concurrency-limit N] [--network-mode MODE] [--network-allowlist HOSTS] [--docker] <command>")
-	fmt.Fprintln(os.Stderr, "  readyci affected [--api-url URL] [--token TOKEN] [--check NAME] [--staged] [--timeout DURATION] [--warm-dependencies] [--dry-run] [--json] [--watch] [--open]")
+	fmt.Fprintln(os.Stderr, "  readyci run [--json] [--request-secrets] [--api-url URL] [--token TOKEN] [--retry N] [--detach] [--open] [--changes MODE] [--runner-size SIZE] [--timeout DURATION] [--cache-path PATH] [--keep-failed] [--concurrency-group GROUP] [--concurrency-limit N] [--network-mode MODE] [--network-allowlist HOSTS] [--docker] <command>")
+	fmt.Fprintln(os.Stderr, "  readyci affected [--skip-warm] [--request-secrets] [--api-url URL] [--token TOKEN] [--check NAME] [--staged] [--timeout DURATION] [--dry-run] [--json] [--watch] [--open]")
 	fmt.Fprintln(os.Stderr, "  readyci affected audit [--json] [--strict] [--examples] [--duplicates] [--fix] [--fix-ignore-unmatched]")
 	fmt.Fprintln(os.Stderr, "  readyci affected explain [--json] [--why-not] <path> [path...]")
 	fmt.Fprintln(os.Stderr, "  readyci affected cargo [--check-prefix PREFIX] [--json]")
 	fmt.Fprintln(os.Stderr, "  readyci affected suggest [--json]")
-	fmt.Fprintln(os.Stderr, "  readyci touched [--api-url URL] [--token TOKEN] [--check NAME] [--staged] [--timeout DURATION] [--warm-dependencies] [--dry-run] [--json] [--watch] [--open]")
 	fmt.Fprintln(os.Stderr, "  readyci warm --check NAME|--profile dependencies|docker|all [--skip-confirm] [--dry-run]")
 	fmt.Fprintln(os.Stderr, "  readyci verify [--json] [--detach] [--progress auto|status|quiet] [--check NAME] [--intent INTENT] [--goal TEXT] [--task-id ID] [--idempotency-key KEY] [--predecessor SESSION_ID] [--request-secrets]")
 	fmt.Fprintln(os.Stderr, "  readyci sessions get|watch|cancel [--json] SESSION_ID")
@@ -208,9 +225,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  readyci agent setup")
 	fmt.Fprintln(os.Stderr, "  readyci agent instructions|skill print|install|doctor")
 	fmt.Fprintln(os.Stderr, "  readyci agent token create [--preset PRESET] [--ttl 30d] [--json]")
-	fmt.Fprintln(os.Stderr, "  readyci check [--dry-run] [--why] [name]")
+	fmt.Fprintln(os.Stderr, "  readyci check [--skip-warm] [--dry-run] [--why] [--request-secrets] [name]")
 	fmt.Fprintln(os.Stderr, "  readyci check --list [--json]")
-	fmt.Fprintln(os.Stderr, "  readyci check [--api-url URL] [--token TOKEN] [--dry-run] [--why] [--json] [--retry N] [--watch] [--open] [--changes MODE] [--timeout DURATION] [--cache-path PATH] [--keep-failed] [--concurrency-group GROUP] [--concurrency-limit N] <name>")
+	fmt.Fprintln(os.Stderr, "  readyci check [--skip-warm] [--api-url URL] [--token TOKEN] [--dry-run] [--why] [--json] [--retry N] [--watch] [--open] [--changes MODE] [--timeout DURATION] [--cache-path PATH] [--keep-failed] [--concurrency-group GROUP] [--concurrency-limit N] <name>")
 	fmt.Fprintln(os.Stderr, "  readyci groups latest [--api-url URL] [--token TOKEN] [--project PROJECT] [--json]")
 	fmt.Fprintln(os.Stderr, "  readyci groups status [--api-url URL] [--token TOKEN] [--json] GROUP_ID")
 	fmt.Fprintln(os.Stderr, "  readyci groups logs [--api-url URL] [--token TOKEN] [--tail N] GROUP_ID")

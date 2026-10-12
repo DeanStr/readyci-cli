@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
+
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,7 +272,7 @@ checks:
 	}
 
 	output, err := captureStdoutForCLITest(t, func() error {
-		return touchedCommand([]string{"--dry-run", "--json"})
+		return affectedCommand([]string{"--check", "touched", "--dry-run", "--json"})
 	})
 	if err != nil {
 		t.Fatalf("touched dry-run: %v", err)
@@ -286,7 +286,7 @@ checks:
 	}
 
 	output, err = captureStdoutForCLITest(t, func() error {
-		return touchedCommand([]string{"--staged", "--dry-run", "--json"})
+		return affectedCommand([]string{"--check", "staged", "--staged", "--dry-run", "--json"})
 	})
 	if err != nil {
 		t.Fatalf("touched staged dry-run: %v", err)
@@ -496,110 +496,5 @@ func TestAffectedSubsumesKeepsChildForUncoveredPaths(t *testing.T) {
 	}
 	if len(reasons["web-test"]) != 2 {
 		t.Fatalf("web-test reasons = %+v, want source and generated paths", reasons["web-test"])
-	}
-}
-
-func TestExecuteAffectedPlansContinuesAfterSuccessfulCheck(t *testing.T) {
-	plans := []affectedCheckPlan{
-		{
-			Plan: checkRunPlan{
-				Name:    "web-typecheck",
-				Options: remoteRunOptions{CommandAlias: "web-typecheck"},
-			},
-		},
-		{
-			Plan: checkRunPlan{
-				Name:    "web-test",
-				Options: remoteRunOptions{CommandAlias: "web-test"},
-			},
-		},
-	}
-	var ran []string
-	err := executeAffectedPlansWithRunner(plans, "pfl_test", func(options remoteRunOptions, matrix config.MatrixConfig, retries int) error {
-		if options.APIToken != "pfl_test" {
-			t.Fatalf("token = %q, want injected token", options.APIToken)
-		}
-		ran = append(ran, options.CommandAlias)
-		if len(ran) == 1 {
-			return exitCodeError{code: 0}
-		}
-		return nil
-	})
-	if !isSuccessfulExit(err) {
-		t.Fatalf("executeAffectedPlansWithRunner error = %v, want successful exit sentinel", err)
-	}
-	if strings.Join(ran, ",") != "web-typecheck,web-test" {
-		t.Fatalf("ran checks = %v, want both selected checks", ran)
-	}
-}
-
-func TestExecuteAffectedPlansContinuesAfterFailingCheck(t *testing.T) {
-	plans := []affectedCheckPlan{
-		{
-			Plan: checkRunPlan{
-				Name:    "web-typecheck",
-				Options: remoteRunOptions{CommandAlias: "web-typecheck"},
-			},
-		},
-		{
-			Plan: checkRunPlan{
-				Name:    "web-test",
-				Options: remoteRunOptions{CommandAlias: "web-test"},
-			},
-		},
-	}
-	var ran []string
-	err := executeAffectedPlansWithRunner(plans, "pfl_test", func(options remoteRunOptions, matrix config.MatrixConfig, retries int) error {
-		ran = append(ran, options.CommandAlias)
-		if len(ran) == 1 {
-			return exitCodeError{code: 2}
-		}
-		return nil
-	})
-	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 2 {
-		t.Fatalf("executeAffectedPlansWithRunner error = %v, want exit code 2", err)
-	}
-	if strings.Join(ran, ",") != "web-typecheck,web-test" {
-		t.Fatalf("ran checks = %v, want both selected checks", ran)
-	}
-}
-
-func TestExecuteAffectedPlansSkipsStatusSuccessAfterFailure(t *testing.T) {
-	plans := []affectedCheckPlan{
-		{
-			Plan: checkRunPlan{
-				Name:    "web-typecheck",
-				Options: remoteRunOptions{CommandAlias: "web-typecheck"},
-			},
-		},
-		{
-			Plan: checkRunPlan{
-				Name:    "web-test",
-				When:    &checkWhenReport{Status: "success"},
-				Options: remoteRunOptions{CommandAlias: "web-test"},
-			},
-		},
-		{
-			Plan: checkRunPlan{
-				Name:    "web-lint",
-				Options: remoteRunOptions{CommandAlias: "web-lint"},
-			},
-		},
-	}
-	var ran []string
-	err := executeAffectedPlansWithRunner(plans, "pfl_test", func(options remoteRunOptions, matrix config.MatrixConfig, retries int) error {
-		ran = append(ran, options.CommandAlias)
-		if len(ran) == 1 {
-			return exitCodeError{code: 2}
-		}
-		return nil
-	})
-	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 2 {
-		t.Fatalf("executeAffectedPlansWithRunner error = %v, want exit code 2", err)
-	}
-	if strings.Join(ran, ",") != "web-typecheck,web-lint" {
-		t.Fatalf("ran checks = %v, want failed check, skipped status-gated check, then ungated check", ran)
 	}
 }

@@ -53,7 +53,7 @@
       {
         "kind": "inspect_logs",
         "command": "readyci runs logs --tail 200 --include-lifecycle --json run_web",
-        "reason": "Read lifecycle and recent log evidence before editing."
+        "reason": "Read full logs if the supplied failure evidence is insufficient for repair."
       },
       {
         "kind": "inspect_evidence_pack",

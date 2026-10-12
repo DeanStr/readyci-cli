@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
+	"github.com/DeanStr/readyci-cli/pkg/config"
 	"os"
 	"strings"
 
@@ -143,4 +145,155 @@ func buildAgentVerifyReport(apiURL, apiToken, projectID, checkName, goal, intent
 		report.NextActions = append(report.NextActions, agentFixtureArtifactActions(apiURL, report.RunID, plan.Options.ArtifactPaths)...)
 	}
 	return report, runErr
+}
+
+func buildAgentAffectedVerifyReport(apiURL, apiToken, projectID, idempotencyKey, changes, goal, intent string, requestSecrets bool, retryCount int, retryProvided bool, cfg config.ProjectConfig, configPath string, progress agentProgressSink) (agentVerifyReport, error) {
+	ctx, stop := signalContext()
+	defer stop()
+	resolveOptions := agentResolveOptionsForIntent(intent, checkResolveOptions{
+		APIURL:        apiURL,
+		ProjectID:     projectID,
+		Changes:       changes,
+		RetryCount:    retryCount,
+		RetryProvided: retryProvided,
+	})
+	plans, dryRun, warnings, err := buildAgentAffectedRulePlans(ctx, ".", cfg, configPath, resolveOptions)
+	if err != nil {
+		return agentCommandErrorReport(preflightapi.ClassificationConfigInvalid, err), err
+	}
+	plans, dryRun = agentAugmentAffectedPlansForIntent(cfg, plans, dryRun, intent, resolveOptions)
+	plans = applyAgentAffectedPlanOptionsForIntent(intent, requestSecrets, plans)
+	checks := agentAffectedChecksFromDryRun(dryRun)
+	agentWarnings := agentWarningsForAffectedProfileExpansion(warnings)
+	if len(plans) == 0 {
+		emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressPlanned, Mode: "affected checks"})
+		report := agentVerifyReport{
+			SchemaVersion:  agentSchemaVersion,
+			Status:         "skipped",
+			Mode:           "affected_rules",
+			Intent:         intent,
+			Goal:           strings.TrimSpace(goal),
+			Reason:         "no_affected_rules_matched",
+			GroupKind:      "affected_rules",
+			Terminal:       true,
+			Classification: preflightapi.ClassificationSuccess,
+			Retryable:      false,
+			AgentAction:    preflightapi.AgentActionNone,
+			Summary:        "No affected rules matched changed files.",
+			Checks:         checks,
+			Runs:           []agentVerifyRunReport{},
+			Policy:         agentPolicyForPlansForIntent(dryRun.ChangeMode, intent, requestSecrets, nil),
+			Warnings:       agentWarnings,
+			CLIExitCode:    cliExitSuccess,
+		}
+		return report, nil
+	}
+	token, err := effectiveAPIToken(apiURL, apiToken)
+	if err != nil {
+		return agentCommandErrorReport(preflightapi.ClassificationAuthMissing, err), err
+	}
+	if strings.TrimSpace(token) == "" {
+		err := errors.New("no API token found; set READYCI_API_TOKEN")
+		return agentCommandErrorReport(preflightapi.ClassificationAuthMissing, err), err
+	}
+	baseKey, err := normalizeIdempotencyKey(idempotencyKey)
+	if err != nil {
+		return agentCommandErrorReport(preflightapi.ClassificationConfigInvalid, err), err
+	}
+	if baseKey == "" {
+		baseKey, err = newIdempotencyKey()
+		if err != nil {
+			return agentCommandErrorReport(preflightapi.ClassificationInternalError, err), err
+		}
+	}
+	report := agentVerifyReport{
+		SchemaVersion: agentSchemaVersion,
+		Status:        "running",
+		Mode:          "affected_rules",
+		Intent:        intent,
+		Goal:          strings.TrimSpace(goal),
+		Reason:        "matched_changed_paths",
+		GroupKind:     "affected_rules",
+		Checks:        checks,
+		Policy:        agentPolicyForPlansForIntent(dryRun.ChangeMode, intent, requestSecrets, checkRunPlansFromAffected(plans)),
+		Warnings:      agentWarnings,
+	}
+	emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressPlanned, Mode: "affected checks", Checks: affectedPlanNames(plans)})
+	for i := range plans {
+		plans[i].Plan.Options.Progress = progress
+	}
+	warmPlans, err := agentDependencyWarmPlansForAffected(".", plans, cfg, resolveOptions, intent)
+	if err != nil {
+		return agentCommandErrorReport(preflightapi.ClassificationConfigInvalid, err), err
+	}
+	if len(warmPlans) > 0 {
+		for i := range warmPlans {
+			warmPlans[i].Plan.Options.Progress = progress
+		}
+		runs, warmErr := executeAgentAffectedPlans(warmPlans, token, baseKey, intent, "warm")
+		report.Runs = append(report.Runs, runs...)
+		if warmErr != nil && !isSuccessfulExit(warmErr) {
+			report = summarizeAgentVerifyRuns(report)
+			return report, warmErr
+		}
+	}
+	runs, runErr := executeAgentAffectedPlans(plans, token, baseKey, intent, "verify")
+	report.Runs = append(report.Runs, runs...)
+	report = summarizeAgentVerifyRuns(report)
+	if intent == agentIntentFixtureUpdate {
+		report.NextActions = append(report.NextActions, agentFixtureArtifactActions(apiURL, report.RunID, agentAffectedArtifactPaths(plans))...)
+	}
+	return report, runErr
+}
+
+func executeAgentAffectedPlans(plans []affectedCheckPlan, token, baseKey, intent, phase string) ([]agentVerifyRunReport, error) {
+	return executeAgentAffectedPlansWithRunner(plans, token, baseKey, intent, phase, executeAgentCheckMatrix)
+}
+
+type agentPlanRunFunc func(checkRunPlan) ([]agentVerifyRunReport, error)
+
+func executeAgentAffectedPlansWithRunner(plans []affectedCheckPlan, token, baseKey, intent, phase string, run agentPlanRunFunc) ([]agentVerifyRunReport, error) {
+	var reports []agentVerifyRunReport
+	var lastErr error
+	var successErr error
+	for _, selected := range plans {
+		plan := selected.Plan
+		if lastErr != nil && checkPlanRequiresSuccessfulStatus(plan) {
+			if plan.Options.Progress != nil {
+				plan.Options.Progress.Emit(agentProgressEvent{Kind: agentProgressSkipped, RunName: plan.Name})
+			} else {
+				fmt.Fprintf(os.Stderr, "readyci: affected path rules skipped %s because a previous check failed\n", plan.Name)
+			}
+			continue
+		}
+		plan.Options.APIToken = token
+		plan.Options.RunGroupKey = baseKey
+		plan.Options.RunGroupKind = "affected_rules"
+		plan.Options.RunGroupName = agentRunGroupNameForIntent(intent, "affected verification")
+		childID := defaultString(plan.Options.LogicalChildID, plan.Name)
+		plan.Options.LogicalChildID = childID
+		plan.Options.LogicalChildName = defaultString(plan.Options.LogicalChildName, plan.Name)
+		plan.Options.IdempotencyKey = agentAffectedChildIdempotencyKey(baseKey, childID)
+		runs, runErr := run(plan)
+		for i := range runs {
+			runs[i].Phase = phase
+		}
+		reports = append(reports, runs...)
+		if runErr == nil {
+			continue
+		}
+		if isSuccessfulExit(runErr) {
+			successErr = runErr
+			continue
+		}
+		lastErr = runErr
+		var exitErr exitCodeError
+		if !errors.As(runErr, &exitErr) {
+			break
+		}
+	}
+	if lastErr != nil {
+		return reports, lastErr
+	}
+	return reports, successErr
 }

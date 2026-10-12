@@ -16,7 +16,7 @@ import (
 func newSuccessfulRunCommandServer(t *testing.T, created *preflightapi.CreateRunRequest, createBody *[]byte) *httptest.Server {
 	t.Helper()
 	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server = httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			body, err := io.ReadAll(r.Body)
@@ -54,7 +54,7 @@ func newSuccessfulRunCommandServer(t *testing.T, created *preflightapi.CreateRun
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	t.Cleanup(server.Close)
 	return server
 }
@@ -112,7 +112,7 @@ resources:
 
 	err = runCommand([]string{"--api-url", server.URL, "--runner-size", "xlarge", "--timeout", "90m", "true"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("runCommand error = %v, want exit code 0", err)
 	}
 	if created.RunnerSize != "xlarge" {
@@ -225,7 +225,7 @@ func TestRunCommandDefaultsDockerNetworkToNone(t *testing.T) {
 
 	err = runCommand([]string{"--api-url", server.URL, "--docker", "docker version"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("runCommand error = %v, want exit code 0", err)
 	}
 	if !created.Docker {
@@ -277,7 +277,7 @@ resources:
 
 	err = runCommand([]string{"--api-url", server.URL, "docker version"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("runCommand error = %v, want exit code 0", err)
 	}
 	if !created.Docker {
@@ -325,7 +325,7 @@ concurrency_limit: 3
 
 	err = runCommand([]string{"--api-url", server.URL, "--concurrency-limit", "0", "true"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("runCommand error = %v, want exit code 0", err)
 	}
 	if created.ConcurrencyGroup != "" || created.ConcurrencyLimit != 0 {
@@ -372,7 +372,7 @@ network:
 
 	err = runCommand([]string{"--api-url", server.URL, "--network-mode", "none", "true"})
 	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) || exitErr.code != 0 {
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.code != 0) {
 		t.Fatalf("runCommand error = %v, want exit code 0", err)
 	}
 	if created.NetworkMode != "none" {

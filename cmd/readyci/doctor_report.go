@@ -75,7 +75,7 @@ func buildDoctorReport(ctx context.Context, options doctorOptions) doctorReport 
 	if err != nil {
 		report.fail("config", fmt.Sprintf("config could not be loaded: %v", err), "run readyci config validate after fixing the YAML")
 	} else if path == "" {
-		report.warn("config", "no .readyci.yml found; defaults will be used", "run readyci setup --write-config --detect to create a project config", "run readyci init --detect --print to inspect generated config without writing it")
+		report.warn("config", "no .readyci.yml found; defaults will be used", "run readyci setup --write-config --detect to create a project config", "run readyci setup --print to inspect generated config without writing it")
 	} else if err := validateProjectConfigForConfigPath(cfg, path); err != nil {
 		report.fail("config", fmt.Sprintf("config invalid: %v", err), "run readyci config explain to see the resolved config")
 	} else {

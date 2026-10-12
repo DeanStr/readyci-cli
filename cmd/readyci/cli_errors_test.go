@@ -13,8 +13,10 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -261,7 +263,7 @@ func TestCLIValidationFailuresUseConfigErrorTaxonomy(t *testing.T) {
 		run  func() error
 	}{
 		{name: "unknown setup profile", run: func() error { return setupCommand([]string{"--profile", "bogus"}) }},
-		{name: "unknown init profile", run: func() error { return initCommand([]string{"--profile", "bogus"}) }},
+		{name: "unknown init profile", run: func() error { return generateSetupConfigForTest([]string{"--profile", "bogus"}) }},
 		{name: "unknown instructions print target", run: func() error {
 			return agentInstructionsPrintCommand([]string{"--target", "bogus"})
 		}},
@@ -365,5 +367,14 @@ func TestInvocationCommandNeverTreatsFlagValuesAsSubcommands(t *testing.T) {
 	}
 	if got := invocationCommand([]string{"runs", "--token", "secret-token", "--json"}); got != "runs" {
 		t.Fatalf("malformed runs command leaked a flag value: %q", got)
+	}
+}
+
+func TestSourceCompatibilityErrorsAreActionableConfigurationFailures(t *testing.T) {
+	for _, err := range []error{syncbundlebuild.ErrUnsupportedRepository, syncbundle.ValidateExcludePatterns([]string{"[broken"})} {
+		result := normalizeCLIError(err)
+		if result.ExitCode != cliExitUsageOrConfig || result.Classification != preflightapi.ClassificationConfigInvalid || result.Retryable {
+			t.Fatalf("source incompatibility was misclassified: %+v", result)
+		}
 	}
 }

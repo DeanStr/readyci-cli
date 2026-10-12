@@ -22,11 +22,10 @@ func NewPathFilter(ctx context.Context, cwd string, options BuildOptions) (PathF
 	if err != nil {
 		return PathFilter{}, err
 	}
-	ignorePatterns, err := readProjectIgnore(root)
+	matcher, _, err := sourceIgnoreMatcher(root, options)
 	if err != nil {
 		return PathFilter{}, err
 	}
-	ignorePatterns = append(ignorePatterns, options.ExcludePatterns...)
 	includeUntracked := true
 	if options.IncludeUntracked != nil {
 		includeUntracked = *options.IncludeUntracked
@@ -42,7 +41,7 @@ func NewPathFilter(ctx context.Context, cwd string, options BuildOptions) (PathF
 		}
 	}
 	return PathFilter{
-		matcher:          newIgnoreMatcher(ignorePatterns),
+		matcher:          matcher,
 		includeUntracked: includeUntracked,
 		knownPaths:       knownPaths,
 	}, nil

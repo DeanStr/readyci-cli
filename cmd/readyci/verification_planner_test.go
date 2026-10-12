@@ -101,7 +101,7 @@ checks:
 	}
 
 	var serverURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			writeCLITestJSON(w, http.StatusCreated, preflightapi.CreateRunResponse{
@@ -120,7 +120,7 @@ checks:
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 	serverURL = server.URL
 
@@ -130,19 +130,20 @@ checks:
 	if err != nil && !isSuccessfulExit(err) {
 		t.Fatalf("check --why --json: %v\n%s", err, output)
 	}
-	var report checkExecutionReport
+	var report executionSessionReport
 	if decodeErr := json.Unmarshal([]byte(output), &report); decodeErr != nil {
 		t.Fatalf("decode execution report: %v\n%s", decodeErr, output)
 	}
 	if report.Plan == nil || len(report.Plan.Selected) != 1 || report.Plan.Selected[0].Name != "ci" {
 		t.Fatalf("execution plan = %+v, want selected ci", report.Plan)
 	}
-	if len(report.CreatedRuns) != 1 || report.CreatedRuns[0].RunID != "run_json_why" || report.CreatedRuns[0].Check != "ci" {
-		t.Fatalf("created runs = %+v, want ci run", report.CreatedRuns)
+	if len(report.Session.Nodes) != 1 || report.Session.Nodes[0].Name != "ci" || report.Session.Nodes[0].Attempts[0].RunID != "run_json_why" {
+		t.Fatalf("nodes: %+v", report.Session.Nodes)
 	}
-	if report.Result.Status != preflightapi.StatusSucceeded || report.Result.Classification != preflightapi.ClassificationSuccess || report.Result.ExitCode != 0 {
-		t.Fatalf("result = %+v, want succeeded success", report.Result)
+	if report.Session.Verdict != preflightapi.VerificationVerdictChecksPassed {
+		t.Fatalf("verdict: %s", report.Session.Verdict)
 	}
+
 }
 
 func TestCheckWhyJSONActualRunKeepsMatrixCheckNamesStable(t *testing.T) {
@@ -170,7 +171,7 @@ checks:
 
 	var serverURL string
 	var created []preflightapi.CreateRunRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(successfulExecutionTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/runs":
 			var req preflightapi.CreateRunRequest
@@ -198,7 +199,7 @@ checks:
 		default:
 			http.NotFound(w, r)
 		}
-	}))
+	})))
 	defer server.Close()
 	serverURL = server.URL
 
@@ -208,7 +209,7 @@ checks:
 	if err != nil && !isSuccessfulExit(err) {
 		t.Fatalf("check --why --json matrix: %v\n%s", err, output)
 	}
-	var report checkExecutionReport
+	var report executionSessionReport
 	if decodeErr := json.Unmarshal([]byte(output), &report); decodeErr != nil {
 		t.Fatalf("decode execution report: %v\n%s", decodeErr, output)
 	}
@@ -220,17 +221,15 @@ checks:
 			t.Fatalf("remote command alias = %q, want matrix-decorated ci alias", req.CommandAlias)
 		}
 	}
-	if len(report.CreatedRuns) != 2 {
-		t.Fatalf("created runs = %+v, want 2 matrix runs", report.CreatedRuns)
+	if len(report.Session.Nodes) != 2 {
+		t.Fatalf("nodes: %+v", report.Session.Nodes)
 	}
-	for _, run := range report.CreatedRuns {
-		if run.Check != "ci" {
-			t.Fatalf("created run check = %q, want stable ci in %+v", run.Check, report.CreatedRuns)
-		}
-		if run.MatrixVariant == "" {
-			t.Fatalf("created run missing matrix variant: %+v", run)
+	for _, node := range report.Session.Plan.Nodes {
+		if node.Name != "ci" || node.MatrixGroup == "" {
+			t.Fatalf("matrix node: %+v", node)
 		}
 	}
+
 }
 
 func TestCheckExecutionResultForPreCreateErrorIsNonZeroUnknown(t *testing.T) {

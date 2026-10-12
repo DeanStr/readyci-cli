@@ -27,6 +27,9 @@ func NormalizeSourcePolicyBinding(binding SourcePolicyBinding) (SourcePolicyBind
 }
 
 func normalizeSourcePolicyExcludePatterns(patterns []string) ([]string, error) {
+	if err := ValidateExcludePatterns(patterns); err != nil {
+		return nil, err
+	}
 	seen := make(map[string]struct{}, len(patterns))
 	excludes := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {

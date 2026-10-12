@@ -102,35 +102,39 @@ type CompleteUploadRequest struct {
 }
 
 type RunSummary struct {
-	RunID            string     `json:"run_id"`
-	RunGroupID       string     `json:"run_group_id,omitempty"`
-	TeamID           string     `json:"team_id,omitempty"`
-	ProjectID        string     `json:"project_id"`
-	Region           string     `json:"region"`
-	Command          string     `json:"command"`
-	CommandAlias     string     `json:"command_alias,omitempty"`
-	ConcurrencyGroup string     `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit int        `json:"concurrency_limit,omitempty"`
-	Status           string     `json:"status"`
-	WorkerID         string     `json:"worker_id,omitempty"`
-	RunnerSize       string     `json:"runner_size"`
-	NetworkMode      string     `json:"network_mode"`
-	Docker           bool       `json:"docker"`
-	CacheMode        string     `json:"cache_mode"`
-	CacheLaneID      string     `json:"cache_lane_id,omitempty"`
-	CacheLaneIndex   *int       `json:"cache_lane_index,omitempty"`
-	ExitCode         *int       `json:"exit_code,omitempty"`
-	Classification   string     `json:"classification,omitempty"`
-	Retryable        bool       `json:"retryable"`
-	AgentAction      string     `json:"agent_action,omitempty"`
-	FailureSummary   string     `json:"failure_summary,omitempty"`
-	PrimaryFile      string     `json:"primary_file,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	QueuedAt         *time.Time `json:"queued_at,omitempty"`
-	ClaimedAt        *time.Time `json:"claimed_at,omitempty"`
-	LeaseExpiresAt   *time.Time `json:"lease_expires_at,omitempty"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
-	EventCount       int        `json:"event_count"`
+	RunID            string `json:"run_id"`
+	RunGroupID       string `json:"run_group_id,omitempty"`
+	TeamID           string `json:"team_id,omitempty"`
+	ProjectID        string `json:"project_id"`
+	Region           string `json:"region"`
+	Command          string `json:"command"`
+	CommandAlias     string `json:"command_alias,omitempty"`
+	ConcurrencyGroup string `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit int    `json:"concurrency_limit,omitempty"`
+	Status           string `json:"status"`
+	WorkerID         string `json:"worker_id,omitempty"`
+	// Git identifies the revision a run checked, so a list of runs can be read
+	// without fetching each run's spec. Ready CI runs pre-push working trees, so
+	// Dirty is part of identifying the revision, not an aside.
+	Git            GitInfo    `json:"git,omitempty"`
+	RunnerSize     string     `json:"runner_size"`
+	NetworkMode    string     `json:"network_mode"`
+	Docker         bool       `json:"docker"`
+	CacheMode      string     `json:"cache_mode"`
+	CacheLaneID    string     `json:"cache_lane_id,omitempty"`
+	CacheLaneIndex *int       `json:"cache_lane_index,omitempty"`
+	ExitCode       *int       `json:"exit_code,omitempty"`
+	Classification string     `json:"classification,omitempty"`
+	Retryable      bool       `json:"retryable"`
+	AgentAction    string     `json:"agent_action,omitempty"`
+	FailureSummary string     `json:"failure_summary,omitempty"`
+	PrimaryFile    string     `json:"primary_file,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	QueuedAt       *time.Time `json:"queued_at,omitempty"`
+	ClaimedAt      *time.Time `json:"claimed_at,omitempty"`
+	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
+	EventCount     int        `json:"event_count"`
 }
 
 type RunDetail struct {
@@ -502,9 +506,12 @@ type PostRunEventRequest struct {
 }
 
 type FinishRunRequest struct {
-	ClaimToken    string                     `json:"claim_token,omitempty"`
-	Status        string                     `json:"status"`
-	ExitCode      int                        `json:"exit_code"`
-	FailureReason string                     `json:"failure_reason,omitempty"`
-	Evidence      *RunnerEvidenceAttestation `json:"evidence,omitempty"`
+	// CacheTeardownComplete acknowledges that the runtime has released all
+	// writable cache resources. Missing or false retires the generation.
+	CacheTeardownComplete bool                       `json:"cache_teardown_complete"`
+	ClaimToken            string                     `json:"claim_token,omitempty"`
+	Status                string                     `json:"status"`
+	ExitCode              int                        `json:"exit_code"`
+	FailureReason         string                     `json:"failure_reason,omitempty"`
+	Evidence              *RunnerEvidenceAttestation `json:"evidence,omitempty"`
 }

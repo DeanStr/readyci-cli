@@ -52,7 +52,7 @@ func simpleSessionCommand(command string, args []string) error {
 	case "get":
 		session, err = client.VerificationSession(ctx, fs.Arg(0))
 	case "watch":
-		session, err = watchVerificationSession(ctx, client, fs.Arg(0), nil)
+		session, err = watchVerificationSession(ctx, client, fs.Arg(0), nil, executionLogsForOutput(*jsonOutput, token))
 		if err == nil {
 			session, err = refreshVerificationSessionCurrentness(ctx, client, session)
 		}
@@ -62,7 +62,7 @@ func simpleSessionCommand(command string, args []string) error {
 	if err != nil {
 		if command == "watch" && session.SchemaVersion != "" {
 			exitCode := applyVerificationCommandError(&session, err)
-			if outputErr := outputVerificationSession(session, *jsonOutput); outputErr != nil {
+			if outputErr := outputVerificationSession(session, *jsonOutput, *apiURL); outputErr != nil {
 				return outputErr
 			}
 			return exitCodeError{code: exitCode}
@@ -74,10 +74,10 @@ func simpleSessionCommand(command string, args []string) error {
 			return err
 		}
 	} else {
-		printVerificationSession(session)
+		printVerificationSession(session, *apiURL)
 	}
 	if command == "watch" {
-		return verificationVerdictExit(session)
+		return executionSessionExit(session)
 	}
 	return nil
 }
@@ -98,7 +98,7 @@ func retrySessionCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" && !localAPIEndpoint(*apiURL) {
 		return cliAuthMissingError("No Ready CI credential is available.", nil)
 	}
 	client := api.NewClient(*apiURL, api.WithToken(token))
@@ -117,7 +117,7 @@ func retrySessionCommand(args []string) error {
 	}
 	session := response.Session
 	if !*detach {
-		watched, watchErr := watchVerificationSession(ctx, client, session.SessionID, nil)
+		watched, watchErr := watchVerificationSession(ctx, client, session.SessionID, nil, executionLogsForOutput(*jsonOutput, token))
 		if watched.SchemaVersion != "" {
 			session = watched
 		}
@@ -134,18 +134,18 @@ func retrySessionCommand(args []string) error {
 			return err
 		}
 		exitCode := applyVerificationCommandError(&session, err)
-		if outputErr := outputVerificationSession(session, *jsonOutput); outputErr != nil {
+		if outputErr := outputVerificationSession(session, *jsonOutput, *apiURL); outputErr != nil {
 			return outputErr
 		}
 		return exitCodeError{code: exitCode}
 	}
-	if err := outputVerificationSession(session, *jsonOutput); err != nil {
+	if err := outputVerificationSession(session, *jsonOutput, *apiURL); err != nil {
 		return err
 	}
 	if *detach {
 		return nil
 	}
-	return verificationVerdictExit(session)
+	return executionSessionExit(session)
 }
 
 func reconcileVerificationRetryAfterInterrupt(client *api.Client, predecessorID string) (preflightapi.VerificationSession, error) {
@@ -177,7 +177,7 @@ func outputInterruptedVerificationSession(apiURL string, client *api.Client, ses
 		StatusCommand:            verificationSessionRecoveryCommand(apiURL, "get", session.SessionID),
 		CancelCommand:            verificationSessionRecoveryCommand(apiURL, "cancel", session.SessionID),
 	}
-	if outputErr := outputVerificationSession(session, jsonOutput); outputErr != nil {
+	if outputErr := outputVerificationSession(session, jsonOutput, apiURL); outputErr != nil {
 		return outputErr
 	}
 	return exitCodeError{code: interruptionExitCode(received)}
@@ -208,7 +208,7 @@ func rerunSessionCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" && !localAPIEndpoint(*apiURL) {
 		return cliAuthMissingError("No Ready CI credential is available.", nil)
 	}
 	client := api.NewClient(*apiURL, api.WithToken(token))
@@ -224,12 +224,23 @@ func rerunSessionCommand(args []string) error {
 	if err := validateVerificationRerunRecipe(predecessor.Recipe); err != nil {
 		return cliConfigError("verification session does not contain a supported rerun recipe: "+err.Error(), err)
 	}
+	var executionPrepared *preparedVerificationSession
+	if predecessor.Recipe.Purpose == preflightapi.ExecutionPurpose {
+		prepared, prepareErr := prepareExecutionRerun(predecessor, *apiURL)
+		if prepareErr != nil {
+			return prepareErr
+		}
+		executionPrepared = &prepared
+	}
 	session, runErr := createAndWatchVerificationSession(verificationSessionOptions{
 		APIURL: *apiURL, APIToken: token, ProjectID: predecessor.ProjectID, CheckName: predecessor.Recipe.Check,
+		SkipWarm: predecessor.Recipe.SkipWarm, WarmChecks: predecessor.Recipe.WarmChecks, SkipConfirm: predecessor.Recipe.SkipConfirm,
+		Purpose: predecessor.Recipe.Purpose, Command: predecessor.Recipe.Command, Prepared: executionPrepared,
 		Goal: predecessor.Goal, Intent: predecessor.Intent, IdempotencyKey: *idempotencyKey, TaskID: predecessor.TaskID,
 		PredecessorID: predecessor.SessionID, Changes: predecessor.Recipe.ChangeMode,
 		RequestSecrets: predecessor.Recipe.RequestSecrets, RetryCount: predecessor.Recipe.RetryCount,
 		RetryProvided: predecessor.Recipe.RetryProvided, Detach: *detach, Progress: progress,
+		Logs: executionLogsForOutput(*jsonOutput, token),
 	})
 	runErr = newCLISecretRedactor(args).RedactError(runErr)
 	if session.SchemaVersion == "" {
@@ -250,7 +261,7 @@ func rerunSessionCommand(args []string) error {
 	} else if runErr != nil {
 		exitCode = applyVerificationCommandError(&session, runErr)
 	}
-	if err := outputVerificationSession(session, *jsonOutput); err != nil {
+	if err := outputVerificationSession(session, *jsonOutput, *apiURL); err != nil {
 		return err
 	}
 	if runErr != nil {
@@ -259,7 +270,7 @@ func rerunSessionCommand(args []string) error {
 	if *detach {
 		return nil
 	}
-	return verificationVerdictExit(session)
+	return executionSessionExit(session)
 }
 
 func validateVerificationRerunRecipe(recipe preflightapi.VerificationRecipe) error {
@@ -267,6 +278,9 @@ func validateVerificationRerunRecipe(recipe preflightapi.VerificationRecipe) err
 }
 
 func validateVerificationRecipe(recipe preflightapi.VerificationRecipe, requireRerunnable bool) error {
+	if recipe.Purpose != "" && recipe.Purpose != preflightapi.ExecutionPurpose {
+		return fmt.Errorf("unsupported session recipe purpose %q", recipe.Purpose)
+	}
 	if recipe.SchemaVersion != preflightapi.VerificationRecipeSchemaVersion {
 		return fmt.Errorf("unsupported schema version %q", recipe.SchemaVersion)
 	}
@@ -289,10 +303,10 @@ func validateVerificationRecipe(recipe preflightapi.VerificationRecipe, requireR
 	return nil
 }
 
-func outputVerificationSession(session preflightapi.VerificationSession, jsonOutput bool) error {
+func outputVerificationSession(session preflightapi.VerificationSession, jsonOutput bool, apiURL string) error {
 	if jsonOutput {
 		return writeJSONOutput(session)
 	}
-	printVerificationSession(session)
+	printVerificationSession(session, apiURL)
 	return nil
 }

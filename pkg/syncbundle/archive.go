@@ -141,6 +141,17 @@ func archiveEntriesEqual(left, right ArchiveEntry) (bool, error) {
 		left.Entry.Linkname != right.Entry.Linkname {
 		return false, nil
 	}
+	if left.Entry.Type == entryTypeFile && left.Source == "" && right.Source == "" {
+		// Validated bundle entries already hold their bytes in memory. Exact
+		// equality does not need two more digest passes over unchanged files;
+		// the complete workspace digest is still computed independently.
+		for _, item := range []ArchiveEntry{left, right} {
+			if int64(len(item.Data)) != item.Entry.Size {
+				return false, fmt.Errorf("%s data size %d does not match manifest size %d", item.Entry.Path, len(item.Data), item.Entry.Size)
+			}
+		}
+		return bytes.Equal(left.Data, right.Data), nil
+	}
 	leftDigest, err := contentDigest([]ArchiveEntry{left}, "workspace")
 	if err != nil {
 		return false, err

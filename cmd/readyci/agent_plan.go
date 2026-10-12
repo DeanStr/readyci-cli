@@ -103,6 +103,21 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		), nil
 	}
 	applyAgentRemoteRunOptionsForIntent(intent, requestSecrets, &plan.Options)
+	warmPlans, err := agentDependencyWarmPlansForAffected(".", []affectedCheckPlan{{Plan: plan}}, cfg, resolveOptions, intent)
+	if err != nil {
+		return agentPlanReport{}, err
+	}
+	if _, err := compatibleAffectedSessionBuildOptions(append(warmPlans, affectedCheckPlan{Plan: plan}), syncbundlebuild.BuildOptions{
+		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: plan.Options.SyncExclude, IncludeUntracked: plan.Options.IncludeUntracked,
+	}); err != nil {
+		return agentPlanReport{}, err
+	}
+	var warnings []agentWarning
+	for _, warm := range warmPlans {
+		warnings = append(warnings, agentWarning{Section: "preparation", Message: "Automatic dependency preparation: " + warm.Plan.Name +
+			"; network_mode=" + warm.Plan.Options.NetworkMode + "; network_allowlist=" + strings.Join(warm.Plan.Options.NetworkAllowlist, ",") +
+			". Verification uses the prepared cache in this session and retains its configured network policy."})
+	}
 	variantNames := make([]string, 0, len(plan.Variants))
 	for _, variant := range plan.Variants {
 		if variant.Name != "" {
@@ -128,6 +143,7 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		TimeoutSeconds: estimated.TimeoutSeconds,
 		MatrixVariants: variantNames,
 		Alternatives:   recommendation.Alternatives,
+		Warnings:       warnings,
 		Estimated:      estimated,
 		Plan: ptrVerificationPlan(buildCheckVerificationPlan(cfg, path, plan, verificationPlanOptions{
 			Goal:           goal,

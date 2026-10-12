@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,8 +15,10 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 const cliErrorSchemaVersion = "readyci.cli.v1"
@@ -197,7 +200,7 @@ func normalizeCLIError(err error) cliError {
 		return cliError{Code: "command_failed", ExitCode: exitErr.code, Classification: preflightapi.ClassificationTestFailed, Message: err.Error(), Cause: err}
 	}
 	var configErr config.Error
-	if errors.As(err, &configErr) {
+	if errors.As(err, &configErr) || errors.Is(err, syncbundlebuild.ErrUnsupportedRepository) || errors.Is(err, syncbundle.ErrInvalidExcludePattern) {
 		return cliError{Code: "config_invalid", ExitCode: cliExitUsageOrConfig, Classification: preflightapi.ClassificationConfigInvalid, Message: err.Error(), Cause: err}
 	}
 	return cliError{Code: "internal_error", ExitCode: cliExitInternal, Classification: preflightapi.ClassificationInternalError, Message: err.Error(), Cause: err}
@@ -273,6 +276,7 @@ func normalizeCodedAPIError(responseErr api.ResponseError, cause error) (cliErro
 		"request_too_large":                             {preflightapi.ClassificationSyncTooLarge, cliExitRemoteFailure, false},
 		"platform_internal":                             {preflightapi.ClassificationPlatformInternalError, cliExitInternal, true},
 		"operation_unsupported":                         {preflightapi.ClassificationPlatformInternalError, cliExitInternal, false},
+		"prepaid_checkout_pending":                      {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		"billing_subscription_exists":                   {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		"api_token_limit_exceeded":                      {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		"run_event_limit_exceeded":                      {preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
@@ -347,6 +351,14 @@ func renderCLIError(args []string, err error) int {
 }
 
 func invocationRequestsStructuredOutput(args []string) bool {
+	if len(args) > 0 && args[0] == "run" {
+		fs, flags := newRunCommandFlags()
+		fs.SetOutput(io.Discard)
+		// Inspect exactly the flags consumed by run, stopping at its command or
+		// -- delimiter. Parsing only flags performs no execution or I/O.
+		_ = fs.Parse(args[1:])
+		return *flags.jsonOutput
+	}
 	if !invocationSupportsStructuredOutput(args) {
 		return false
 	}
@@ -363,8 +375,8 @@ func invocationSupportsStructuredOutput(args []string) bool {
 		return false
 	}
 	switch args[0] {
-	case "start", "setup", "config", "plan", "import", "sync", "doctor", "usage", "feedback",
-		"affected", "touched", "groups", "runs", "verify", "sessions", "agent", "artifacts", "fixtures", "check", "admin":
+	case "run", "setup", "config", "plan", "import", "sync", "doctor", "usage", "feedback",
+		"affected", "groups", "runs", "verify", "sessions", "agent", "artifacts", "fixtures", "check", "admin":
 		return true
 	case "project":
 		return len(args) > 1 && args[1] == "policy"

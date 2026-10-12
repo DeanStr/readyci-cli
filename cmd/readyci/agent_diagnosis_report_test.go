@@ -87,7 +87,7 @@ func TestRecommendedNextStepCoversEveryAgentAction(t *testing.T) {
 		check  string
 		want   string
 	}{
-		"fix code":           {action: preflightapi.AgentActionFixCode, want: "Edit the failing code"},
+		"fix code":           {action: preflightapi.AgentActionFixCode, want: "Inspect the failure evidence and relevant source"},
 		"retry":              {action: preflightapi.AgentActionRetry, want: "Retry once"},
 		"retry or split":     {action: preflightapi.AgentActionRetryOrSplit, want: "Retry once"},
 		"reduce scope":       {action: preflightapi.AgentActionReduceScope, want: "Reduce the sync scope"},
@@ -140,4 +140,44 @@ func TestNextActionsPreserveSecretRequestInRerunCommand(t *testing.T) {
 		}
 	}
 	t.Fatalf("next actions = %+v, want rerun action", actions)
+}
+
+func TestRepairLogGuidanceUsesAvailableEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, action string
+		evidence     []agentEvidence
+		want         string
+	}{
+		{name: "actionable test failure", action: "fix_code", evidence: []agentEvidence{{Text: "expected 401, received 200"}}, want: "if the supplied failure evidence is insufficient"},
+		{name: "test failure without evidence", action: "fix_code", want: "before deciding how to recover"},
+		{name: "infrastructure failure", action: "wait_or_report_infra", evidence: []agentEvidence{{Text: "worker unavailable"}}, want: "before deciding how to recover"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packet := buildAgentRepairPacket(agentDiagnosis{Action: tc.action}, "go test ./...", "", "readyci runs logs run_123", tc.evidence, nil, nil)
+			if len(packet.Commands) != 1 || !strings.Contains(packet.Commands[0].Reason, tc.want) {
+				t.Fatalf("unexpected recovery commands: %+v", packet.Commands)
+			}
+		})
+	}
+}
+
+func TestNonTestFailuresDoNotRecommendInvestigatingTests(t *testing.T) {
+	for _, kind := range []string{preflightapi.ClassificationLintFailed, preflightapi.ClassificationBuildFailed, preflightapi.ClassificationTypecheckFailed} {
+		t.Run(kind, func(t *testing.T) {
+			next := recommendedNextStep(agentDiagnosis{Kind: kind, Action: preflightapi.AgentActionFixCode}, "", "check", false)
+			if strings.Contains(next, "failing test") {
+				t.Fatalf("%s refers to a nonexistent failing test: %s", kind, next)
+			}
+			if !strings.Contains(next, "failure evidence") {
+				t.Fatalf("missing investigation guidance: %s", next)
+			}
+		})
+	}
+}
+
+func TestTestFailureRecommendsInspectingFailingTest(t *testing.T) {
+	next := recommendedNextStep(agentDiagnosis{Kind: preflightapi.ClassificationTestFailed, Action: preflightapi.AgentActionFixCode}, "", "check", false)
+	if !strings.Contains(next, "failing test and implementation") {
+		t.Fatalf("missing test-specific guidance: %s", next)
+	}
 }

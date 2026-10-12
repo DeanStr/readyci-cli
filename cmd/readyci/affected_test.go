@@ -48,7 +48,7 @@ checks:
 	}
 
 	output, err := captureStdoutForCLITest(t, func() error {
-		return affectedCommand([]string{"--timeout", "45m", "--dry-run", "--json"})
+		return affectedCommand([]string{"--check", "touched", "--timeout", "45m", "--dry-run", "--json"})
 	})
 	if err != nil {
 		t.Fatalf("affected dry-run: %v", err)
@@ -62,7 +62,7 @@ checks:
 	}
 
 	output, err = captureStdoutForCLITest(t, func() error {
-		return affectedCommand([]string{"--staged", "--dry-run", "--json"})
+		return affectedCommand([]string{"--check", "staged", "--staged", "--dry-run", "--json"})
 	})
 	if err != nil {
 		t.Fatalf("affected staged dry-run: %v", err)

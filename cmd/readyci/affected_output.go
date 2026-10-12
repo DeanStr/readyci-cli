@@ -199,6 +199,7 @@ func printAffectedDryRunReport(report affectedDryRunReport) {
 			fmt.Printf("  cache_mode: %s\n", check.CacheMode)
 		}
 		fmt.Printf("  network_mode: %s\n", check.NetworkMode)
+		fmt.Printf("  secrets_requested: %t\n", check.SecretsRequested)
 		fmt.Printf("  docker: %t\n", check.Docker)
 		if len(check.Services) > 0 {
 			fmt.Printf("  services: %s\n", strings.Join(check.Services, ","))

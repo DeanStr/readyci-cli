@@ -119,8 +119,14 @@ func resolveCheckRunPlan(name string, cfg config.ProjectConfig, options checkRes
 		// renderer never reports invalid input as an internal CLI failure.
 		return checkRunPlan{}, cliConfigError(err.Error(), err)
 	}
+	if err := validateExplicitDependencyWarmSecretRequest(name, agentIntentEditLoop, options.RequestSecrets); err != nil {
+		return checkRunPlan{}, cliConfigError(err.Error(), err)
+	}
+	resolved.Run.SecretsRequested = boolPtr(options.RequestSecrets)
 	return checkRunPlan{
 		Name:             resolved.Name,
+		SkipWarm:         options.SkipWarm,
+		RetryProvided:    options.RetryProvided,
 		Retries:          resolved.Retries,
 		Matrix:           resolved.Matrix,
 		Variants:         resolved.Variants,

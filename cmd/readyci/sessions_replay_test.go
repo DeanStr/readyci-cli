@@ -304,6 +304,7 @@ func TestSessionsRetryJSONWritesOneSessionDocumentWhenWatchFails(t *testing.T) {
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/verification-sessions/group_successor":
 			requests++
+			w.Header().Set("Retry-After", "0")
 			http.Error(w, "observation unavailable", http.StatusServiceUnavailable)
 		default:
 			http.NotFound(w, r)
@@ -316,8 +317,8 @@ func TestSessionsRetryJSONWritesOneSessionDocumentWhenWatchFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected watch failure")
 	}
-	if requests != 1 {
-		t.Fatalf("watch requests = %d, want 1", requests)
+	if requests != observationReadMaxAttempts {
+		t.Fatalf("watch requests = %d, want %d", requests, observationReadMaxAttempts)
 	}
 	decoder := json.NewDecoder(strings.NewReader(output))
 	var session preflightapi.VerificationSession

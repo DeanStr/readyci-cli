@@ -92,14 +92,11 @@ func refreshVerificationSessionCurrentness(ctx context.Context, client *api.Clie
 	if err != nil {
 		return session, cliConfigError("verification session does not contain a valid source recipe: "+err.Error(), err)
 	}
-	currentPath, current, err := syncbundlebuild.BuildToTempWithOptions(ctx, ".", buildOptions)
-	if currentPath != "" {
-		defer os.Remove(currentPath)
-	}
+	current, err := syncbundlebuild.SnapshotWithOptions(ctx, ".", buildOptions)
 	if err != nil {
 		return session, err
 	}
-	return client.MarkVerificationSessionStale(ctx, session.SessionID, current.Manifest.SnapshotDigest)
+	return client.MarkVerificationSessionStale(ctx, session.SessionID, current.SnapshotDigest)
 }
 
 func verificationCoverage(mode string, changedFiles, proposedMatchedFiles []string) ([]string, []string) {
@@ -136,6 +133,12 @@ func compatibleAffectedSessionBuildOptions(plans []affectedCheckPlan, fallback s
 	firstKey := verificationBuildOptionsKey(first)
 	for _, selected := range plans[1:] {
 		current := canonicalVerificationBuildOptions(selected.Plan.Options, fallback.ChangeMode)
+		if current.ChangeMode != first.ChangeMode {
+			return syncbundlebuild.BuildOptions{}, fmt.Errorf(
+				"checks %q and %q require different changes modes (%s and %s); one session must use one exact workspace; select checks with matching modes or set --changes explicitly",
+				plans[0].Plan.Name, selected.Plan.Name, first.ChangeMode, current.ChangeMode,
+			)
+		}
 		if verificationBuildOptionsKey(current) != firstKey {
 			return syncbundlebuild.BuildOptions{}, fmt.Errorf(
 				"affected checks %q and %q require different sync.exclude or include_untracked settings; one sealed verification session must use one exact workspace",
@@ -162,6 +165,7 @@ func explicitDependencyWarmSessionBuildOptions(warmPlans, targets []checkRunPlan
 }
 
 func canonicalVerificationBuildOptions(options remoteRunOptions, changeMode string) syncbundlebuild.BuildOptions {
+	changeMode = defaultString(options.ChangeMode, changeMode)
 	includeUntracked := true
 	if options.IncludeUntracked != nil {
 		includeUntracked = *options.IncludeUntracked
@@ -422,13 +426,18 @@ func directSourceInvariantProbeError(message string, cause error) error {
 	}
 }
 
-func watchVerificationSession(ctx context.Context, client *api.Client, sessionID string, progress agentProgressSink) (preflightapi.VerificationSession, error) {
+func watchVerificationSession(ctx context.Context, client *api.Client, sessionID string, progress agentProgressSink, logs *executionLogObserver) (preflightapi.VerificationSession, error) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	previous := make(map[string]string)
 	var latest preflightapi.VerificationSession
 	for {
-		session, err := client.VerificationSession(ctx, sessionID)
+		var session preflightapi.VerificationSession
+		err := retryObservationRead(ctx, func() error {
+			var err error
+			session, err = client.VerificationSession(ctx, sessionID)
+			return err
+		})
 		if err != nil {
 			return latest, err
 		}
@@ -438,6 +447,9 @@ func watchVerificationSession(ctx context.Context, client *api.Client, sessionID
 				emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressNodeStatus, RunName: node.Name, RunID: node.ID, Status: node.Status})
 				previous[node.ID] = node.Status
 			}
+		}
+		if err := logs.observe(ctx, client, session); err != nil {
+			return session, err
 		}
 		if session.State == preflightapi.VerificationStateTerminal {
 			return session, nil

@@ -120,12 +120,40 @@ func printAgentExplainReport(report agentExplainReport) {
 	}
 	fmt.Printf("classification: %s\n", report.Diagnosis.Kind)
 	fmt.Printf("summary: %s\n", report.Diagnosis.Summary)
+	if report.Repair.FailingTest != "" {
+		fmt.Printf("failing_test: %s\n", sanitizeRunLogsSummaryText(report.Repair.FailingTest))
+	}
+	if report.Repair.PrimaryFile != "" {
+		fmt.Printf("investigate_file: %s\n", sanitizeRunLogsSummaryText(report.Repair.PrimaryFile))
+	}
+	if report.Repair.ConfidenceNote != "" {
+		fmt.Printf("classification_confidence: %s\n", report.Repair.ConfidenceNote)
+	}
+	if len(report.Repair.Evidence) > 0 {
+		fmt.Println("evidence:")
+		for _, item := range report.Repair.Evidence {
+			if item.Path != "" {
+				fmt.Printf("  %s: %s\n", sanitizeRunLogsSummaryText(item.Path), sanitizeRunLogsSummaryText(item.Text))
+			} else {
+				fmt.Printf("  %s\n", sanitizeRunLogsSummaryText(item.Text))
+			}
+		}
+	}
 	for _, reason := range report.PolicyReasons {
 		fmt.Printf("policy_reason: %s\n", reason)
 	}
 	fmt.Printf("next: %s\n", report.RecommendedNextStep)
+	for _, pack := range report.Repair.EvidencePacks {
+		if pack.PreviewCommand != "" {
+			fmt.Printf("evidence_preview[%s]: %s\n", sanitizeRunLogsSummaryText(pack.Kind), pack.PreviewCommand)
+		}
+	}
 	fmt.Printf("logs: %s\n", report.LogsCommand)
 	if report.RerunCommand != "" {
 		fmt.Printf("rerun: %s\n", report.RerunCommand)
+	}
+	printAgentWarnings(report.Warnings)
+	if report.LogTruncated {
+		fmt.Println("warning: log evidence is truncated; additional context may be available in retained artifacts.")
 	}
 }

@@ -153,3 +153,30 @@ func TestNormalizeCreateVerificationSessionRequestBoundsPublicMetadata(t *testin
 		t.Fatalf("node limit error = %v", err)
 	}
 }
+
+func TestExecutionPurposeIsSealedAndCannotClaimAuthority(t *testing.T) {
+	req := validVerificationRequest()
+	req.Recipe.Purpose = ExecutionPurpose
+	normalized, err := NormalizeCreateVerificationSessionRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized.Recipe.Purpose = ""
+	if _, err := NormalizeCreateVerificationSessionRequest(normalized); err == nil {
+		t.Fatal("purpose changed without invalidating recipe digest")
+	}
+	req.Plan.Authority = VerificationPlanAuthorityServer
+	if _, err := NormalizeCreateVerificationSessionRequest(req); err == nil {
+		t.Fatal("execution claimed verification authority")
+	}
+	req.Plan.Authority = ""
+	req.Plan.Nodes = nil
+	if _, err := NormalizeCreateVerificationSessionRequest(req); err == nil {
+		t.Fatal("empty execution accepted")
+	}
+	req = validVerificationRequest()
+	req.Recipe.Source.UploadBaselineSessionID = "other-job"
+	if _, err := NormalizeCreateVerificationSessionRequest(req); err == nil {
+		t.Fatal("verification accepted execution baseline hint")
+	}
+}

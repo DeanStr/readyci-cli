@@ -8,6 +8,7 @@ import (
 )
 
 type affectedDryRunReport struct {
+	SkipWarm       bool                   `json:"skip_warm"`
 	ConfigPath     string                 `json:"config_path"`
 	ProjectID      string                 `json:"project_id"`
 	ChangeMode     string                 `json:"change_mode"`
@@ -20,6 +21,7 @@ type affectedDryRunReport struct {
 }
 
 type affectedDryRunCheck struct {
+	SecretsRequested   bool                `json:"secrets_requested"`
 	Name               string              `json:"name"`
 	Command            string              `json:"command"`
 	Image              string              `json:"image"`

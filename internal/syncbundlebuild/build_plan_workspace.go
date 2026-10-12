@@ -1,161 +1,46 @@
 package syncbundlebuild
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
+	"runtime"
 
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
-func planChangedFiles(ctx context.Context, root, head string, matcher ignoreMatcher, changeMode string, includeUntracked bool) ([]string, error) {
-	var paths []string
-	appendGitPaths := func(args ...string) error {
-		out, err := gitOutput(ctx, root, args...)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, splitNUL(out)...)
-		return nil
-	}
-
-	if head == "" {
-		switch changeMode {
-		case syncbundle.ChangeModeStaged:
-			if err := appendGitPaths("ls-files", "-z", "--cached"); err != nil {
-				return nil, err
-			}
-		case syncbundle.ChangeModeWorking, syncbundle.ChangeModeAll:
-			args := []string{"ls-files", "-z", "--cached"}
-			if includeUntracked {
-				args = append(args, "--others", "--exclude-standard")
-			}
-			if err := appendGitPaths(args...); err != nil {
-				return nil, err
-			}
-		}
-	} else {
-		// Disable git rename detection (--no-renames) so a rename surfaces as a
-		// delete of the source plus an add of the destination. Otherwise a rename
-		// that moves a file into a different rule domain collapses to the
-		// destination path only, hiding the deleted source from affected-rule
-		// matching and skipping the checks its old location required.
-		switch changeMode {
-		case syncbundle.ChangeModeStaged:
-			if err := appendGitPaths("diff", "-z", "--name-only", "--no-renames", "--cached", head, "--"); err != nil {
-				return nil, err
-			}
-		case syncbundle.ChangeModeWorking:
-			if err := appendGitPaths("diff", "-z", "--name-only", "--no-renames", "--"); err != nil {
-				return nil, err
-			}
-			if err := appendGitPaths("diff", "-z", "--name-only", "--no-renames", "--cached", head, "--"); err != nil {
-				return nil, err
-			}
-			if includeUntracked {
-				if err := appendGitPaths("ls-files", "-z", "--others", "--exclude-standard"); err != nil {
-					return nil, err
-				}
-			}
-		case syncbundle.ChangeModeAll:
-			if err := appendGitPaths("diff", "-z", "--name-only", "--no-renames", head, "--"); err != nil {
-				return nil, err
-			}
-			if includeUntracked {
-				if err := appendGitPaths("ls-files", "-z", "--others", "--exclude-standard"); err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	seen := make(map[string]struct{})
-	changed := make([]string, 0, len(paths))
-	for _, raw := range paths {
-		rel, err := syncbundle.ValidateRelativePath(raw)
-		if err != nil {
-			return nil, err
-		}
-		if matcher.ignored(rel) {
-			continue
-		}
-		if syncbundle.IsGitControlPath(rel) {
-			return nil, fmt.Errorf("changed path %q targets git control metadata", rel)
-		}
-		if _, ok := seen[rel]; ok {
-			continue
-		}
-		seen[rel] = struct{}{}
-		changed = append(changed, rel)
-	}
-	sort.Strings(changed)
-	return changed, nil
-}
-
-func appendWorkspacePath(root, rel string, matcher ignoreMatcher, seen map[string]struct{}, entries []plannedEntry) ([]plannedEntry, error) {
-	if _, ok, err := symlinkAncestor(root, rel); err != nil || ok {
-		return entries, err
-	}
-	source := filepath.Join(root, filepath.FromSlash(rel))
-	info, err := os.Lstat(source)
+func workspaceEntry(root *os.Root, rel string, indexMode int64, contentMode sourceContentMode) (plannedEntry, bool, error) {
+	parent, name, closeParent, err := workspaceParent(root, rel)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return entries, nil
+		if workspacePathMissing(err) {
+			return plannedEntry{}, false, nil
 		}
-		return nil, err
+		return plannedEntry{}, false, err
 	}
+	defer closeParent()
+	info, err := parent.Lstat(name)
+	if err != nil {
+		if workspacePathMissing(err) {
+			return plannedEntry{}, false, nil
+		}
+		return plannedEntry{}, false, err
+	}
+	// A formerly tracked file becoming a directory does not authorize walking it.
+	// Its eligible descendants arrive separately from Git's exact file listing.
 	if info.IsDir() {
-		err := filepath.WalkDir(source, func(path string, dirEntry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if path == source {
-				return nil
-			}
-			nested, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-			nested = filepath.ToSlash(nested)
-			if matcher.ignored(nested) {
-				if dirEntry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if dirEntry.IsDir() {
-				return nil
-			}
-			if _, ok := seen[nested]; ok {
-				return nil
-			}
-			seen[nested] = struct{}{}
-			info, err := os.Lstat(path)
-			if err != nil {
-				return err
-			}
-			entry, ok, err := entryFromInfo(nested, path, info)
-			if err != nil || !ok {
-				return err
-			}
-			entries = append(entries, entry)
-			return nil
-		})
-		return entries, err
+		if indexMode == 0 {
+			return plannedEntry{}, false, fmt.Errorf("%w: untracked path %q became a directory during source selection", ErrUnsupportedRepository, rel)
+		}
+		return plannedEntry{}, false, nil
 	}
-	entry, ok, err := entryFromInfo(rel, source, info)
-	if err != nil || !ok {
-		return entries, err
-	}
-	return append(entries, entry), nil
+	return entryFromInfo(rel, parent, name, info, indexMode, contentMode)
 }
 
-func entryFromInfo(rel, source string, info os.FileInfo) (plannedEntry, bool, error) {
+func entryFromInfo(rel string, parent *os.Root, name string, info os.FileInfo, indexMode int64, contentMode sourceContentMode) (plannedEntry, bool, error) {
 	entry := syncbundle.Entry{Path: rel, Mode: int64(info.Mode().Perm())}
 	if info.Mode()&os.ModeSymlink != 0 {
-		linkname, err := os.Readlink(source)
+		// Git records symlink targets, not the host's symlink permissions.
+		entry.Mode = 0o644
+		linkname, err := parent.Readlink(name)
 		if err != nil {
 			return plannedEntry{}, false, err
 		}
@@ -164,12 +49,49 @@ func entryFromInfo(rel, source string, info os.FileInfo) (plannedEntry, bool, er
 		}
 		entry.Type = syncbundle.EntryTypeSymlink
 		entry.Linkname = linkname
-		return plannedEntry{entry: entry, source: source}, true, nil
+		return plannedEntry{entry: entry}, true, nil
 	}
 	if !info.Mode().IsRegular() {
-		return plannedEntry{}, false, nil
+		return plannedEntry{}, false, fmt.Errorf("%w: workspace path %q is not a regular file or symlink", ErrUnsupportedRepository, rel)
 	}
+
+	file, err := openWorkspaceFile(parent, name)
+	if err != nil {
+		return plannedEntry{}, false, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return plannedEntry{}, false, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(info, opened) {
+		return plannedEntry{}, false, fmt.Errorf("workspace path %q changed during source selection", rel)
+	}
+	content, err := readSourceContent(file, opened.Size(), contentMode)
+	if err != nil {
+		return plannedEntry{}, false, err
+	}
+	after, err := file.Stat()
+	if err != nil {
+		return plannedEntry{}, false, err
+	}
+	if after.Size() != opened.Size() || after.ModTime() != opened.ModTime() || after.Mode() != opened.Mode() {
+		return plannedEntry{}, false, fmt.Errorf("workspace path %q changed while reading", rel)
+	}
+	entry.Mode = workspaceFileMode(opened.Mode(), indexMode, runtime.GOOS == "windows")
 	entry.Type = syncbundle.EntryTypeFile
-	entry.Size = info.Size()
-	return plannedEntry{entry: entry, source: source}, true, nil
+	entry.Size = content.size
+	return plannedEntry{entry: entry, data: content.data, digest: content.digest}, true, nil
+}
+
+func workspaceFileMode(mode os.FileMode, indexMode int64, windows bool) int64 {
+	// Windows has no POSIX execute bits; preserve explicit Git index modes.
+	if windows && indexMode != 0 {
+		return indexMode
+	}
+	// Git's executable flag follows the owner execute bit, not group/other bits.
+	if !windows && mode.Perm()&0o100 != 0 {
+		return 0o755
+	}
+	return 0o644
 }

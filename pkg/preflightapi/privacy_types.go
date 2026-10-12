@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-const PrivacyExportSchemaVersion = "readyci.privacy_export.v1"
+const PrivacyExportSchemaVersion = "readyci.privacy_export.v2"
 
 const (
 	PrivacyRequestAccess      = "access"
@@ -286,6 +286,7 @@ type AdminPrivacyExport struct {
 	BrowserSessions   []PrivacyExportBrowserSession          `json:"browser_sessions"`
 	Feedback          []FeedbackRecord                       `json:"feedback"`
 	Invitations       []TeamInvitationSummary                `json:"invitations"`
+	PrepaidOrders     []PrepaidOrderSummary                  `json:"prepaid_orders"`
 	BillingCheckouts  []PrivacyExportBillingCheckout         `json:"billing_checkouts"`
 	PolicyAcceptances []PrivacyExportPolicyAcceptance        `json:"policy_acceptances"`
 	RunGroups         []PrivacyExportRunGroup                `json:"run_groups"`

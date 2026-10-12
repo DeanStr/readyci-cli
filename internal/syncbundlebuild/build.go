@@ -13,43 +13,17 @@ func Build(ctx context.Context, cwd string, writer io.Writer) (BuildResult, erro
 }
 
 func ChangedFiles(ctx context.Context, cwd string, options BuildOptions) (ChangedFilesResult, error) {
-	changeMode, err := syncbundle.NormalizeChangeMode(options.ChangeMode)
-	if err != nil {
-		return ChangedFilesResult{}, err
-	}
-	root, err := repositoryRoot(ctx, cwd)
-	if err != nil {
-		return ChangedFilesResult{}, err
-	}
-	ignorePatterns, err := readProjectIgnore(root)
-	if err != nil {
-		return ChangedFilesResult{}, err
-	}
-	excludePatterns := append([]string(nil), options.ExcludePatterns...)
-	ignorePatterns = append(ignorePatterns, excludePatterns...)
-	matcher := newIgnoreMatcher(ignorePatterns)
-	includeUntracked := true
-	if options.IncludeUntracked != nil {
-		includeUntracked = *options.IncludeUntracked
-	}
-	if changeMode == syncbundle.ChangeModeStaged {
-		includeUntracked = false
-	}
-	untrackedFiles, err := planIncludedUntrackedFiles(ctx, root, matcher, includeUntracked, changeMode)
-	if err != nil {
-		return ChangedFilesResult{}, err
-	}
-	changedFiles, err := planChangedFiles(ctx, root, gitHead(ctx, root), matcher, changeMode, includeUntracked)
+	planned, err := planSource(ctx, cwd, options, hashSourceContent)
 	if err != nil {
 		return ChangedFilesResult{}, err
 	}
 	return ChangedFilesResult{
-		Root:             root,
-		ChangeMode:       changeMode,
-		IncludeUntracked: includeUntracked,
-		ExcludePatterns:  excludePatterns,
-		ChangedFiles:     changedFiles,
-		UntrackedFiles:   untrackedFiles,
+		Root:             planned.root,
+		ChangeMode:       planned.manifest.ChangeMode,
+		IncludeUntracked: planned.includeUntracked,
+		ExcludePatterns:  append([]string(nil), options.ExcludePatterns...),
+		ChangedFiles:     planned.manifest.ChangedFiles,
+		UntrackedFiles:   planned.untrackedFiles,
 	}, nil
 }
 
@@ -169,4 +143,14 @@ func BuildFullAndDeltaToTempWithOptions(ctx context.Context, cwd string, options
 		IncludeUntracked: planned.includeUntracked,
 		UntrackedFiles:   append([]string(nil), planned.untrackedFiles...),
 	}, nil
+}
+
+// SnapshotWithOptions hashes the selected workspace without compressing another
+// archive. It uses exactly the same planner and source filters as BuildWithOptions.
+func SnapshotWithOptions(ctx context.Context, cwd string, options BuildOptions) (syncbundle.Manifest, error) {
+	planned, err := planBundle(ctx, cwd, options)
+	if err != nil {
+		return syncbundle.Manifest{}, err
+	}
+	return planned.manifest, nil
 }

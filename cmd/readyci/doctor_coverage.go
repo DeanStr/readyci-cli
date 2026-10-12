@@ -69,7 +69,7 @@ func buildCoverageReport(cwd string) coverageReport {
 	report.ProjectID = cfg.ProjectID
 	if configPath == "" {
 		report.Status = "warn"
-		report.Warnings = append(report.Warnings, "no .readyci.yml found; run readyci init --detect --print to inspect generated coverage")
+		report.Warnings = append(report.Warnings, "no .readyci.yml found; run readyci setup --print to inspect generated coverage")
 	}
 	for _, name := range sortedCheckNames(cfg.Checks) {
 		check := cfg.Checks[name]

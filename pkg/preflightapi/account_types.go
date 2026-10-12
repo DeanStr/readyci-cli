@@ -156,18 +156,21 @@ type AccountSubscriptionSummary struct {
 }
 
 type AccountUsageSummary struct {
-	PeriodStart             *time.Time `json:"period_start,omitempty"`
-	PeriodEnd               *time.Time `json:"period_end,omitempty"`
-	StandardRunnerMinutes   float64    `json:"standard_runner_minutes"`
-	ComputeSlotMinutes      float64    `json:"compute_slot_minutes"`
-	BonusComputeSlotMinutes float64    `json:"bonus_compute_slot_minutes"`
-	CacheGBMonth            float64    `json:"cache_gb_month"`
-	ArtifactGBMonth         float64    `json:"artifact_gb_month"`
-	OverageCharge           float64    `json:"overage_charge"`
-	ManualCredit            float64    `json:"manual_credit"`
-	ActiveAPITokens         int        `json:"active_api_tokens"`
-	RevokedAPITokens        int        `json:"revoked_api_tokens"`
-	ProjectCount            int        `json:"project_count"`
+	PeriodStart                 *time.Time `json:"period_start,omitempty"`
+	PeriodEnd                   *time.Time `json:"period_end,omitempty"`
+	StandardRunnerMinutes       float64    `json:"standard_runner_minutes"`
+	ComputeSlotMinutes          float64    `json:"compute_slot_minutes"`
+	MonthlyRemainingSlotMinutes float64    `json:"monthly_remaining_slot_minutes"`
+	PrepaidRemainingSlotMinutes float64    `json:"prepaid_remaining_slot_minutes"`
+	ReservedSlotMinutes         float64    `json:"reserved_slot_minutes"`
+	BonusComputeSlotMinutes     float64    `json:"bonus_compute_slot_minutes"`
+	CacheGBMonth                float64    `json:"cache_gb_month"`
+	ArtifactGBMonth             float64    `json:"artifact_gb_month"`
+	OverageCharge               float64    `json:"overage_charge"`
+	ManualCredit                float64    `json:"manual_credit"`
+	ActiveAPITokens             int        `json:"active_api_tokens"`
+	RevokedAPITokens            int        `json:"revoked_api_tokens"`
+	ProjectCount                int        `json:"project_count"`
 }
 
 type AccountUsageResponse struct {
@@ -190,4 +193,16 @@ type CreateBillingPortalRequest struct {
 
 type BillingSessionResponse struct {
 	URL string `json:"url"`
+}
+
+type PendingBillingCheckout struct {
+	State     string     `json:"state"`
+	PlanID    string     `json:"plan_id,omitempty"`
+	ContextID string     `json:"context_id,omitempty"`
+	URL       string     `json:"url,omitempty"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+type BillingCheckoutStatusResponse struct {
+	Checkout *PendingBillingCheckout `json:"checkout,omitempty"`
 }

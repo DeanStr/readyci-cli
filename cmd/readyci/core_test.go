@@ -69,48 +69,52 @@ func TestEnvDefaultFallsBackWhenReadyCIEnvUnset(t *testing.T) {
 	}
 }
 
-func TestDefaultAPIURLUsesLocalhostForDevBuilds(t *testing.T) {
+func TestDefaultAPIURLUsesHostedOriginForAllBuilds(t *testing.T) {
 	originalVersion := version
-	originalReleaseDefault := releaseDefaultAPIURL
-	t.Cleanup(func() {
-		version = originalVersion
-		releaseDefaultAPIURL = originalReleaseDefault
-	})
-	version = "0.1.0-dev"
-	releaseDefaultAPIURL = ""
-
-	if got := defaultAPIURL(); got != localDefaultAPIURL {
-		t.Fatalf("default API URL for dev build = %q, want %q", got, localDefaultAPIURL)
+	t.Cleanup(func() { version = originalVersion })
+	for _, buildVersion := range []string{"0.1.0-dev", "0.1.0-dev+abcdef123456", "v0.1.0-beta.9", "v0.1.0", ""} {
+		t.Run(buildVersion, func(t *testing.T) {
+			version = buildVersion
+			if got := defaultAPIURL(); got != "https://api.readyci.com" {
+				t.Fatalf("default API URL for build %q = %q, want hosted origin", buildVersion, got)
+			}
+		})
 	}
 }
 
-func TestDefaultAPIURLUsesPublicOriginForReleaseBuilds(t *testing.T) {
-	originalVersion := version
-	originalReleaseDefault := releaseDefaultAPIURL
-	t.Cleanup(func() {
-		version = originalVersion
-		releaseDefaultAPIURL = originalReleaseDefault
-	})
-	version = "v0.1.0"
-	releaseDefaultAPIURL = ""
-
-	if got := defaultAPIURL(); got != publicDefaultAPIURL {
-		t.Fatalf("default API URL for release build = %q, want %q", got, publicDefaultAPIURL)
-	}
-}
-
-func TestDefaultAPIURLHonorsReleaseOverride(t *testing.T) {
-	originalVersion := version
-	originalReleaseDefault := releaseDefaultAPIURL
-	t.Cleanup(func() {
-		version = originalVersion
-		releaseDefaultAPIURL = originalReleaseDefault
-	})
-	version = "0.1.0-dev"
-	releaseDefaultAPIURL = " https://api.override.test "
-
-	if got := defaultAPIURL(); got != "https://api.override.test" {
-		t.Fatalf("default API URL with release override = %q", got)
+func TestAPIFlagsRequireExplicitLocalhostOverride(t *testing.T) {
+	for _, flags := range []struct {
+		name     string
+		register func(*flag.FlagSet) (*string, *string)
+	}{
+		{"user", apiFlags},
+		{"admin", adminAPIFlags},
+	} {
+		t.Run(flags.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name string
+				env  string
+				args []string
+				want string
+			}{
+				{name: "default", want: "https://api.readyci.com"},
+				{name: "environment", env: "http://127.0.0.1:8080", want: "http://127.0.0.1:8080"},
+				{name: "flag", args: []string{"--api-url", "http://127.0.0.1:8080"}, want: "http://127.0.0.1:8080"},
+				{name: "flag overrides environment", env: "https://api.readyci.com", args: []string{"--api-url", "http://127.0.0.1:8080"}, want: "http://127.0.0.1:8080"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Setenv("READYCI_API_URL", tc.env)
+					fs := flag.NewFlagSet("test", flag.ContinueOnError)
+					apiURL, _ := flags.register(fs)
+					if err := fs.Parse(tc.args); err != nil {
+						t.Fatal(err)
+					}
+					if *apiURL != tc.want {
+						t.Fatalf("API URL = %q, want %q", *apiURL, tc.want)
+					}
+				})
+			}
+		})
 	}
 }
 

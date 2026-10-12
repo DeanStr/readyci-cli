@@ -8,7 +8,7 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
-func planStagedWorkspace(ctx context.Context, root, head string, matcher ignoreMatcher) ([]plannedEntry, error) {
+func planStagedWorkspace(ctx context.Context, root, head string, matcher ignoreMatcher, contentMode sourceContentMode) ([]plannedEntry, error) {
 	var paths []string
 	if head == "" {
 		out, err := gitOutput(ctx, root, "ls-files", "-z", "--cached")
@@ -23,10 +23,10 @@ func planStagedWorkspace(ctx context.Context, root, head string, matcher ignoreM
 		}
 		paths = splitNUL(out)
 	}
-	return planIndexPaths(ctx, root, paths, matcher)
+	return planIndexPaths(ctx, root, paths, matcher, contentMode)
 }
 
-func planIndexPaths(ctx context.Context, root string, paths []string, matcher ignoreMatcher) ([]plannedEntry, error) {
+func planIndexPaths(ctx context.Context, root string, paths []string, matcher ignoreMatcher, contentMode sourceContentMode) ([]plannedEntry, error) {
 	seenPaths := make(map[string]struct{})
 	filtered := make([]string, 0, len(paths))
 	for _, raw := range paths {
@@ -58,13 +58,8 @@ func planIndexPaths(ctx context.Context, root string, paths []string, matcher ig
 	if err != nil {
 		return nil, err
 	}
-	type indexBlob struct {
-		mode string
-		oid  string
-		rel  string
-	}
 	seenEntries := make(map[string]struct{})
-	var blobs []indexBlob
+	var blobs []gitSourceEntry
 	for _, record := range splitNUL(out) {
 		mode, oid, stage, rel, err := parseIndexRecord(record)
 		if err != nil {
@@ -90,34 +85,9 @@ func planIndexPaths(ctx context.Context, root string, paths []string, matcher ig
 			continue
 		}
 		seenEntries[rel] = struct{}{}
-		blobs = append(blobs, indexBlob{mode: mode, oid: oid, rel: rel})
+		blobs = append(blobs, gitSourceEntry{mode: mode, oid: oid, rel: rel})
 	}
-	objectIDs := make([]string, 0, len(blobs))
-	for _, blob := range blobs {
-		objectIDs = append(objectIDs, blob.oid)
-	}
-	objects, err := gitObjects(ctx, root, objectIDs)
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]plannedEntry, 0, len(blobs))
-	for index, blob := range blobs {
-		data := objects[index]
-		entry := syncbundle.Entry{Path: blob.rel, Mode: gitModeToFileMode(blob.mode)}
-		if blob.mode == "120000" {
-			if err := syncbundle.ValidateSymlinkTarget(string(data)); err != nil {
-				return nil, fmt.Errorf("staged symlink %q has invalid target: %w", blob.rel, err)
-			}
-			entry.Type = syncbundle.EntryTypeSymlink
-			entry.Linkname = string(data)
-		} else {
-			entry.Type = syncbundle.EntryTypeFile
-			entry.Size = int64(len(data))
-		}
-		entries = append(entries, plannedEntry{entry: entry, data: data})
-	}
-	sortPlanned(entries)
-	return entries, nil
+	return planGitEntries(ctx, root, blobs, contentMode)
 }
 
 func parseIndexRecord(record string) (mode string, oid string, stage string, rel string, err error) {

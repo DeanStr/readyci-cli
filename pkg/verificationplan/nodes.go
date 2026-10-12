@@ -135,8 +135,8 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				ID: matrixGroup, MaxParallel: maxParallel, FailFast: plan.Matrix.FailFast,
 			})
 		}
-		// Snapshotted before this plan's variants so that siblings in a matrix
-		// never depend on each other.
+		// Verify-matrix siblings are independent. Warm variants instead form a
+		// success chain so each extends the same worker-local cache.
 		priorNodes := append([]string(nil), completed...)
 		currentIDs := make([]string, 0, len(variants))
 		for _, variant := range variants {
@@ -154,6 +154,11 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 			cacheMode := defaultString(options.CacheMode, "cache-only")
 			condition := preflightapi.VerificationNodeConditionAlways
 			dependsOn := append([]string(nil), dependencies...)
+			successDependsOn := append([]string(nil), warmDependencies...)
+			if item.phase == preflightapi.VerificationNodePhaseWarm {
+				dependsOn = append(dependsOn, currentIDs...)
+				successDependsOn = append(successDependsOn, currentIDs...)
+			}
 			if planRequiresSuccessfulStatus(plan) {
 				condition = preflightapi.VerificationNodeConditionOnSuccess
 				// Every earlier node, not just the immediate predecessor. The
@@ -168,7 +173,7 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				ID: id, Name: defaultString(identity.LogicalChildName, plan.Name), Kind: "check",
 				Phase: item.phase, Condition: condition, MatrixGroup: matrixGroup,
 				Required: true, DependsOn: dependsOn,
-				SuccessDependsOn: append([]string(nil), warmDependencies...),
+				SuccessDependsOn: successDependsOn,
 				Retry:            preflightapi.VerificationRetryPolicy{MaxAttempts: plan.Retries + 1, RetryableClassifications: []string{preflightapi.ClassificationTransportFailure, preflightapi.ClassificationWorkerUnavailable, preflightapi.ClassificationWorkerInternalError, preflightapi.ClassificationPlatformInternalError}},
 				Run: preflightapi.CreateRunRequest{
 					ProjectID: options.ProjectID, Region: runRequestRegion(options.Region), Image: defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage), Command: createCommand, CommandAlias: identity.CommandAlias, Steps: createSteps,

@@ -130,7 +130,7 @@ func runFailureDiagnosisHint(classification string) string {
 	case preflightapi.ClassificationCacheStorageExceeded:
 		return "prune or purge the Ready CI cache, remove bulky cache paths such as build outputs, then rerun"
 	case preflightapi.ClassificationDependencyDownloadFailed:
-		return "retry once; if it repeats, pin or prewarm dependencies and use network-mode default for cold-cache dependency setup"
+		return "retry once; if it repeats, inspect dependency sources and use readyci warm --check dependencies with an explicit network allowlist"
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "install declared test or development dependencies, or update the Ready CI check command to include the project dependency group"
 	case preflightapi.ClassificationWorkerInternalError:

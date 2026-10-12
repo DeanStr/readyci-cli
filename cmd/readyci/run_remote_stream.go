@@ -13,10 +13,8 @@ import (
 )
 
 const (
-	runEventStreamRecoveryPageLimit          = 128
-	runEventStreamRecoveryInterval           = 2 * time.Second
-	runEventStreamRecoveryMaxRequestAttempts = 5
-	runEventStreamRecoveryMaxRetryDelay      = 60 * time.Second
+	runEventStreamRecoveryPageLimit = 128
+	runEventStreamRecoveryInterval  = 2 * time.Second
 )
 
 type remoteRunEventObserver struct {
@@ -238,7 +236,7 @@ func recoverRunEventStream(ctx context.Context, client *api.Client, observer *re
 
 func listRunEventsPageWithRecoveryRetry(ctx context.Context, client *api.Client, runID string, cursor int64, limit int) (preflightapi.RunEventsResponse, error) {
 	var page preflightapi.RunEventsResponse
-	err := retryRunEventStreamRecoveryRequest(ctx, func() error {
+	err := retryObservationRead(ctx, func() error {
 		var err error
 		page, err = client.ListRunEventsPage(ctx, runID, cursor, limit)
 		return err
@@ -248,43 +246,12 @@ func listRunEventsPageWithRecoveryRetry(ctx context.Context, client *api.Client,
 
 func getRunWithRecoveryRetry(ctx context.Context, client *api.Client, runID string) (preflightapi.RunDetail, error) {
 	var detail preflightapi.RunDetail
-	err := retryRunEventStreamRecoveryRequest(ctx, func() error {
+	err := retryObservationRead(ctx, func() error {
 		var err error
 		detail, err = client.GetRun(ctx, runID)
 		return err
 	})
 	return detail, err
-}
-
-func retryRunEventStreamRecoveryRequest(ctx context.Context, fn func() error) error {
-	var err error
-	for attempt := 0; attempt < runEventStreamRecoveryMaxRequestAttempts; attempt++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		if attempt == runEventStreamRecoveryMaxRequestAttempts-1 || !api.RetryableRequestError(ctx, err) {
-			return err
-		}
-		if sleepErr := sleepRunEventStreamRecoveryRetry(ctx, api.RequestRetryDelay(attempt, err, runEventStreamRecoveryMaxRetryDelay)); sleepErr != nil {
-			return sleepErr
-		}
-	}
-	return err
-}
-
-func sleepRunEventStreamRecoveryRetry(ctx context.Context, delay time.Duration) error {
-	if delay <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
 
 func (o *remoteRunEventObserver) finishFromRunDetail(detail preflightapi.RunDetail) (bool, error) {

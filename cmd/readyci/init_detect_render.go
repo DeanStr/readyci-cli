@@ -10,10 +10,7 @@ import (
 
 func renderDetectedProjectTemplate(projectID, image, profile string, checks []detectedCheck, affectedRules []config.AffectedRule, signals []string, unmatchedChecks config.CommandList) string {
 	image = strings.TrimSpace(image)
-	networkMode := "default"
-	if profile == "strict" {
-		networkMode = "none"
-	}
+	networkConfig := detectedNetworkConfig(profile, checks)
 	imageLine := fmt.Sprintf(`# Uncomment after your worker advertises this image:
 # image: %s
 
@@ -33,34 +30,8 @@ func renderDetectedProjectTemplate(projectID, image, profile string, checks []de
 	}
 	b.WriteString(`sync:
   include_untracked: false
-  respect_gitignore: true
-  exclude:
-    - .env
-    - .env.local
-    - .env.development
-    - .env.test
-    - .env.staging
-    - .env.production
-    - .env.preview
-    - .env.*.local
-    - .envrc
-    - .envrc.local
-    - .npmrc
-    - .npmrc.local
-    - node_modules
-    - target
-    - dist
-    - coverage
-    - test-results
-    - tmp
-
-cache:
-  mode: cache-only
-  paths:
-    - ~/.cache/go-build
-    - ~/go/pkg/mod
-    - target
-    - ~/.npm
+  # Built-in filtering excludes .env*, build outputs, and dependency directories.
+  exclude: [".npmrc*", "test-results", "tmp"]
 
 artifacts:
   paths:
@@ -68,6 +39,25 @@ artifacts:
     - test-results/**
 
 `)
+	cachePaths := []string{}
+	for _, check := range checks {
+		switch check.Name {
+		case "go":
+			cachePaths = append(cachePaths, "~/.cache/go-build", "~/go/pkg/mod")
+		case "node":
+			cachePaths = append(cachePaths, "~/.npm", "~/.cache/yarn", "~/.local/share/pnpm/store")
+		case "rust":
+			cachePaths = append(cachePaths, "target", "~/.cargo/registry", "~/.cargo/git")
+		}
+	}
+	if len(cachePaths) > 0 {
+		b.WriteString("cache:\n  paths:\n")
+		for _, path := range cachePaths {
+			fmt.Fprintf(&b, "    - %s\n", path)
+		}
+		b.WriteString("\n")
+	}
+
 	if len(affectedRules) > 0 {
 		b.WriteString("affected:\n")
 		if len(unmatchedChecks) > 0 {
@@ -102,13 +92,39 @@ artifacts:
 		}
 	}
 	fmt.Fprintf(&b, `
-resources:
-  default:
-    size: standard
-    timeout: 20m
-
 network:
-  mode: %s
-`, networkMode)
+%s
+`, networkConfig)
 	return b.String()
+}
+
+// Generated egress is visible in setup's preview and remains subject to server
+// policy. Unknown project commands get no inferred network access.
+func detectedNetworkConfig(profile string, checks []detectedCheck) string {
+	if profile == "strict" {
+		return "  mode: none"
+	}
+	var hosts []string
+	seen := map[string]bool{}
+	for _, check := range checks {
+		var selected []string
+		switch check.Name {
+		case "go":
+			selected = []string{"go.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"}
+		case "node":
+			selected = []string{"registry.npmjs.org", "registry.yarnpkg.com"}
+		case "rust":
+			selected = []string{"index.crates.io", "static.crates.io", "static.rust-lang.org"}
+		}
+		for _, host := range selected {
+			if !seen[host] {
+				seen[host] = true
+				hosts = append(hosts, host)
+			}
+		}
+	}
+	if len(hosts) == 0 {
+		return "  mode: none\n  # Add an explicit allowlist if this command fetches dependencies."
+	}
+	return "  mode: allowlist\n  allowlist:\n    - " + strings.Join(hosts, "\n    - ")
 }

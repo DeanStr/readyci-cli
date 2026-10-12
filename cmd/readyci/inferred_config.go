@@ -57,7 +57,7 @@ func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []s
 	}
 	template := inferredProjectTemplate(root, projectID)
 	if strings.TrimSpace(template) == "" {
-		return config.ProjectConfig{}, nil, fmt.Errorf("%w; run readyci init --detect --print to inspect a starter config or readyci plan --recommend --suggest-config for hosted suggestions", errCouldNotInferSafeCheck)
+		return config.ProjectConfig{}, nil, fmt.Errorf("%w; run readyci setup --print to inspect a starter config or readyci plan --recommend --suggest-config for hosted suggestions", errCouldNotInferSafeCheck)
 	}
 	signals := detectedTemplateSignals(template)
 	if len(signals) == 0 {
@@ -68,7 +68,7 @@ func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []s
 		return config.ProjectConfig{}, nil, err
 	}
 	if len(cfg.Checks) == 0 {
-		return config.ProjectConfig{}, nil, fmt.Errorf("readyci check inferred repo signals but no runnable checks; run readyci init --detect --print to inspect the generated config")
+		return config.ProjectConfig{}, nil, fmt.Errorf("readyci check inferred repo signals but no runnable checks; run readyci setup --print to inspect the generated config")
 	}
 	return cfg, signals, nil
 }
@@ -151,7 +151,7 @@ func printInferredConfigNotice(loaded loadedReadyCIConfig, selected string) {
 		fmt.Fprintf(os.Stderr, "readyci: inferred: %s\n", signal)
 	}
 	if strings.TrimSpace(selected) != "" {
-		fmt.Fprintf(os.Stderr, "readyci: selected %s; save or edit this plan with readyci init --detect --print\n", selected)
+		fmt.Fprintf(os.Stderr, "readyci: selected %s; save or edit this plan with readyci setup --print\n", selected)
 	}
 }
 

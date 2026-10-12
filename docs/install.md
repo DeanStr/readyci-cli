@@ -12,7 +12,41 @@ After installation, use the public [CLI reference](https://readyci.com/docs/cli)
 - A Ready CI account, or a scoped bearer token for automation.
 - [Minisign](https://jedisct1.github.io/minisign/) for signed binary installation.
 
-## Release Artifact
+## One-line installation
+
+On macOS, Linux, or WSL:
+
+```bash
+(set -o pipefail; curl -fsSL https://readyci.com/install.sh | bash)
+```
+
+On Windows PowerShell:
+
+```powershell
+irm https://readyci.com/install.ps1 -ErrorAction Stop | iex
+```
+
+These commands trust the bootstrap served over HTTPS by `readyci.com`. It
+fetches the pinned release installer from GitHub, verifies its Minisign
+signature before running it, and requires signed checksums and a matching
+binary checksum. Signature or download failures stop installation. Minisign
+must already be installed; unsigned installation is never enabled by the bootstrap.
+For independent verification before executing any downloaded code, use the
+manual instructions below.
+
+Linux/macOS installs to `$HOME/.local/bin` by default. If that directory is not
+on your PATH, run `export PATH="$HOME/.local/bin:$PATH"`. Windows installs to
+`%LOCALAPPDATA%\Programs\ReadyCI` and updates your user PATH; open a new terminal.
+From your Git repository, start with:
+
+```bash
+readyci setup
+```
+
+Setup guides you through sign-in, configuration review, and your first remote
+test. Later, use `readyci check` to run tests again.
+
+## Manual signature verification
 
 Official binaries are published as signed assets on
 [GitHub Releases](https://github.com/DeanStr/readyci-cli/releases).
@@ -22,7 +56,7 @@ Verify the installer signature before running it:
 ```bash
 (
   set -eu
-  export READYCI_RELEASE_BASE_URL="https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.9"
+  export READYCI_RELEASE_BASE_URL="https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.10"
   export READYCI_RELEASE_MINISIGN_PUBKEY="RWSiWC6F4tE+M458zvmqGzOcQZvYD/Y6ww1/eo3Q88S+d3HuiXGK5wAE"
   installer_dir="$(mktemp -d)"
   trap 'rm -rf "$installer_dir"' EXIT
@@ -41,20 +75,20 @@ installer from the same release directory:
 ```powershell
 & {
     $ErrorActionPreference = 'Stop'
-    $env:READYCI_VERSION = 'v0.1.0-beta.9'
-    $env:READYCI_RELEASE_BASE_URL = 'https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.9'
+    $env:READYCI_VERSION = 'v0.1.0-beta.10'
+    $env:READYCI_RELEASE_BASE_URL = 'https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.10'
     $readyciMinisignPublicKey = 'RWSiWC6F4tE+M458zvmqGzOcQZvYD/Y6ww1/eo3Q88S+d3HuiXGK5wAE'
     $bootstrapDir = Join-Path ([IO.Path]::GetTempPath()) ('readyci-bootstrap-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $bootstrapDir | Out-Null
     try {
         $installer = Join-Path $bootstrapDir 'install-readyci.ps1'
         $installerSignature = "$installer.minisig"
-        Invoke-WebRequest "$env:READYCI_RELEASE_BASE_URL/install.ps1" -OutFile $installer
-        Invoke-WebRequest "$env:READYCI_RELEASE_BASE_URL/install.ps1.minisig" -OutFile $installerSignature
+        Invoke-WebRequest -UseBasicParsing "$env:READYCI_RELEASE_BASE_URL/install.ps1" -OutFile $installer
+        Invoke-WebRequest -UseBasicParsing "$env:READYCI_RELEASE_BASE_URL/install.ps1.minisig" -OutFile $installerSignature
         $minisign = Get-Command minisign.exe -CommandType Application -ErrorAction Stop
         & $minisign.Source -Vm $installer -x $installerSignature -P $readyciMinisignPublicKey
         if ($LASTEXITCODE -ne 0) { throw 'Ready CI installer signature verification failed' }
-        & $installer
+        & ([scriptblock]::Create([IO.File]::ReadAllText($installer)))
         readyci version
     } finally {
         Remove-Item -LiteralPath $bootstrapDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -192,9 +226,9 @@ Agent JSON reports follow `schema/readyci.verification.v0alpha1.schema.json` and
 
 Useful command defaults:
 
-- `READYCI_API_URL`: API origin. Released Ready CI CLI builds default to `https://api.readyci.com`; source/dev builds default to `http://127.0.0.1:8080`.
+- `READYCI_API_URL`: API origin. All builds, including source/dev builds, default to `https://api.readyci.com`. For local server development, explicitly set `READYCI_API_URL=http://127.0.0.1:8080` or pass `--api-url http://127.0.0.1:8080`; the flag takes precedence.
 - `READYCI_API_TOKEN`: user-route bearer token.
-- `READYCI_PROJECT_ID`: project id for runs and cache commands, default `proj_dev`.
+- `READYCI_PROJECT_ID`: project id for runs and cache commands. Hosted execution requires an explicit project through `--project`, this environment variable, or `.readyci.yml`'s `project_id`. Only loopback APIs default to `proj_dev`.
 - `READYCI_NETWORK_MODE`: `default`, `none`, or `allowlist`.
 - `READYCI_NETWORK_ALLOWLIST`: comma-separated host/IP allowlist used with `READYCI_NETWORK_MODE=allowlist`.
 
@@ -214,15 +248,15 @@ readyci check
 Use the guided start flow when you want Ready CI to show the detected repo signals before running:
 
 ```bash
-readyci start
-readyci start --write-config
+readyci setup
+readyci setup --write-config
 ```
 
-`readyci check` works with or without `.readyci.yml`. Without config, it runs a conservative in-memory starter plan. Add `--why` to see why Ready CI selected or skipped checks; combine it with `--dry-run --json` to get the typed verification plan as `plan`, or use `--why --json` on a real run to get the plan, created run IDs, dashboard URLs, and final classification. `readyci start` previews that plan and can write the starter config with `--write-config`. `readyci setup --write-config --detect` and `readyci init --detect --print` now keep local generation conservative; use `readyci plan --recommend --suggest-config` for hosted smart config suggestions.
+`readyci check` works with or without `.readyci.yml`. Without config, it runs a conservative in-memory starter plan. Add `--why` to see why Ready CI selected or skipped checks; combine it with `--dry-run --json` to get the typed verification plan as `plan`, or use `--json` on a real run to get the selection plan, durable session with its attempts, and timings. `readyci setup` guides you through saving configuration and running the selected first check. Use `--preview` for a setup report, `--print` for a generated starter, or `--write-config` to save configuration without execution. `readyci setup --write-config --detect` and `readyci setup --print` now keep local generation conservative; use `readyci plan --recommend --suggest-config` for hosted smart config suggestions.
 
 Use `readyci plan --repo-map --json` when you want the typed local repo facts behind the planner: Make wrappers, docs/AGENTS references, GitHub Actions jobs, Cargo package facts, Vite/React and OpenAPI signals, undefined check references, and unreferenced checks. Use `readyci plan --recommend --print-inventory --json` to inspect the redacted hosted-analyzer payload, then `readyci plan --recommend --json` when you want to explicitly send that inventory for versioned recommendation packs, or `readyci plan --recommend --suggest-config --json` when you want a hosted `.readyci.yml` suggestion. Use `readyci doctor --repo` as a local-only cross-file drift check before relying on Make/docs/GitHub Actions verification instructions.
 
-Use `readyci affected --warm-dependencies` or `readyci touched --warm-dependencies` when a repo has a dedicated check named `dependencies`. Ready CI does not infer dependency work from command text, language files, Docker, cache paths, or Make wrappers. When warming is requested, it runs that explicit check before the selected persistent-cache checks; every warmed target must use the same cache-lane size and key namespace. Targets on different runner sizes receive separate warm nodes so each node can be claimed by a compatible worker, and every such node mounts the union of target cache paths so project-level lane reuse cannot select a partially warmed lane. A native dependency check targeting Docker work is placed on a worker that advertises Docker and the target image, while a warm or target matrix with `max_parallel > 1` fails fast because one warm node cannot provision multiple worker-local lanes. Warming requires an explicit `network.warm_mode`: use `allowlist` with `network.warm_allowlist` on public deployments, or `default` only on local/private deployments. Missing warm policy and inconsistent cache sizes fail before a run is submitted; Ready CI does not widen `network.mode` or fan out quota-specific warm nodes as a fallback. Add `--json` on an actual run to emit the plan, phase-tagged warm/verify run IDs, dashboard URLs, and final classification. `readyci verify --json --progress=status` applies the same dependency warming automatically for affected-rule verification, and an active registered policy reconstructs the warm command and egress profile server-side. `readyci verify --check dependencies` is a scoped warm operation; it uses the registered warm network policy, derives runner/cache targets from consumer checks selected by affected-file policy for the current workspace, and does not execute the dependency command again as a verify node. `security-sensitive` verification never introduces a networked warm node; warm the dedicated check separately before starting that no-network proof when its cache lane is cold.
+Use `readyci affected` when a repo has a dedicated check named `dependencies`. Ready CI does not infer dependency work from command text, language files, Docker, cache paths, or Make wrappers. When a dependencies check and warm network policy are configured, it runs that explicit check before the selected persistent-cache checks; every warmed target must use the same cache-lane size and key namespace. Targets on different runner sizes receive separate warm nodes so each node can be claimed by a compatible worker, and every such node mounts the union of target cache paths so project-level lane reuse cannot select a partially warmed lane. A native dependency check targeting Docker work is placed on a worker that advertises Docker and the target image, while a warm or target matrix with `max_parallel > 1` fails fast because one warm node cannot provision multiple worker-local lanes. Warming requires an explicit `network.warm_mode`: use `allowlist` with `network.warm_allowlist` on public deployments, or `default` only on local/private deployments. Missing warm policy and inconsistent cache sizes fail before a run is submitted; Ready CI does not widen `network.mode` or fan out quota-specific warm nodes as a fallback. Add `--json` on an actual run to emit the plan, the session with phase-tagged node attempts and turnaround timings. `readyci verify --json --progress=status` applies the same dependency warming automatically for affected-rule verification, and an active registered policy reconstructs the warm command and egress profile server-side. `readyci verify --check dependencies` is a scoped warm operation; it uses the registered warm network policy, derives runner/cache targets from consumer checks selected by affected-file policy for the current workspace, and does not execute the dependency command again as a verify node. `security-sensitive` verification never introduces a networked warm node; warm the dedicated check separately before starting that no-network proof when its cache lane is cold.
 
 Run a trusted command from a Git checkout:
 
