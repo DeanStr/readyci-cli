@@ -40,7 +40,7 @@
     "verificationSession": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "session_id", "idempotency_key", "project_id", "state", "verdict", "assurance", "currentness", "recipe", "secrets_requested", "secrets_authorized", "snapshot", "coverage", "plan", "nodes", "created_at", "updated_at"],
+      "required": ["schema_version", "session_id", "idempotency_key", "project_id", "state", "verdict", "assurance", "currentness", "recipe", "secrets_requested", "secrets_authorized", "source_ready", "snapshot", "coverage", "plan", "nodes", "created_at", "updated_at"],
       "properties": {
         "schema_version": {"$ref": "#/$defs/schemaVersion"},
         "session_id": {"type": "string", "minLength": 1},
@@ -50,6 +50,16 @@
         "project_id": {"type": "string", "minLength": 1},
         "predecessor_id": {"type": "string"},
         "successor_id": {"type": "string"},
+        "source_ready": {"type": "boolean"},
+        "snapshot_retry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "successor_id"],
+          "properties": {
+            "action": {"enum": ["resume", "open_successor"]},
+            "successor_id": {"type": "string", "minLength": 1}
+          }
+        },
         "intent": {"type": "string"},
         "goal": {"type": "string"},
         "recipe": {"$ref": "#/$defs/verificationRecipe"},

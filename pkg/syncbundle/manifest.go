@@ -10,8 +10,8 @@ const (
 	FormatVersion   = 2
 	BundleMediaType = "application/vnd.readyci.bundle+gzip"
 
-	MaxCompressedBundleBytes = 250 << 20
-	MaxExpandedBundleBytes   = 250 << 20
+	MaxCompressedBundleBytes = 400 << 20
+	MaxExpandedBundleBytes   = 900 << 20
 	MaxManifestBytes         = 4 << 20
 	MaxBundleEntries         = 100000
 

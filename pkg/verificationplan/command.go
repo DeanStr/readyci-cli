@@ -3,7 +3,6 @@ package verificationplan
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
@@ -238,17 +237,7 @@ func writeStepFunction(script *strings.Builder, label string, step preflightapi.
 		script.WriteString(key)
 		script.WriteString("\n")
 	}
-	if step.TimeoutSeconds > 0 {
-		script.WriteString("    timeout ")
-		script.WriteString(strconv.Itoa(step.TimeoutSeconds))
-		script.WriteString("s /bin/bash -lc ")
-		script.WriteString(ShellQuoteArg(step.Command))
-		script.WriteString("\n")
-	} else {
-		script.WriteString("    /bin/bash -lc ")
-		script.WriteString(ShellQuoteArg(step.Command))
-		script.WriteString("\n")
-	}
+	script.WriteString(StepCommand(step.Command, step.TimeoutSeconds))
 	script.WriteString("  )\n")
 	script.WriteString("}\n")
 }

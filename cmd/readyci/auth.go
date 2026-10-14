@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 const credentialsFileVersion = 1
@@ -426,8 +428,29 @@ func cliLoginCallbackHandler(localState string, resultCh chan<- loginCallbackRes
 			return
 		}
 		if authError := strings.TrimSpace(r.URL.Query().Get("error")); authError != "" {
+			if authError == "plan_entitlement_required" {
+				message := "A paid subscription is required to create CLI credentials. Open Billing, choose a plan, then run readyci setup again."
+				billingURL := r.URL.Query().Get("billing_url")
+				billing, err := url.Parse(billingURL)
+				if err != nil || billing.Scheme != "https" || billing.Host == "" || billing.User != nil || billing.Fragment != "" || billing.Path != "/app/billing" {
+					billingURL = ""
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusPaymentRequired)
+				body := strings.Replace(cliLoginCompleteHTML, "Browser sign-in complete", "Choose a plan to continue", 1)
+				recovery := html.EscapeString(message)
+				if billingURL != "" {
+					recovery += ` <a href="` + html.EscapeString(billingURL) + `">Open Billing</a>`
+					message += " Billing: " + billingURL
+				}
+				body = strings.Replace(body, "Return to your terminal to finish saving your Ready CI CLI credentials.", recovery, 1)
+				body = strings.Replace(body, "This browser window can be closed.", "Your browser is signed in; CLI credentials have not been issued.", 1)
+				_, _ = fmt.Fprint(w, body)
+				deliverLoginResult(resultCh, loginCallbackResult{err: cliError{Code: authError, ExitCode: cliExitAuthOrPolicy, Classification: preflightapi.ClassificationBillingRequired, Message: message}})
+				return
+			}
 			http.Error(w, "login failed", http.StatusUnauthorized)
-			deliverLoginResult(resultCh, loginCallbackResult{err: fmt.Errorf("login failed: %s", authError)})
+			deliverLoginResult(resultCh, loginCallbackResult{err: cliError{Code: "auth_forbidden", ExitCode: cliExitAuthOrPolicy, Classification: preflightapi.ClassificationAuthForbidden, Message: fmt.Sprintf("login failed: %s; run readyci login again", authError)}})
 			return
 		}
 		code := strings.TrimSpace(r.URL.Query().Get("code"))

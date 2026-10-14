@@ -344,6 +344,8 @@ type VerificationSession struct {
 	Recipe                 VerificationRecipe                  `json:"recipe"`
 	SecretsRequested       bool                                `json:"secrets_requested"`
 	SecretsAuthorized      bool                                `json:"secrets_authorized"`
+	SourceReady            bool                                `json:"source_ready"`
+	SnapshotRetry          *VerificationSnapshotRetry          `json:"snapshot_retry,omitempty"`
 	State                  string                              `json:"state"`
 	Verdict                string                              `json:"verdict"`
 	Assurance              VerificationAssurance               `json:"assurance"`
@@ -365,6 +367,13 @@ type VerificationSession struct {
 	ResultDigest           string                              `json:"result_digest,omitempty"`
 	ClientInterruption     *VerificationClientInterruption     `json:"client_interruption,omitempty"`
 	ClientError            *VerificationClientError            `json:"client_error,omitempty"`
+}
+
+// VerificationSnapshotRetry is a service-derived recovery projection. It does
+// not alter the immutable verdict, result digest, or retry operation identity.
+type VerificationSnapshotRetry struct {
+	Action      string `json:"action"`
+	SuccessorID string `json:"successor_id"`
 }
 
 type MarkVerificationSessionStaleRequest struct {

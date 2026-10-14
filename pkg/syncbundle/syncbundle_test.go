@@ -100,6 +100,29 @@ func TestDeltaBundleRejectsOversizedRehydratedBundle(t *testing.T) {
 	}
 }
 
+func TestRehydratedBundleExpandedSizeLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		size  int64
+		valid bool
+	}{
+		{"above compressed limit", 800 << 20, true},
+		{"below expanded limit", 899 << 20, true},
+		{"expanded limit plus archive metadata", 900 << 20, false},
+		{"above expanded limit", (900 << 20) + 1, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := Entry{Path: "source.bin", Type: entryTypeFile, Mode: 0o644, Size: tt.size}
+			manifest := Manifest{Version: FormatVersion, Workspace: []Entry{entry}}
+			// Check declared archive bounds without allocating a near-limit payload.
+			err := validateRehydratedBundleBounds(manifest, nil, []ArchiveEntry{{Entry: entry}})
+			if (err == nil) != tt.valid {
+				t.Fatalf("size=%d valid=%v error=%v", tt.size, tt.valid, err)
+			}
+		})
+	}
+}
+
 func TestBaselineContentKeyUsesSourceWhenWritingBundle(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "base.txt")

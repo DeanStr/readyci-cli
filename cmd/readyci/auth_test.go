@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -394,5 +395,40 @@ func TestDeliverLoginResultDoesNotBlockWhenChannelFull(t *testing.T) {
 	deliverLoginResult(resultCh, loginCallbackResult{code: "second"})
 	if got := <-resultCh; got.code != "first" {
 		t.Fatalf("delivered result = %+v, want first result preserved", got)
+	}
+}
+
+func TestCLILoginCallbackSubscriptionHandoff(t *testing.T) {
+	for _, billingURL := range []string{"https://readyci.test/app/billing", "javascript:alert(1)", "https://user:pass@readyci.test/app/billing", "https://readyci.test/app/billing#fragment"} {
+		t.Run(billingURL, func(t *testing.T) {
+			results := make(chan loginCallbackResult, 1)
+			handler := cliLoginCallbackHandler("bound-state", results)
+			query := url.Values{"state": {"wrong-state"}, "error": {"plan_entitlement_required"}, "billing_url": {billingURL}}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/callback?"+query.Encode(), nil))
+			if recorder.Code != http.StatusBadRequest || len(results) != 0 {
+				t.Fatal("unbound error completed login")
+			}
+			query.Set("state", "bound-state")
+			recorder = httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/callback?"+query.Encode(), nil))
+			if recorder.Code != http.StatusPaymentRequired {
+				t.Fatalf("status=%d", recorder.Code)
+			}
+			select {
+			case result := <-results:
+				var failure cliError
+				if !errors.As(result.err, &failure) || failure.ExitCode != cliExitAuthOrPolicy || failure.Classification != preflightapi.ClassificationBillingRequired || result.code != "" {
+					t.Fatalf("result=%+v", result)
+				}
+				requireCLITestOutputContains(t, failure.Message, "run readyci setup again")
+			default:
+				t.Fatal("login kept waiting after billing refusal")
+			}
+			hasLink := strings.Contains(recorder.Body.String(), ">Open Billing</a>")
+			if hasLink != (billingURL == "https://readyci.test/app/billing") {
+				t.Fatalf("unexpected billing link: %s", recorder.Body.String())
+			}
+		})
 	}
 }
