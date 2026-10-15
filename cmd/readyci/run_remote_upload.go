@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
@@ -65,8 +66,32 @@ func uploadRunBundle(ctx context.Context, client *api.Client, uploadURL string, 
 	if requireWorkerProof {
 		uploadOptions.DecodeJSONResponse = &uploadResp
 	}
-	if err := client.UploadBundleWithOptions(ctx, uploadURL, io.NewSectionReader(bundleFile, 0, upload.bundle.Size), upload.bundle.Size, uploadOptions); err != nil {
-		return preflightapi.WorkerBundleUploadProof{}, err
+	// Admission retries share one transfer deadline. Each attempt has its own
+	// read offset, even if the transport is still closing a rejected request.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	for {
+		err := client.UploadBundleWithOptions(ctx, uploadURL, io.NewSectionReader(bundleFile, 0, upload.bundle.Size), upload.bundle.Size, uploadOptions)
+		if err == nil {
+			break
+		}
+		var responseErr api.ResponseError
+		method := strings.TrimSpace(uploadOptions.Method)
+		if !requireWorkerProof || (method != "" && method != http.MethodPut) ||
+			!errors.As(err, &responseErr) || !responseErr.HasRetryAfter ||
+			(responseErr.StatusCode != http.StatusConflict && responseErr.StatusCode != http.StatusServiceUnavailable) {
+			return preflightapi.WorkerBundleUploadProof{}, err
+		}
+		// The worker rejected admission before spooling. Wait without a busy
+		// loop; baseline conflicts without Retry-After retain their fallback.
+		delay := max(100*time.Millisecond, min(responseErr.RetryAfter, 5*time.Second))
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return preflightapi.WorkerBundleUploadProof{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	if requireWorkerProof && strings.TrimSpace(uploadResp.Proof.Signature) == "" {
 		return preflightapi.WorkerBundleUploadProof{}, fmt.Errorf("worker upload response did not include proof")

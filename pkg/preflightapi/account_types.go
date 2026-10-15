@@ -1,8 +1,51 @@
 package preflightapi
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"time"
 )
+
+const CLIAuthRedirectPrefix = "readyci-cli:"
+
+type CLIAuthCodeExchangeRequest struct {
+	Code         string `json:"code"`
+	CodeVerifier string `json:"code_verifier"`
+	Name         string `json:"name,omitempty"`
+}
+
+// PKCEChallengeS256 binds an authorization code to its initiating native client.
+func PKCEChallengeS256(verifier string) string {
+	digest := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+func ValidPKCEVerifier(verifier string) bool {
+	if len(verifier) < 43 || len(verifier) > 128 {
+		return false
+	}
+	for _, c := range verifier {
+		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func ValidPKCEChallenge(challenge string) bool {
+	if len(challenge) != 43 {
+		return false
+	}
+	digest, err := base64.RawURLEncoding.DecodeString(challenge)
+	return err == nil && len(digest) == sha256.Size && base64.RawURLEncoding.EncodeToString(digest) == challenge
+}
+
+func VerifyPKCES256(challenge, verifier string) bool {
+	return ValidPKCEVerifier(verifier) && ValidPKCEChallenge(challenge) &&
+		subtle.ConstantTimeCompare([]byte(challenge), []byte(PKCEChallengeS256(verifier))) == 1
+}
 
 type APITokenSummary struct {
 	ID              string     `json:"id"`

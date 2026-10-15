@@ -216,11 +216,14 @@ func TestClientEndpointWrappersBuildExpectedRequests(t *testing.T) {
 			queryParts: []string{"format=json", "tail=5", "errors_only=true", "logs_only=true", "include_lifecycle=true"},
 		},
 		{
-			name:      "exchange cli auth code",
-			run:       func() error { _, err := client.ExchangeCLIAuthCode(ctx, "code", "laptop"); return err },
+			name: "exchange cli auth code",
+			run: func() error {
+				_, err := client.ExchangeCLIAuthCode(ctx, "code", "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk", "laptop")
+				return err
+			},
 			method:    http.MethodPost,
 			path:      "/v1/auth/cli/exchange",
-			bodyParts: []string{`"code":"code"`, `"name":"laptop"`},
+			bodyParts: []string{`"code":"code"`, `"name":"laptop"`, `"code_verifier":"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"`},
 		},
 		{
 			name:   "revoke current cli token",

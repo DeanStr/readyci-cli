@@ -102,15 +102,18 @@ func (c *Client) UploadBundleWithOptions(ctx context.Context, uploadURL string, 
 			resp.Body.Close()
 			continue
 		}
+		retryAfter, hasRetryAfter := responseRetryAfter(resp)
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
 			return ResponseError{
-				Operation:  "upload bundle",
-				Status:     resp.Status,
-				StatusCode: resp.StatusCode,
-				Code:       responseErrorCode(respBody),
-				Body:       sanitizeAPIErrorText(string(respBody), c.token),
+				Operation:     "upload bundle",
+				Status:        resp.Status,
+				StatusCode:    resp.StatusCode,
+				Code:          responseErrorCode(respBody),
+				Body:          sanitizeAPIErrorText(string(respBody), c.token),
+				RetryAfter:    retryAfter,
+				HasRetryAfter: hasRetryAfter,
 			}
 		}
 		if options.DecodeJSONResponse != nil {

@@ -225,6 +225,13 @@ func loginCommand(args []string) error {
 		_ = listener.Close()
 		return err
 	}
+	// Keep this verifier in the CLI; observing the browser redirect must not
+	// be sufficient to redeem its one-time Ready CI code.
+	codeVerifier, err := randomAuthToken()
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
 	callbackURL := (&url.URL{
 		Scheme: "http",
 		Host:   listener.Addr().String(),
@@ -233,7 +240,7 @@ func loginCommand(args []string) error {
 			"state": []string{localState},
 		}.Encode(),
 	}).String()
-	loginURL := cliLoginURL(*apiURL, callbackURL, *ssoSlug)
+	loginURL := cliLoginURL(*apiURL, callbackURL, *ssoSlug, preflightapi.PKCEChallengeS256(codeVerifier))
 	resultCh := make(chan loginCallbackResult, 1)
 	server := &http.Server{
 		Handler:           cliLoginCallbackHandler(localState, resultCh),
@@ -270,7 +277,7 @@ func loginCommand(args []string) error {
 		return result.err
 	}
 
-	resp, err := api.NewClient(*apiURL).ExchangeCLIAuthCode(ctx, result.code, "Ready CI CLI")
+	resp, err := api.NewClient(*apiURL).ExchangeCLIAuthCode(ctx, result.code, codeVerifier, "Ready CI CLI")
 	if err != nil {
 		return err
 	}
@@ -407,9 +414,9 @@ func effectiveAPIToken(apiURL, token string) (string, error) {
 	return credential.Token, nil
 }
 
-func cliLoginURL(apiURL, callbackURL, ssoSlug string) string {
+func cliLoginURL(apiURL, callbackURL, ssoSlug, codeChallenge string) string {
 	base := normalizeAPIURL(apiURL)
-	query := url.Values{"redirect_uri": []string{callbackURL}}
+	query := url.Values{"redirect_uri": {callbackURL}, "code_challenge": {codeChallenge}, "code_challenge_method": {"S256"}}
 	if ssoSlug = strings.TrimSpace(ssoSlug); ssoSlug != "" {
 		query.Set("sso", ssoSlug)
 	}

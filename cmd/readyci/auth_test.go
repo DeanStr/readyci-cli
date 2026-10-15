@@ -144,8 +144,9 @@ func TestLoginCommandCompletesLocalCallbackAndStoresCredential(t *testing.T) {
 	t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
 	expiresAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 	var exchanged struct {
-		Code string `json:"code"`
-		Name string `json:"name"`
+		Code         string `json:"code"`
+		CodeVerifier string `json:"code_verifier"`
+		Name         string `json:"name"`
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/cli/exchange" {
@@ -230,6 +231,13 @@ func TestLoginCommandCompletesLocalCallbackAndStoresCredential(t *testing.T) {
 	requireCLITestOutputContains(t, output, "Waiting for login", "Logged in to "+normalizeAPIURL(server.URL), "token_id: token_login", "expires_at: "+expiresAt.Format(time.RFC3339))
 	if exchanged.Code != "cli_code_test" || exchanged.Name != "Ready CI CLI" {
 		t.Fatalf("exchange request = %+v, want code/name", exchanged)
+	}
+	challenge := queryValueFromURLForCLITest(t, loginURL, "code_challenge")
+	if !preflightapi.VerifyPKCES256(challenge, exchanged.CodeVerifier) || strings.Contains(loginURL, exchanged.CodeVerifier) {
+		t.Fatal("CLI did not retain its verifier independently of the browser URL")
+	}
+	if method := queryValueFromURLForCLITest(t, loginURL, "code_challenge_method"); method != "S256" {
+		t.Fatalf("PKCE method=%q", method)
 	}
 	credential, found, err := loadStoredCredential(server.URL)
 	if err != nil {
@@ -321,14 +329,14 @@ func TestAuthCommandDispatchAndUsageErrors(t *testing.T) {
 }
 
 func TestCLILoginURLAndRandomToken(t *testing.T) {
-	got := cliLoginURL(" https://api.readyci.test/ ", "http://127.0.0.1:1234/callback?state=a b", "")
+	got := cliLoginURL(" https://api.readyci.test/ ", "http://127.0.0.1:1234/callback?state=a b", "", "challenge")
 	if !strings.HasPrefix(got, "https://api.readyci.test/v1/auth/cli/login?") {
 		t.Fatalf("login url = %q, want API login endpoint", got)
 	}
 	if !strings.Contains(got, "redirect_uri=http%3A%2F%2F127.0.0.1%3A1234%2Fcallback%3Fstate%3Da+b") {
 		t.Fatalf("login url = %q, want encoded redirect_uri", got)
 	}
-	got = cliLoginURL("https://user:pass@api.readyci.test/base?token=secret#frag", "http://127.0.0.1:1234/callback?state=local", "acme")
+	got = cliLoginURL("https://user:pass@api.readyci.test/base?token=secret#frag", "http://127.0.0.1:1234/callback?state=local", "acme", "challenge")
 	if !strings.HasPrefix(got, "https://api.readyci.test/base/v1/auth/cli/login?") {
 		t.Fatalf("login url = %q, want sanitized API login endpoint", got)
 	}

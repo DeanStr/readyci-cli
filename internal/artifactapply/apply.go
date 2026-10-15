@@ -49,14 +49,10 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 	if err != nil {
 		return artifactbundle.Manifest{}, err
 	}
-	gzipClosed := false
-	defer func() {
-		if !gzipClosed {
-			_ = gzipReader.Close()
-		}
-	}()
+	defer gzipReader.Close()
 
-	tarReader := tar.NewReader(gzipReader)
+	stream := artifactbundle.NewTarStreamReader(ctx, gzipReader)
+	tarReader := tar.NewReader(stream)
 	seen := make(map[string]struct{})
 	var applied artifactbundle.Manifest
 	var staged []stagedArtifactFile
@@ -69,10 +65,9 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 		}
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
-			if err := artifactbundle.VerifyGzipFooter(gzipReader); err != nil {
+			if err := artifactbundle.VerifyGzipFooter(stream); err != nil {
 				return artifactbundle.Manifest{}, err
 			}
-			gzipClosed = true
 			if parent, nested, ok := artifactbundle.FindPathPrefixConflict(archivePaths); ok {
 				return artifactbundle.Manifest{}, fmt.Errorf("artifact path %q conflicts with nested artifact path %q", parent, nested)
 			}

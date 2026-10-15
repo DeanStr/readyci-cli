@@ -5,12 +5,28 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestWriteArchiveRejectsExcessTarOverhead(t *testing.T) {
+	// Each long basename requires PAX metadata. Content and file count remain
+	// within their own limits, while metadata and padding exhaust the stream.
+	data := make([]byte, MaxExpandedBytes/MaxEntryCount)
+	files := make([]ArchiveFile, MaxEntryCount)
+	for i := range files {
+		files[i] = ArchiveFile{Path: fmt.Sprintf("%s%05d", strings.Repeat("a", 195), i), Data: data}
+	}
+	var archive bytes.Buffer
+	if _, err := WriteArchive(&archive, files); !errors.Is(err, ErrTooLarge) {
+		_, validationErr := Validate(bytes.NewReader(archive.Bytes()))
+		t.Fatalf("writer error=%v, consumer error=%v; want producer size rejection", err, validationErr)
+	}
+}
 
 func TestValidateRejectsUnsafeArchivePaths(t *testing.T) {
 	var buf bytes.Buffer

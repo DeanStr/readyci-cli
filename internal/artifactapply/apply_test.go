@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,6 +17,127 @@ import (
 
 	. "github.com/DeanStr/readyci-cli/pkg/artifactbundle"
 )
+
+func metadataTarHeader(t *testing.T, name string, kind byte, size int64) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := tar.NewWriter(&buf)
+	if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: size, Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	header := append([]byte(nil), buf.Bytes()[:512]...)
+	header[156] = kind
+	for i := 148; i < 156; i++ {
+		header[i] = ' '
+	}
+	sum := 0
+	for _, value := range header {
+		sum += int(value)
+	}
+	copy(header[148:156], []byte(fmt.Sprintf("%06o\x00 ", sum)))
+	return header
+}
+
+func TestArtifactConsumersBoundHiddenTarMetadata(t *testing.T) {
+	value := strings.Repeat("A", 11*1024)
+	var record string
+	for size := len(value) + 10; ; {
+		record = fmt.Sprintf("%d note=%s\n", size, value)
+		if len(record) == size {
+			break
+		}
+		size = len(record)
+	}
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	header := metadataTarHeader(t, "metadata", tar.TypeXHeader, int64(len(record)))
+	padding := make([]byte, (512-len(record)%512)%512)
+	for i := 0; i < MaxEntryCount+1; i++ {
+		for _, data := range [][]byte{header, []byte(record), padding} {
+			if _, err := gz.Write(data); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := gz.Write(metadataTarHeader(t, "result.txt", tar.TypeReg, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gz.Write(make([]byte, 1024)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, consumer := range []string{"validate", "preview", "apply"} {
+		t.Run(consumer, func(t *testing.T) {
+			var err error
+			if consumer == "validate" {
+				_, err = Validate(bytes.NewReader(compressed.Bytes()))
+			} else {
+				root := t.TempDir()
+				_, err = Apply(context.Background(), root, []string{"**"}, bytes.NewReader(compressed.Bytes()), ApplyOptions{DryRun: consumer == "preview"})
+				entries, readErr := os.ReadDir(root)
+				if readErr != nil || len(entries) != 0 {
+					t.Fatalf("rejected archive changed workspace: entries=%d err=%v", len(entries), readErr)
+				}
+			}
+			if !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("metadata archive error=%v, want size rejection", err)
+			}
+		})
+	}
+}
+
+type cancelArtifactRead struct {
+	io.Reader
+	cancel context.CancelFunc
+}
+
+func (r cancelArtifactRead) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.cancel()
+	return n, err
+}
+
+func TestArtifactStreamCancellationInsideTarNext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	header := metadataTarHeader(t, "metadata", tar.TypeXHeader, 1024)
+	stream := NewTarStreamReader(ctx, cancelArtifactRead{Reader: bytes.NewReader(header), cancel: cancel})
+	if _, err := tar.NewReader(stream).Next(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Next error=%v, want cancellation", err)
+	}
+}
+
+type artifactZeroReader struct{}
+
+func (artifactZeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
+
+func TestArtifactConsumersPreserveMaximumFileContentBudget(t *testing.T) {
+	var archive bytes.Buffer
+	gz := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "full.txt", Mode: 0o600, Size: MaxExpandedBytes, Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.CopyN(tw, artifactZeroReader{}, MaxExpandedBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	validated, err := Validate(bytes.NewReader(archive.Bytes()))
+	if err != nil || validated.TotalExpandedBytes != MaxExpandedBytes {
+		t.Fatalf("full content validation: size=%d err=%v", validated.TotalExpandedBytes, err)
+	}
+	applied, err := Apply(context.Background(), t.TempDir(), []string{"**"}, bytes.NewReader(archive.Bytes()), ApplyOptions{DryRun: true})
+	if err != nil || applied.TotalExpandedBytes != MaxExpandedBytes {
+		t.Fatalf("full content preview: size=%d err=%v", applied.TotalExpandedBytes, err)
+	}
+}
 
 func TestApplyFiltersAndWritesArchiveFiles(t *testing.T) {
 	source := t.TempDir()

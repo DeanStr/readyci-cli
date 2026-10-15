@@ -134,10 +134,11 @@ func (c *Client) ListRunEventsTail(ctx context.Context, runID string, limit int,
 	return requestJSONWithLimit[preflightapi.RunEventsResponse](ctx, c, http.MethodGet, "/v1/runs/"+url.PathEscape(runID)+"/events?"+query.Encode(), nil, maxRunEventsJSONResponseBytes)
 }
 
-func (c *Client) ExchangeCLIAuthCode(ctx context.Context, code, name string) (preflightapi.CreateAPITokenResponse, error) {
-	return postJSONResponse[preflightapi.CreateAPITokenResponse](ctx, c, "/v1/auth/cli/exchange", map[string]string{
-		"code": code,
-		"name": name,
+func (c *Client) ExchangeCLIAuthCode(ctx context.Context, code, codeVerifier, name string) (preflightapi.CreateAPITokenResponse, error) {
+	return postJSONResponse[preflightapi.CreateAPITokenResponse](ctx, c, "/v1/auth/cli/exchange", preflightapi.CLIAuthCodeExchangeRequest{
+		Code:         code,
+		CodeVerifier: codeVerifier,
+		Name:         name,
 	})
 }
 

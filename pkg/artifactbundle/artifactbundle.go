@@ -3,6 +3,7 @@ package artifactbundle
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,10 +17,13 @@ import (
 )
 
 const (
-	MediaType                = "application/vnd.readyci.artifacts+tar+gzip"
-	MaxCompressedBytes       = 100 << 20
-	MaxExpandedBytes         = 100 << 20
-	MaxEntryCount            = 10000
+	MediaType          = "application/vnd.readyci.artifacts+tar+gzip"
+	MaxCompressedBytes = 100 << 20
+	MaxExpandedBytes   = 100 << 20
+	MaxEntryCount      = 10000
+	// Include tar headers, PAX/GNU metadata, and padding in a finite stream
+	// budget while preserving the full file-content allowance.
+	MaxTarStreamBytes        = MaxExpandedBytes + (16 << 20)
 	maxTarEOFZeroPaddingSize = 1 << 20
 )
 
@@ -80,7 +84,7 @@ func WriteArchive(writer io.Writer, files []ArchiveFile) (Manifest, error) {
 
 	gzipWriter := gzip.NewWriter(writer)
 	gzipWriter.Name = "artifacts.tar"
-	tarWriter := tar.NewWriter(gzipWriter)
+	tarWriter := tar.NewWriter(NewTarStreamWriter(context.Background(), gzipWriter))
 	closed := false
 	defer func() {
 		if !closed {
@@ -114,28 +118,28 @@ func WriteArchive(writer io.Writer, files []ArchiveFile) (Manifest, error) {
 }
 
 func Validate(reader io.Reader) (Manifest, error) {
+	return ValidateContext(context.Background(), reader)
+}
+
+// ValidateContext validates an artifact archive with cancellation during parsing.
+func ValidateContext(ctx context.Context, reader io.Reader) (Manifest, error) {
 	gzipReader, err := gzip.NewReader(io.LimitReader(reader, MaxCompressedBytes+1))
 	if err != nil {
 		return Manifest{}, err
 	}
-	gzipClosed := false
-	defer func() {
-		if !gzipClosed {
-			_ = gzipReader.Close()
-		}
-	}()
+	defer gzipReader.Close()
 
-	tarReader := tar.NewReader(gzipReader)
+	stream := NewTarStreamReader(ctx, gzipReader)
+	tarReader := tar.NewReader(stream)
 	var manifest Manifest
 	seen := make(map[string]struct{})
 	var archivePaths []string
 	for {
 		header, err := tarReader.Next()
 		if errors.Is(err, io.EOF) {
-			if err := verifyGzipFooter(gzipReader); err != nil {
+			if err := VerifyGzipFooter(stream); err != nil {
 				return Manifest{}, err
 			}
-			gzipClosed = true
 			if parent, nested, ok := FindPathPrefixConflict(archivePaths); ok {
 				return Manifest{}, fmt.Errorf("artifact path %q conflicts with nested artifact path %q", parent, nested)
 			}
@@ -177,7 +181,66 @@ func Validate(reader io.Reader) (Manifest, error) {
 	}
 }
 
-func VerifyGzipFooter(reader *gzip.Reader) error {
+// NewTarStreamReader bounds all decompressed bytes, including metadata that
+// archive/tar consumes inside Next without returning a visible file header.
+func NewTarStreamReader(ctx context.Context, reader io.Reader) io.Reader {
+	return &tarStreamReader{ctx: ctx, reader: reader, remaining: MaxTarStreamBytes}
+}
+
+// NewTarStreamWriter applies the consumer's complete tar budget to producers,
+// so a successful archive cannot exceed the limit because of metadata/padding.
+func NewTarStreamWriter(ctx context.Context, writer io.Writer) io.Writer {
+	return &tarStreamWriter{ctx: ctx, writer: writer, remaining: MaxTarStreamBytes}
+}
+
+type tarStreamWriter struct {
+	ctx       context.Context
+	writer    io.Writer
+	remaining int64
+}
+
+func (w *tarStreamWriter) Write(p []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if int64(len(p)) > w.remaining {
+		return 0, ErrTooLarge
+	}
+	n, err := w.writer.Write(p)
+	w.remaining -= int64(n)
+	return n, err
+}
+
+type tarStreamReader struct {
+	ctx       context.Context
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *tarStreamReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.remaining == 0 {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			return 0, ErrTooLarge
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+func VerifyGzipFooter(reader io.Reader) error {
 	var buf [32 << 10]byte
 	var paddingBytes int64
 	for {
@@ -194,7 +257,7 @@ func VerifyGzipFooter(reader *gzip.Reader) error {
 			}
 		}
 		if errors.Is(err, io.EOF) {
-			return reader.Close()
+			return nil
 		}
 		if err != nil {
 			return err
@@ -203,10 +266,6 @@ func VerifyGzipFooter(reader *gzip.Reader) error {
 			return ErrTrailingData
 		}
 	}
-}
-
-func verifyGzipFooter(reader *gzip.Reader) error {
-	return VerifyGzipFooter(reader)
 }
 
 func IsFailedWorkspaceArtifactPattern(pattern string) bool {

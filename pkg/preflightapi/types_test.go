@@ -7,6 +7,30 @@ import (
 	"time"
 )
 
+func TestPKCES256RFC7636VectorAndValidation(t *testing.T) {
+	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	const challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+	if PKCEChallengeS256(verifier) != challenge || !VerifyPKCES256(challenge, verifier) {
+		t.Fatal("RFC 7636 S256 vector failed")
+	}
+	for _, value := range []string{"", strings.Repeat("a", 42), strings.Repeat("a", 129), strings.Repeat("a", 42) + " ", strings.Repeat("a", 42) + "+"} {
+		if ValidPKCEVerifier(value) || VerifyPKCES256(challenge, value) {
+			t.Fatal("invalid verifier accepted")
+		}
+	}
+	for _, value := range []string{"", challenge + "=", challenge[:42] + "N", strings.Repeat("!", 43)} {
+		if ValidPKCEChallenge(value) {
+			t.Fatal("invalid or noncanonical challenge accepted")
+		}
+	}
+	if VerifyPKCES256(challenge, strings.Repeat("a", 43)) {
+		t.Fatal("wrong verifier accepted")
+	}
+	if !ValidPKCEVerifier(strings.Repeat("a", 124) + "._~-") {
+		t.Fatal("valid verifier alphabet rejected")
+	}
+}
+
 func TestRunSpecJSONPreservesZeroCacheLaneIndex(t *testing.T) {
 	zero := 0
 	data, err := json.Marshal(RunSpec{
