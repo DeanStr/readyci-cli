@@ -253,7 +253,8 @@ func validateVerificationSourceUploadRequirements(created preflightapi.CreateVer
 	return true, nil
 }
 
-func uploadVerificationSessionSource(ctx context.Context, client *api.Client, created preflightapi.CreateVerificationSessionResponse, bundlePath string, bundle syncbundlebuild.BuildResult, progress agentProgressSink, probeDirectInvariants bool) (preflightapi.VerificationSession, error) {
+func uploadVerificationSessionSource(ctx context.Context, client *api.Client, created preflightapi.CreateVerificationSessionResponse, bundlePath string, bundle syncbundlebuild.BuildResult, progress agentProgressSink, probeDirectInvariants bool, timings *executionTimings) (preflightapi.VerificationSession, error) {
+	preparedAt := time.Now()
 	required, err := validateVerificationSourceUploadRequirements(created, probeDirectInvariants)
 	if err != nil {
 		return preflightapi.VerificationSession{}, err
@@ -288,6 +289,9 @@ func uploadVerificationSessionSource(ctx context.Context, client *api.Client, cr
 		ContentMD5:    contentMD5,
 	}
 	prepared, err := client.PrepareVerificationSessionSourceUpload(ctx, created.SourceUploadPrepareURL, descriptor)
+	if timings != nil {
+		timings.SourcePrepareMS = observedDurationMS(preparedAt)
+	}
 	if err != nil {
 		return preflightapi.VerificationSession{}, err
 	}
@@ -304,24 +308,33 @@ func uploadVerificationSessionSource(ctx context.Context, client *api.Client, cr
 			return preflightapi.VerificationSession{}, err
 		}
 	}
-	if err := uploadVerificationBundleFile(ctx, client, prepared.UploadURL, bundlePath, bundle.Size, api.UploadBundleOptions{
+	transferredAt := time.Now()
+	uploadErr := uploadVerificationBundleFile(ctx, client, prepared.UploadURL, bundlePath, bundle.Size, api.UploadBundleOptions{
 		Method:                        prepared.UploadMethod,
 		Headers:                       prepared.UploadHeaders,
 		AllowCrossOrigin:              true,
 		OmitAPIAuthentication:         true,
 		TreatAlreadyUploadedAsSuccess: true,
-	}); err != nil {
-		return preflightapi.VerificationSession{}, err
+	})
+	if timings != nil {
+		timings.SourceTransferMS = observedDurationMS(transferredAt)
+	}
+	if uploadErr != nil {
+		return preflightapi.VerificationSession{}, uploadErr
 	}
 	if probeDirectInvariants {
 		if err := probeVerificationSourceDirectUploadInvariants(ctx, client, prepared, bundlePath, descriptor); err != nil {
 			return preflightapi.VerificationSession{}, err
 		}
 	}
+	validatedAt := time.Now()
 	uploaded, err := client.CompleteVerificationSessionSourceUpload(ctx, prepared.CompleteURL, preflightapi.CompleteVerificationSessionSourceUploadRequest{
 		SizeBytes:     descriptor.SizeBytes,
 		ContentSHA256: descriptor.ContentSHA256,
 	})
+	if timings != nil {
+		timings.SourceValidationMS = observedDurationMS(validatedAt)
+	}
 	if err != nil {
 		return preflightapi.VerificationSession{}, err
 	}

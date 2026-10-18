@@ -90,7 +90,18 @@ type repoWorkflowJob struct {
 	Needs        []string                `json:"needs,omitempty"`
 	Commands     []string                `json:"commands,omitempty"`
 	CommandLines []int                   `json:"command_lines,omitempty"`
+	RunSteps     []repoWorkflowRunStep   `json:"run_steps,omitempty"`
+	Runtimes     []string                `json:"runtimes,omitempty"`
 	Conditions   []repoWorkflowCondition `json:"conditions,omitempty"`
+	Requirements []string                `json:"requirements,omitempty"`
+	Unsupported  []string                `json:"unsupported,omitempty"`
+}
+
+type repoWorkflowRunStep struct {
+	Command          string `json:"command"`
+	Line             int    `json:"line"`
+	Shell            string `json:"shell,omitempty"`
+	WorkingDirectory string `json:"working_directory,omitempty"`
 }
 
 type repoWorkflowCondition struct {
@@ -138,13 +149,18 @@ type repoOpenAPIMap struct {
 }
 
 type repoImportCandidate struct {
-	Source     string   `json:"source"`
-	Name       string   `json:"name"`
-	Command    string   `json:"command,omitempty"`
-	Check      string   `json:"check,omitempty"`
-	Reason     string   `json:"reason,omitempty"`
-	Confidence float64  `json:"confidence"`
-	Evidence   []string `json:"evidence,omitempty"`
+	Runtimes           []string `json:"runtimes,omitempty"`
+	WorkingDirectories []string `json:"working_directories,omitempty"`
+	ID                 string   `json:"id,omitempty"`
+	Source             string   `json:"source"`
+	Name               string   `json:"name"`
+	Command            string   `json:"command,omitempty"`
+	Check              string   `json:"check,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
+	Confidence         float64  `json:"confidence"`
+	Evidence           []string `json:"evidence,omitempty"`
+	Requirements       []string `json:"requirements,omitempty"`
+	Unsupported        []string `json:"unsupported,omitempty"`
 }
 
 type repoImportReport struct {

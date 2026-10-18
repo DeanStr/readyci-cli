@@ -114,6 +114,7 @@ func TestUploadVerificationSessionSourceUsesDirectObjectStoreContract(t *testing
 		t.Fatal(err)
 	}
 	client := api.NewClient(apiServer.URL, api.WithToken(token))
+	var timings executionTimings
 	session, err := uploadVerificationSessionSource(
 		context.Background(),
 		client,
@@ -126,6 +127,7 @@ func TestUploadVerificationSessionSourceUsesDirectObjectStoreContract(t *testing
 		syncbundlebuild.BuildResult{Size: int64(len(source))},
 		nil,
 		true,
+		&timings,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -133,10 +135,16 @@ func TestUploadVerificationSessionSourceUsesDirectObjectStoreContract(t *testing
 	if session.SessionID != sessionID || !prepared || !objectUploaded || !completed {
 		t.Fatalf("session=%+v prepared=%t uploaded=%t completed=%t", session, prepared, objectUploaded, completed)
 	}
+	for name, value := range map[string]*int64{"prepare": timings.SourcePrepareMS, "transfer": timings.SourceTransferMS, "validation": timings.SourceValidationMS} {
+		if value == nil || *value < 0 {
+			t.Fatalf("missing %s timing: %+v", name, timings)
+		}
+	}
 }
 
 func TestUploadVerificationSessionSourceRequiresDirectContract(t *testing.T) {
 	client := api.NewClient("https://api.readyci.test")
+	var timings executionTimings
 	_, err := uploadVerificationSessionSource(
 		context.Background(),
 		client,
@@ -148,8 +156,12 @@ func TestUploadVerificationSessionSourceRequiresDirectContract(t *testing.T) {
 		syncbundlebuild.BuildResult{Size: 1},
 		nil,
 		false,
+		&timings,
 	)
 	var cliErr cliError
+	if timings.SourcePrepareMS != nil || timings.SourceTransferMS != nil || timings.SourceValidationMS != nil {
+		t.Fatalf("rejected source fabricated observed phases: %+v", timings)
+	}
 	if !errors.As(err, &cliErr) ||
 		cliErr.Code != "platform_internal" ||
 		cliErr.ExitCode != cliExitInternal ||

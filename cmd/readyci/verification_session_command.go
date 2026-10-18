@@ -143,6 +143,7 @@ func printVerificationSession(session preflightapi.VerificationSession, apiURL s
 	for _, node := range session.Nodes {
 		fmt.Printf("%s: %s\n", node.Name, node.Status)
 	}
+	printAgentWarnings(session.Warnings)
 	printVerificationRecovery(session, apiURL)
 }
 

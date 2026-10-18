@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -27,6 +28,24 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		return setupReport{}, err
 	}
 	var written []string
+	var candidates []repoImportCandidate
+	if options.Detect && (configPath == "" || options.Force) {
+		candidates = setupImportCandidates(".", options.ImportSource)
+	}
+	if (options.ImportSource != "" || options.ImportCandidate != "") && configPath != "" && !options.Force {
+		return setupReport{}, cliConfigError("import selection would replace existing configuration; use --force after reviewing it", nil)
+	}
+	if options.ImportCandidate != "" && options.ConfigTemplate == nil {
+		candidate, err := selectSetupImport(options, candidates, nil, io.Discard, true)
+		if err != nil {
+			return setupReport{}, err
+		}
+		template := setupImportedTemplate(options, projectID, *candidate)
+		options.ConfigTemplate = &template
+	}
+	if options.WriteConfig && options.ImportSource != "" && options.ConfigTemplate == nil {
+		return setupReport{}, cliConfigError("--write-config with --import requires --candidate ID", nil)
+	}
 	if options.WriteConfig && (configPath == "" || options.Force) {
 		var template string
 		if options.ConfigTemplate != nil {
@@ -58,11 +77,12 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 	}
 
 	report := setupReport{
-		APIURL:    normalizeAPIURL(options.APIURL),
-		ProjectID: projectID,
-		Check:     strings.TrimSpace(options.CheckName),
-		Checks:    sortedCheckNames(cfg.Checks),
-		Written:   append([]string(nil), written...),
+		APIURL:           normalizeAPIURL(options.APIURL),
+		ProjectID:        projectID,
+		Check:            strings.TrimSpace(options.CheckName),
+		Checks:           sortedCheckNames(cfg.Checks),
+		Written:          append([]string(nil), written...),
+		ImportCandidates: candidates,
 	}
 
 	var configErr error
@@ -252,6 +272,15 @@ func printSetupReport(report setupReport) {
 	}
 	for _, warning := range report.Warnings {
 		fmt.Printf("warning: %s\n", warning)
+	}
+	for _, candidate := range report.ImportCandidates {
+		fmt.Printf("import_candidate: %s · %s\n", candidate.ID, candidate.Command)
+		for _, requirement := range candidate.Requirements {
+			fmt.Printf("  review: %s\n", requirement)
+		}
+		for _, unsupported := range candidate.Unsupported {
+			fmt.Printf("  manual_configuration: %s\n", unsupported)
+		}
 	}
 	fmt.Println("next:")
 	for _, command := range report.Next {

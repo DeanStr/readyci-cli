@@ -167,19 +167,22 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 		}
 		dir := makeDirForPath(target.Path)
 		display := target.Name
-		command := "make " + shellQuoteArg(target.Name)
+		command := "make -f " + shellQuoteArg(filepath.Base(target.Path)) + " -- " + shellQuoteArg(target.Name)
 		if dir != "" {
 			display = dir + ":" + target.Name
-			command = "make -C " + shellQuoteArg(dir) + " " + shellQuoteArg(target.Name)
+			command = "make -C " + shellQuoteArg(dir) + " -f " + shellQuoteArg(filepath.Base(target.Path)) + " -- " + shellQuoteArg(target.Name)
 		}
 		out = append(out, repoImportCandidate{
-			Source:     "make",
-			Name:       "target " + display,
-			Command:    command,
-			Check:      checkNameFromMakeTarget(target.Name, dir),
-			Reason:     "Make target looks like an existing verification entrypoint.",
-			Confidence: 0.7,
-			Evidence:   []string{target.Path + ":" + fmt.Sprint(target.Line)},
+			ID:                 "make:" + target.Path + ":" + target.Name,
+			Source:             "make",
+			WorkingDirectories: []string{dir},
+			Name:               "target " + display,
+			Command:            command,
+			Check:              checkNameFromMakeTarget(target.Name, dir),
+			Reason:             "Make target looks like an existing verification entrypoint.",
+			Confidence:         0.7,
+			Evidence:           []string{target.Path + ":" + fmt.Sprint(target.Line)},
+			Requirements:       []string{"Review the Make target's toolchain, dependency, service, and network requirements."},
 		})
 	}
 	for _, ref := range report.CheckReferences {
@@ -197,19 +200,28 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 	}
 	for _, workflow := range report.GitHubActions.Workflows {
 		for _, job := range workflow.Jobs {
-			if len(job.Commands) == 0 {
+			if len(job.Commands) == 0 && len(job.Unsupported) == 0 {
 				continue
 			}
 			if !isLikelyVerificationWorkflowJob(workflow, job) {
 				continue
 			}
+			var directories []string
+			for _, step := range job.RunSteps {
+				directories = appendUniqueString(directories, step.WorkingDirectory)
+			}
 			out = append(out, repoImportCandidate{
-				Source:     "github-actions",
-				Name:       job.Name,
-				Command:    strings.Join(job.Commands, " && "),
-				Reason:     "GitHub Actions job runs existing verification command(s).",
-				Confidence: 0.74,
-				Evidence:   []string{workflow.Path},
+				ID:                 "github-actions:" + workflow.Path + ":" + job.Name,
+				Source:             "github-actions",
+				Name:               job.Name,
+				Command:            joinImportedSteps(job.RunSteps),
+				Runtimes:           append([]string(nil), job.Runtimes...),
+				WorkingDirectories: directories,
+				Reason:             "GitHub Actions job runs existing verification command(s).",
+				Confidence:         0.74,
+				Evidence:           []string{workflow.Path},
+				Requirements:       append([]string{"Select a runner image with the required toolchains; provider runner images are not imported."}, job.Requirements...),
+				Unsupported:        append([]string(nil), job.Unsupported...),
 			})
 		}
 	}
@@ -250,7 +262,9 @@ func isOperationalWorkflowJob(workflow repoWorkflowMap, job repoWorkflowJob) boo
 	if hasSeparatedMarker(namePath, "deploy") || hasSeparatedMarker(namePath, "deployment") || hasSeparatedMarker(namePath, "publish") {
 		return true
 	}
-	commands := strings.ToLower(strings.Join(job.Commands, "\n"))
+	// Analyze command boundaries consistently for multiline steps and directory
+	// wrappers without changing the commands that will actually be executed.
+	commands := strings.ToLower(strings.Join(strings.Fields(strings.Join(job.Commands, "\n")), " "))
 	for _, marker := range []string{
 		" gh release create",
 		" gh release upload",
@@ -407,7 +421,7 @@ func uniqueRepoImportCandidates(values []repoImportCandidate) []repoImportCandid
 	seen := map[string]bool{}
 	out := make([]repoImportCandidate, 0, len(values))
 	for _, value := range values {
-		key := value.Source + "\x00" + value.Name + "\x00" + value.Command + "\x00" + value.Check
+		key := value.ID + "\x00" + value.Source + "\x00" + value.Name + "\x00" + value.Command + "\x00" + value.Check
 		if seen[key] {
 			continue
 		}

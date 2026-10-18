@@ -139,6 +139,9 @@ func createAndWatchVerificationSession(options verificationSessionOptions) (sess
 	uploadedAt := time.Now()
 	var repackagedFor time.Duration
 	created, err := client.CreateVerificationSession(ctx, req)
+	if options.Timings != nil {
+		options.Timings.SessionCreateMS = observedDurationMS(uploadedAt)
+	}
 	if err != nil {
 		return preflightapi.VerificationSession{}, err
 	}
@@ -185,6 +188,7 @@ func createAndWatchVerificationSession(options verificationSessionOptions) (sess
 		uploaded, err := uploadVerificationSessionSource(
 			ctx, client, created, bundlePath, bundle, progress,
 			options.ProbeDirectSourceUploadInvariants,
+			options.Timings,
 		)
 		if err != nil {
 			return created.Session, err

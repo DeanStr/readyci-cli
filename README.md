@@ -243,6 +243,7 @@ readyci runs status --admin-token "$READYCI_ADMIN_TOKEN" RUN_ID
 readyci runs explain --json RUN_ID
 readyci runs logs --tail 200 --json RUN_ID
 readyci runs logs --errors-only --jsonl RUN_ID
+readyci runs tests --status failed --json RUN_ID
 readyci groups latest --project airline
 readyci groups status GROUP_ID
 readyci groups logs GROUP_ID
@@ -290,6 +291,14 @@ fails closed when the retained source or frozen policy revision is unavailable.
 `readyci usage` prints the authenticated team's current plan limits and usage counters in text or JSON.
 
 `readyci verify`, `readyci sessions get/watch/cancel/retry/rerun`, `readyci agent plan/explain`, `readyci agent artifacts plan/apply`, `readyci runs logs/artifacts`, and `readyci artifacts download` are the agent-friendly surface for a scoped API token. They avoid admin-only endpoints for normal project workflows, so coding agents can submit a sealed verification session, reconnect to it, read structured failure diagnostics, preview generated artifact handoff, and download artifacts without receiving operator credentials. JSON reports follow `schema/readyci.verification.v0alpha1.schema.json` and include snapshot, plan, coverage, node, attempt, verdict, and repair-oriented fields.
+
+Setup imports preserve each GitHub Actions step's effective shell settings:
+an unspecified shell uses `bash -e`, while explicit `bash` also enables
+`pipefail`. Runtime cache and network suggestions use manifests in the root and
+selected working directories, plus recognized setup actions. Review the proposed
+allowlist; `--profile strict` keeps network access disabled. Ready CI reconstructs
+Git metadata from a synthetic baseline without original history or tags, so
+checkout depths other than a literal `1` require manual translation.
 
 Ordinary `run`, `check`, and `affected` executions exclude project secrets unless `--request-secrets` is supplied; server scope and secret-release policy still apply, and automatic dependency preparation always excludes secrets. Human execution displays live test stdout/stderr; `--json` emits only the final result document and `--detach` does not watch. Project secrets are write-only in API/dashboard responses and are injected into the worker environment only for claimed runs in that project. Use `readyci login` for human CLI access; it prints the login URL and opens a browser when possible. Use `readyci login --no-browser` when you want to copy the URL into another browser on the same workstation, including WSL setups where the Windows browser can reach the WSL localhost callback. For SSH or remote terminals, use SSH port forwarding for the callback or prefer an explicit scoped token via `READYCI_API_TOKEN`. Use explicit scoped `READYCI_API_TOKEN` values for automation or AI coding agents.
 

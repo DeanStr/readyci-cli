@@ -4,17 +4,69 @@
   "title": "Ready CI normalized test result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "adapter", "test", "status", "attempt"],
+  "required": [
+    "schema_version",
+    "adapter",
+    "test",
+    "status",
+    "attempt"
+  ],
   "properties": {
-    "schema_version": {"const": "readyci.test-result.v0alpha1"},
-    "adapter": {"type": "string", "minLength": 1},
-    "suite": {"type": "string"},
-    "test": {"type": "string", "minLength": 1},
-    "status": {"enum": ["passed", "failed", "skipped", "error"]},
-    "file": {"type": "string"},
-    "line": {"type": "integer", "minimum": 0},
-    "duration_ms": {"type": "integer", "minimum": 0},
-    "attempt": {"type": "integer", "minimum": 1},
-    "message": {"type": "string"}
+    "schema_version": {
+      "const": "readyci.test-result.v0alpha1"
+    },
+    "adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suite": {
+      "type": "string"
+    },
+    "test": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "passed",
+        "failed",
+        "skipped",
+        "error"
+      ]
+    },
+    "file": {
+      "type": "string"
+    },
+    "line": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "message": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "class": {
+      "type": "string"
+    },
+    "report_path": {
+      "type": "string"
+    },
+    "message_truncated": {
+      "type": "boolean"
+    },
+    "ordinal": {
+      "type": "integer",
+      "minimum": 0
+    }
   }
 }

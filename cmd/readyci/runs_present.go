@@ -61,6 +61,9 @@ func printRunDetail(detail preflightapi.RunDetail) {
 		fmt.Printf("policy_reason: %s\n", reason)
 	}
 	printRunSecretPolicy(detail.SecretPolicy)
+	if detail.Timings != nil {
+		printRunTimings(*detail.Timings)
+	}
 }
 
 func printRunSecretPolicy(policy *preflightapi.RunSecretPolicyEvaluation) {

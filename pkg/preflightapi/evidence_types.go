@@ -60,16 +60,21 @@ type EvidenceManifest struct {
 }
 
 type StructuredTestResult struct {
-	SchemaVersion string `json:"schema_version"`
-	Adapter       string `json:"adapter"`
-	Suite         string `json:"suite,omitempty"`
-	Test          string `json:"test"`
-	Status        string `json:"status"`
-	File          string `json:"file,omitempty"`
-	Line          int    `json:"line,omitempty"`
-	DurationMS    int64  `json:"duration_ms,omitempty"`
-	Attempt       int    `json:"attempt"`
-	Message       string `json:"message,omitempty"`
+	Ordinal          int    `json:"ordinal"`
+	ID               string `json:"id,omitempty"`
+	SchemaVersion    string `json:"schema_version"`
+	Adapter          string `json:"adapter"`
+	Suite            string `json:"suite,omitempty"`
+	Class            string `json:"class,omitempty"`
+	Test             string `json:"test"`
+	Status           string `json:"status"`
+	File             string `json:"file,omitempty"`
+	Line             int    `json:"line,omitempty"`
+	DurationMS       *int64 `json:"duration_ms,omitempty"`
+	Attempt          int    `json:"attempt"`
+	Message          string `json:"message,omitempty"`
+	ReportPath       string `json:"report_path,omitempty"`
+	MessageTruncated bool   `json:"message_truncated,omitempty"`
 }
 
 func NormalizeEvidenceManifest(manifest EvidenceManifest) (EvidenceManifest, error) {
@@ -174,7 +179,7 @@ func NormalizeStructuredTestResult(result StructuredTestResult) (StructuredTestR
 	default:
 		return result, fmt.Errorf("unsupported structured test status %q", result.Status)
 	}
-	if result.Attempt < 1 || result.Line < 0 || result.DurationMS < 0 {
+	if result.Attempt < 1 || result.Line < 0 || result.Ordinal < 0 || result.DurationMS != nil && *result.DurationMS < 0 {
 		return result, fmt.Errorf("structured test attempt must be positive and line/duration non-negative")
 	}
 	if result.File != "" {
@@ -183,6 +188,13 @@ func NormalizeStructuredTestResult(result StructuredTestResult) (StructuredTestR
 			return result, fmt.Errorf("invalid structured test file %q", result.File)
 		}
 		result.File = path
+	}
+	if result.ReportPath != "" {
+		path, err := syncbundle.ValidateRelativePath(result.ReportPath)
+		if err != nil || syncbundle.IsGitControlPath(path) {
+			return result, fmt.Errorf("invalid test report path %q", result.ReportPath)
+		}
+		result.ReportPath = path
 	}
 	return result, nil
 }

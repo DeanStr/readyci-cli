@@ -26,6 +26,8 @@ func runsCommand(args []string) error {
 		return runsLogsCommand(args[1:])
 	case "artifacts":
 		return runsArtifactsCommand(args[1:])
+	case "tests":
+		return runsTestsCommand(args[1:])
 	case "cancel":
 		return runsCancelCommand(args[1:])
 	default:
@@ -176,11 +178,13 @@ func runsStatusCommand(args []string) error {
 }
 
 type runStatusReport struct {
-	Summary          preflightapi.RunSummary `json:"summary"`
-	Spec             preflightapi.RunSpec    `json:"spec"`
-	PolicyReasons    []string                `json:"policy_reasons,omitempty"`
-	Diagnostics      []doctorDiagnostic      `json:"diagnostics,omitempty"`
-	WorkerCapability *workerCapabilityReport `json:"worker_capability,omitempty"`
+	TestResults      *preflightapi.RunTestResults `json:"test_results,omitempty"`
+	Timings          *preflightapi.RunTimings     `json:"timings,omitempty"`
+	Summary          preflightapi.RunSummary      `json:"summary"`
+	Spec             preflightapi.RunSpec         `json:"spec"`
+	PolicyReasons    []string                     `json:"policy_reasons,omitempty"`
+	Diagnostics      []doctorDiagnostic           `json:"diagnostics,omitempty"`
+	WorkerCapability *workerCapabilityReport      `json:"worker_capability,omitempty"`
 }
 
 type queuedRunDiagnostics struct {
@@ -207,6 +211,8 @@ func runSpecWorkerCapability(spec preflightapi.RunSpec, workers []preflightapi.A
 
 func buildRunStatusReport(detail preflightapi.RunDetail, apiURL string, adminTokenProvided bool, diagnostics queuedRunDiagnostics) runStatusReport {
 	report := runStatusReport{
+		TestResults:   detail.TestResults,
+		Timings:       detail.Timings,
 		Summary:       detail.Summary,
 		Spec:          detail.Spec,
 		PolicyReasons: append([]string(nil), detail.PolicyReasons...),

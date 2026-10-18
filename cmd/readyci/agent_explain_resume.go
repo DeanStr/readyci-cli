@@ -58,6 +58,13 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 	failureReason := terminalFailureReason(eventsResp.Events)
 	status := effectiveRunStatus(detail.Summary.Status, eventsResp.Events)
 	diagnosis := agentDiagnosisFromAnalysis(analyzeRemoteRunFailure(remoteRunResultFromDetailDiagnosis(detail, status, failureReason, eventsResp.Events), nil, detail.Spec.Command))
+	reportWarnings := preflightapi.TestReportExecutionWarnings(status, detail.TestResults)
+	warnings = append(warnings, reportWarnings...)
+	if len(reportWarnings) > 0 {
+		// Reconcile agent guidance while preserving the execution classification.
+		diagnosis.Action = preflightapi.AgentActionInspectTestReport
+		diagnosis.Summary = preflightapi.TestReportConflictMessage
+	}
 	evidence := evidenceForDiagnosis(diagnosis, eventsResp.Events, 8)
 	checkName, matrixVariant := preflightapi.SplitCheckAliasVariant(detail.Spec.CommandAlias)
 	if checkName == "" {
@@ -73,7 +80,22 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 			Message: "artifact evidence inspection failed: " + evidencePackErr.Error(),
 		})
 	}
+	repair := buildAgentRepairPacket(diagnosis, detail.Spec.Command, rerunCommand, logsCommand, evidence, evidencePacks, detail.PolicyReasons)
+	var testResults *preflightapi.RunTestResults
+	if detail.TestResults != nil {
+		failures := detail.TestResults.Failures(50)
+		testResults = &failures
+		if len(failures.Results) > 0 {
+			first := failures.Results[0]
+			repair.FailingTest = first.Test
+			if repair.PrimaryFile == "" {
+				repair.PrimaryFile = first.File
+			}
+		}
+	}
 	return agentExplainReport{
+		Timings:             detail.Timings,
+		TestResults:         testResults,
 		SchemaVersion:       agentSchemaVersion,
 		RunID:               detail.Summary.RunID,
 		Status:              status,
@@ -83,7 +105,7 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 		MatrixVariant:       matrixVariant,
 		Command:             detail.Spec.Command,
 		Diagnosis:           diagnosis,
-		Repair:              buildAgentRepairPacket(diagnosis, detail.Spec.Command, rerunCommand, logsCommand, evidence, evidencePacks, detail.PolicyReasons),
+		Repair:              repair,
 		Evidence:            evidence,
 		EvidencePacks:       evidencePacks,
 		RecommendedNextStep: recommendedNextStep(diagnosis, apiURL, checkName, requestSecrets),

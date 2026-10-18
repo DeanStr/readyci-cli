@@ -31,6 +31,14 @@ func (c *Client) GetRun(ctx context.Context, runID string) (preflightapi.RunDeta
 	return getJSON[preflightapi.RunDetail](ctx, c, "/v1/runs/"+url.PathEscape(runID))
 }
 
+func (c *Client) GetRunTestResults(ctx context.Context, runID, status string) (preflightapi.RunTestResults, error) {
+	query := url.Values{}
+	if status != "" {
+		query.Set("status", status)
+	}
+	return getJSON[preflightapi.RunTestResults](ctx, c, "/v1/runs/"+url.PathEscape(runID)+"/tests?"+query.Encode())
+}
+
 func (c *Client) CancelRun(ctx context.Context, runID string, req preflightapi.CancelRunRequest) (preflightapi.CancelRunResponse, error) {
 	return postJSONResponse[preflightapi.CancelRunResponse](ctx, c, "/v1/runs/"+url.PathEscape(runID)+"/cancel", req)
 }

@@ -17,6 +17,90 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
+func TestAgentExplainReconcilesExecutionAndReportedTests(t *testing.T) {
+	for _, tc := range []struct {
+		name, status string
+		exitCode     int
+		counts       preflightapi.TestResultCounts
+		wantWarning  bool
+	}{
+		{"success with reported failure", preflightapi.StatusSucceeded, 0, preflightapi.TestResultCounts{Failed: 1}, true},
+		{"success with reported error", preflightapi.StatusSucceeded, 0, preflightapi.TestResultCounts{Errors: 1}, true},
+		{"failed execution with passing report", preflightapi.StatusFailed, 1, preflightapi.TestResultCounts{Passed: 1}, false},
+		{"success with passing report", preflightapi.StatusSucceeded, 0, preflightapi.TestResultCounts{Passed: 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			detail := preflightapi.RunDetail{
+				Summary: preflightapi.RunSummary{RunID: "run_reports", Status: tc.status, ExitCode: &tc.exitCode},
+				Spec:    preflightapi.RunSpec{RunID: "run_reports", Command: "test-command", CommandAlias: "unit"},
+				// Counts can survive truncation even when individual failures do not.
+				TestResults: &preflightapi.RunTestResults{RunID: "run_reports", TestReportIndex: preflightapi.TestReportIndex{State: "parsed", Counts: tc.counts}},
+			}
+			if tc.counts.Failed > 0 {
+				detail.TestResults.Results = []preflightapi.StructuredTestResult{{Test: "rejects invalid input", Status: "failed", File: "input_test.go"}}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/runs/run_reports":
+					writeCLITestJSON(w, http.StatusOK, detail)
+				case "/v1/runs/run_reports/events":
+					writeCLITestJSON(w, http.StatusOK, preflightapi.RunEventsResponse{})
+				case "/v1/runs/run_reports/artifacts":
+					writeCLITestJSON(w, http.StatusOK, preflightapi.ListArtifactsResponse{})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			report, err := buildAgentExplainReport(context.Background(), api.NewClient(server.URL), server.URL, detail.Summary.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.Status != tc.status || report.ExitCode == nil || *report.ExitCode != tc.exitCode {
+				t.Fatalf("execution outcome changed: %+v", report)
+			}
+			if tc.wantWarning {
+				if len(report.Warnings) != 1 || report.Warnings[0].Section != "test_results" || strings.Contains(report.RecommendedNextStep, "No follow-up") {
+					t.Fatalf("reported test discrepancy needs investigation: warnings=%+v next=%q", report.Warnings, report.RecommendedNextStep)
+				}
+				if report.Warnings[0].Code != preflightapi.WarningExecutionReportConflict || report.Warnings[0].Action != preflightapi.AgentActionInspectTestReport || report.Diagnosis.Kind != preflightapi.ClassificationSuccess || report.Repair.Classification != preflightapi.ClassificationSuccess || report.Repair.AgentAction != preflightapi.AgentActionInspectTestReport {
+					t.Fatalf("discrepancy guidance changed execution classification or omitted the action: %+v", report)
+				}
+				if tc.counts.Failed > 0 && report.Repair.FailingTest != "rejects invalid input" {
+					t.Fatalf("named reported failure was lost: %+v", report.Repair)
+				}
+				encoded, err := json.Marshal(report)
+				if err != nil {
+					t.Fatal(err)
+				}
+				validateAgentJSONSchema(t, encoded)
+				text, err := captureStdoutForCLITest(t, func() error { printAgentExplainReport(report); return nil })
+				if err != nil || !strings.Contains(text, preflightapi.TestReportConflictMessage) || strings.Contains(text, "No follow-up") {
+					t.Fatalf("human explanation omits investigation: %s err=%v", text, err)
+				}
+			} else if len(report.Warnings) != 0 {
+				t.Fatalf("unexpected discrepancy warning: %+v", report.Warnings)
+			}
+		})
+	}
+}
+
+func TestVerificationPrintsReportConflictWithoutChangingVerdictExit(t *testing.T) {
+	for _, verdict := range []string{preflightapi.VerificationVerdictVerified, preflightapi.VerificationVerdictFailed} {
+		session := preflightapi.VerificationSession{Verdict: verdict, Currentness: preflightapi.VerificationCurrentnessCurrent}
+		before := verificationVerdictExit(session)
+		session.Warnings = preflightapi.TestReportExecutionWarnings(preflightapi.StatusSucceeded, &preflightapi.RunTestResults{TestReportIndex: preflightapi.TestReportIndex{Counts: preflightapi.TestResultCounts{Failed: 1}}})
+		after := verificationVerdictExit(session)
+		if (before == nil) != (after == nil) || before != nil && before.Error() != after.Error() {
+			t.Fatalf("warning changed verdict exit: before=%v after=%v", before, after)
+		}
+		output, err := captureStdoutForCLITest(t, func() error { printVerificationSession(session, ""); return nil })
+		if err != nil || !strings.Contains(output, preflightapi.TestReportConflictMessage) {
+			t.Fatalf("session output omits investigation: %s err=%v", output, err)
+		}
+	}
+}
+
 func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 	exitCode := 1
 	successExitCode := 0

@@ -324,6 +324,8 @@ func shouldRecommendAgentRerun(run agentVerifyRunReport) bool {
 
 func recommendedNextStep(diagnosis agentDiagnosis, apiURL, check string, requestSecrets bool) string {
 	switch diagnosis.Action {
+	case preflightapi.AgentActionInspectTestReport:
+		return preflightapi.TestReportConflictMessage
 	case "fix_code":
 		if diagnosis.Kind == preflightapi.ClassificationTestFailed {
 			return "Inspect the failing test and implementation, repair the defect, then rerun the same Ready CI check."

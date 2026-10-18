@@ -20,6 +20,9 @@ func scanRepoGitHubActions(cwd string) repoGitHubActionsMap {
 		if entry.IsDir() {
 			return nil
 		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
 		if !strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml") {
 			return nil
 		}
@@ -54,19 +57,29 @@ func scanWorkflowFile(cwd, path string) repoWorkflowMap {
 			RunsOn: yamlStringList(parsedJob.RunsOn),
 			Needs:  yamlStringList(parsedJob.Needs),
 		}
+		job.Requirements, job.Unsupported = workflowImportRequirements(parsed, parsedJob)
 		if condition := githubActionsConditionReport("job", parsedJob.If, parsedJob.IfLine); condition.Expression != "" {
 			job.Conditions = append(job.Conditions, condition)
 		}
-		jobWorkingDir := defaultString(parsedJob.Defaults.Run.WorkingDirectory, parsed.Defaults.Run.WorkingDirectory)
 		for _, step := range parsedJob.Steps {
+			switch action, _, _ := strings.Cut(step.Uses, "@"); action {
+			case "actions/setup-go":
+				job.Runtimes = appendUniqueString(job.Runtimes, "go")
+			case "actions/setup-node", "pnpm/action-setup":
+				job.Runtimes = appendUniqueString(job.Runtimes, "node")
+			}
 			if condition := githubActionsConditionReport("step", step.If, step.IfLine); condition.Expression != "" {
 				job.Conditions = append(job.Conditions, condition)
 			}
 			command := step.Run
 			command = strings.TrimSpace(command)
 			if command != "" {
-				job.Commands = append(job.Commands, commandWithWorkingDirectory(command, defaultString(step.WorkingDirectory, jobWorkingDir)))
+				defaults := effectiveWorkflowRunDefaults(parsed, parsedJob, step)
+				job.Commands = append(job.Commands, commandWithWorkingDirectory(command, defaults.WorkingDirectory))
 				job.CommandLines = append(job.CommandLines, step.RunLine)
+				job.RunSteps = append(job.RunSteps, repoWorkflowRunStep{
+					Command: step.Run, Line: step.RunLine, Shell: defaults.Shell, WorkingDirectory: defaults.WorkingDirectory,
+				})
 			}
 		}
 		workflow.Jobs = append(workflow.Jobs, job)
@@ -84,12 +97,18 @@ type repoWorkflowYAML struct {
 }
 
 type repoWorkflowJobYAML struct {
-	RunsOn   any                      `yaml:"runs-on"`
-	Needs    any                      `yaml:"needs"`
-	If       string                   `yaml:"if"`
-	IfLine   int                      `yaml:"-"`
-	Defaults repoWorkflowDefaultsYAML `yaml:"defaults"`
-	Steps    []repoWorkflowStepYAML   `yaml:"steps"`
+	RunsOn    any                      `yaml:"runs-on"`
+	Needs     any                      `yaml:"needs"`
+	If        string                   `yaml:"if"`
+	IfLine    int                      `yaml:"-"`
+	Defaults  repoWorkflowDefaultsYAML `yaml:"defaults"`
+	Steps     []repoWorkflowStepYAML   `yaml:"steps"`
+	Env       map[string]any           `yaml:"env"`
+	Services  map[string]any           `yaml:"services"`
+	Container any                      `yaml:"container"`
+	Strategy  any                      `yaml:"strategy"`
+	Uses      string                   `yaml:"uses"`
+	Outputs   map[string]any           `yaml:"outputs"`
 }
 
 func (job *repoWorkflowJobYAML) UnmarshalYAML(value *yaml.Node) error {
@@ -119,6 +138,7 @@ type repoWorkflowDefaultsYAML struct {
 
 type repoWorkflowRunDefaultsYAML struct {
 	WorkingDirectory string `yaml:"working-directory"`
+	Shell            string `yaml:"shell"`
 }
 
 type repoWorkflowStepYAML struct {
@@ -127,12 +147,29 @@ type repoWorkflowStepYAML struct {
 	If               string
 	IfLine           int
 	WorkingDirectory string `yaml:"working-directory"`
+	Uses             string
+	With             map[string]any
+	Env              map[string]any
+	Shell            string
+	ContinueOnError  bool
 }
 
 func (step *repoWorkflowStepYAML) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind != yaml.MappingNode {
 		return nil
 	}
+	var metadata struct {
+		Uses            string         `yaml:"uses"`
+		With            map[string]any `yaml:"with"`
+		Env             map[string]any `yaml:"env"`
+		Shell           string         `yaml:"shell"`
+		ContinueOnError any            `yaml:"continue-on-error"`
+	}
+	if err := value.Decode(&metadata); err != nil {
+		return err
+	}
+	step.Uses, step.With, step.Env, step.Shell = metadata.Uses, metadata.With, metadata.Env, metadata.Shell
+	step.ContinueOnError = metadata.ContinueOnError != nil && metadata.ContinueOnError != false
 	for i := 0; i+1 < len(value.Content); i += 2 {
 		key := value.Content[i]
 		val := value.Content[i+1]
@@ -164,7 +201,10 @@ func commandWithWorkingDirectory(command, workingDir string) string {
 	if workingDir == "" || workingDir == "." {
 		return command
 	}
-	return "cd " + shellQuoteArg(workingDir) + " && " + command
+	if strings.HasPrefix(workingDir, "-") {
+		workingDir = "./" + workingDir
+	}
+	return "cd " + shellQuoteArg(workingDir) + " || exit\n" + command
 }
 
 func yamlStringMap(values map[string]any) map[string]string {
@@ -247,12 +287,12 @@ func checkReferencesFromGitHubActions(actions repoGitHubActionsMap) []repoCheckR
 	var refs []repoCheckReference
 	for _, workflow := range actions.Workflows {
 		for _, job := range workflow.Jobs {
-			for i, command := range job.Commands {
-				commandRefs := scanCheckReferencesInText(command, "github-actions", workflow.Path, false)
-				if i < len(job.CommandLines) && job.CommandLines[i] > 0 {
+			for _, step := range job.RunSteps {
+				commandRefs := scanCheckReferencesInText(step.Command, "github-actions", workflow.Path, false)
+				if step.Line > 0 {
 					for refIndex := range commandRefs {
 						if commandRefs[refIndex].Line > 0 {
-							commandRefs[refIndex].Line = job.CommandLines[i] + commandRefs[refIndex].Line - 1
+							commandRefs[refIndex].Line = step.Line + commandRefs[refIndex].Line - 1
 						}
 					}
 				} else {

@@ -15,11 +15,20 @@ import (
 
 // These durations are caller observations, never verification evidence.
 type executionTimings struct {
-	PackageMS   int64 `json:"package_ms"`
-	UploadMS    int64 `json:"upload_and_validation_ms"`
-	RemoteMS    int64 `json:"remote_wait_ms"`
-	TotalMS     int64 `json:"total_ms"`
-	UploadBytes int64 `json:"upload_bytes"`
+	PackageMS          int64  `json:"package_ms"`
+	UploadMS           int64  `json:"upload_and_validation_ms"`
+	RemoteMS           int64  `json:"remote_wait_ms"`
+	TotalMS            int64  `json:"total_ms"`
+	UploadBytes        int64  `json:"upload_bytes"`
+	SessionCreateMS    *int64 `json:"session_create_ms"`
+	SourcePrepareMS    *int64 `json:"source_prepare_ms"`
+	SourceTransferMS   *int64 `json:"source_transfer_ms"`
+	SourceValidationMS *int64 `json:"source_validation_ms"`
+}
+
+func observedDurationMS(start time.Time) *int64 {
+	value := time.Since(start).Milliseconds()
+	return &value
 }
 
 type executionSessionReport struct {
@@ -144,6 +153,7 @@ func executeSessionPlans(plans, warm []checkRunPlan, token string, jsonOutput bo
 			}
 		}
 		fmt.Printf("timing: package %dms, upload/validate %dms, remote %dms, total %dms; uploaded %d bytes\n", timings.PackageMS, timings.UploadMS, timings.RemoteMS, timings.TotalMS, timings.UploadBytes)
+		printAgentWarnings(session.Warnings)
 		if session.Currentness == preflightapi.VerificationCurrentnessStale {
 			fmt.Fprintln(os.Stderr, "readyci: workspace changed while tests ran; these results describe the uploaded snapshot")
 		}

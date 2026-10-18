@@ -191,12 +191,11 @@ type agentAffectedCheck struct {
 	Reasons      []string `json:"reasons,omitempty"`
 }
 
-type agentWarning struct {
-	Section string `json:"section,omitempty"`
-	Message string `json:"message"`
-}
+type agentWarning = preflightapi.DiagnosticWarning
 
 type agentExplainReport struct {
+	Timings             *preflightapi.RunTimings       `json:"timings,omitempty"`
+	TestResults         *preflightapi.RunTestResults   `json:"test_results,omitempty"`
 	SchemaVersion       string                         `json:"schema_version"`
 	RunID               string                         `json:"run_id"`
 	Status              string                         `json:"status"`

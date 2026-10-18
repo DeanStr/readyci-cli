@@ -120,6 +120,19 @@ func printAgentExplainReport(report agentExplainReport) {
 	}
 	fmt.Printf("classification: %s\n", report.Diagnosis.Kind)
 	fmt.Printf("summary: %s\n", report.Diagnosis.Summary)
+	if report.Timings != nil {
+		printRunTimings(*report.Timings)
+	}
+	if report.TestResults != nil {
+		failures := *report.TestResults
+		failures.Results = nil
+		for _, test := range report.TestResults.Results {
+			if test.Status == "failed" || test.Status == "error" {
+				failures.Results = append(failures.Results, test)
+			}
+		}
+		printRunTestResults(failures)
+	}
 	if report.Repair.FailingTest != "" {
 		fmt.Printf("failing_test: %s\n", sanitizeRunLogsSummaryText(report.Repair.FailingTest))
 	}

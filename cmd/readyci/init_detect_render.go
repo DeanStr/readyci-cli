@@ -41,19 +41,26 @@ artifacts:
 `)
 	cachePaths := []string{}
 	for _, check := range checks {
-		switch check.Name {
-		case "go":
-			cachePaths = append(cachePaths, "~/.cache/go-build", "~/go/pkg/mod")
-		case "node":
-			cachePaths = append(cachePaths, "~/.npm", "~/.cache/yarn", "~/.local/share/pnpm/store")
-		case "rust":
-			cachePaths = append(cachePaths, "target", "~/.cargo/registry", "~/.cargo/git")
+		for _, runtime := range detectedCheckRuntimes(check) {
+			switch runtime {
+			case "go":
+				cachePaths = append(cachePaths, "~/.cache/go-build", "~/go/pkg/mod")
+			case "node":
+				cachePaths = append(cachePaths, "~/.npm", "~/.cache/yarn", "~/.local/share/pnpm/store")
+			case "rust":
+				if len(check.RustTargetPaths) > 0 {
+					cachePaths = append(cachePaths, check.RustTargetPaths...)
+				} else {
+					cachePaths = append(cachePaths, "target")
+				}
+				cachePaths = append(cachePaths, "~/.cargo/registry", "~/.cargo/git")
+			}
 		}
 	}
 	if len(cachePaths) > 0 {
 		b.WriteString("cache:\n  paths:\n")
 		for _, path := range cachePaths {
-			fmt.Fprintf(&b, "    - %s\n", path)
+			fmt.Fprintf(&b, "    - %s\n", strconv.Quote(path))
 		}
 		b.WriteString("\n")
 	}
@@ -108,13 +115,15 @@ func detectedNetworkConfig(profile string, checks []detectedCheck) string {
 	seen := map[string]bool{}
 	for _, check := range checks {
 		var selected []string
-		switch check.Name {
-		case "go":
-			selected = []string{"go.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com"}
-		case "node":
-			selected = []string{"registry.npmjs.org", "registry.yarnpkg.com"}
-		case "rust":
-			selected = []string{"index.crates.io", "static.crates.io", "static.rust-lang.org"}
+		for _, runtime := range detectedCheckRuntimes(check) {
+			switch runtime {
+			case "go":
+				selected = append(selected, "go.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com")
+			case "node":
+				selected = append(selected, "registry.npmjs.org", "registry.yarnpkg.com")
+			case "rust":
+				selected = append(selected, "index.crates.io", "static.crates.io", "static.rust-lang.org")
+			}
 		}
 		for _, host := range selected {
 			if !seen[host] {
@@ -127,4 +136,11 @@ func detectedNetworkConfig(profile string, checks []detectedCheck) string {
 		return "  mode: none\n  # Add an explicit allowlist if this command fetches dependencies."
 	}
 	return "  mode: allowlist\n  allowlist:\n    - " + strings.Join(hosts, "\n    - ")
+}
+
+func detectedCheckRuntimes(check detectedCheck) []string {
+	if len(check.Runtimes) > 0 {
+		return check.Runtimes
+	}
+	return []string{check.Name}
 }

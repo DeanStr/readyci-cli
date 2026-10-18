@@ -142,6 +142,8 @@ type RunDetail struct {
 	Spec          RunSpec                    `json:"spec"`
 	SecretPolicy  *RunSecretPolicyEvaluation `json:"secret_policy,omitempty"`
 	PolicyReasons []string                   `json:"policy_reasons,omitempty"`
+	TestResults   *RunTestResults            `json:"test_results,omitempty"`
+	Timings       *RunTimings                `json:"timings,omitempty"`
 }
 
 type RunSecretPolicyEvaluation struct {
@@ -279,6 +281,8 @@ type ArtifactSummary struct {
 	DownloadURL   string    `json:"download_url,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	ExpiresAt     time.Time `json:"expires_at"`
+	// Service-derived index, persisted atomically with this exact archive.
+	TestReportIndex *TestReportIndex `json:"-"`
 }
 
 type ListArtifactsResponse struct {

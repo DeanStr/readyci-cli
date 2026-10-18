@@ -56,9 +56,19 @@ func guidedSetup(options setupOptions, input io.Reader, output io.Writer, yes bo
 		}
 	}
 	if report.ConfigStatus == "missing" || options.Force {
+		var imported *repoImportCandidate
+		if options.Detect {
+			imported, err = selectSetupImport(options, report.ImportCandidates, reader, output, yes)
+			if err != nil {
+				return err
+			}
+		}
 		template := remoteCIProjectTemplateWithProfile(report.ProjectID, options.Image, options.Profile)
 		if options.Detect {
 			template = detectedProjectTemplateWithProfile(".", report.ProjectID, options.Image, options.Profile)
+		}
+		if imported != nil {
+			template = setupImportedTemplate(options, report.ProjectID, *imported)
 		}
 		cfg, err := config.ParseProjectConfig([]byte(template), "starter configuration")
 		if err != nil {

@@ -77,7 +77,7 @@ checks:
 	if importReportHasCheck(report, "bootstrap") {
 		t.Fatalf("import report = %+v, should not import non-verification bootstrap target", report)
 	}
-	if !importReportHasCommand(report, "make -C cli check") {
+	if !importReportHasCommand(report, "make -C cli -f Makefile -- check") {
 		t.Fatalf("import report = %+v, want subdirectory Make command", report)
 	}
 }

@@ -19,6 +19,9 @@ func scanRepoMake(cwd string) repoMakeMap {
 			}
 			return nil
 		}
+		if !entry.Type().IsRegular() {
+			return nil
+		}
 		switch entry.Name() {
 		case "Makefile", "makefile", "GNUmakefile":
 		default:

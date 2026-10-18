@@ -171,6 +171,11 @@
         "updated_at": {"type": "string", "format": "date-time"},
         "completed_at": {"type": "string", "format": "date-time"},
         "result_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "warnings": {
+          "type": "array",
+          "description": "Follow-up for retained diagnostic reports; does not alter verdict, classification, or result_digest.",
+          "items": {"$ref": "#/$defs/warning"}
+        },
         "client_interruption": {
           "type": "object",
           "additionalProperties": false,
@@ -583,6 +588,8 @@
         "spec"
       ],
       "properties": {
+        "test_results": {"type": "object", "description": "Service-derived reported failures with snapshot and archive bindings; not a coverage verdict."},
+        "timings": {"type": "object", "description": "Server-observed lifecycle timings, with explicit nulls for unavailable metrics."},
         "schema_version": {
           "$ref": "#/$defs/schemaVersion"
         },
@@ -1317,6 +1324,11 @@
         "message"
       ],
       "properties": {
+        "code": {"type": "string"},
+        "action": {"type": "string"},
+        "run_id": {"type": "string"},
+        "artifact_id": {"type": "string"},
+        "artifact_sha256": {"type": "string"},
         "section": {
           "type": "string"
         },

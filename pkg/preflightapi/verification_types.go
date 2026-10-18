@@ -367,6 +367,9 @@ type VerificationSession struct {
 	ResultDigest           string                              `json:"result_digest,omitempty"`
 	ClientInterruption     *VerificationClientInterruption     `json:"client_interruption,omitempty"`
 	ClientError            *VerificationClientError            `json:"client_error,omitempty"`
+	// Warnings reflect currently retained diagnostic reports. They never change
+	// the execution verdict, classification, or immutable result digest.
+	Warnings []DiagnosticWarning `json:"warnings,omitempty"`
 }
 
 // VerificationSnapshotRetry is a service-derived recovery projection. It does

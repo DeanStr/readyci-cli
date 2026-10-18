@@ -11,18 +11,19 @@ import (
 )
 
 type setupReport struct {
-	APIURL       string   `json:"api_url"`
-	ProjectID    string   `json:"project_id"`
-	ConfigPath   string   `json:"config_path,omitempty"`
-	ConfigStatus string   `json:"config_status"`
-	AuthStatus   string   `json:"auth_status"`
-	TeamID       string   `json:"team_id,omitempty"`
-	PlanID       string   `json:"plan_id,omitempty"`
-	Check        string   `json:"check,omitempty"`
-	Checks       []string `json:"checks,omitempty"`
-	Written      []string `json:"written,omitempty"`
-	Warnings     []string `json:"warnings,omitempty"`
-	Next         []string `json:"next"`
+	APIURL           string                `json:"api_url"`
+	ProjectID        string                `json:"project_id"`
+	ConfigPath       string                `json:"config_path,omitempty"`
+	ConfigStatus     string                `json:"config_status"`
+	AuthStatus       string                `json:"auth_status"`
+	TeamID           string                `json:"team_id,omitempty"`
+	PlanID           string                `json:"plan_id,omitempty"`
+	Check            string                `json:"check,omitempty"`
+	Checks           []string              `json:"checks,omitempty"`
+	Written          []string              `json:"written,omitempty"`
+	Warnings         []string              `json:"warnings,omitempty"`
+	Next             []string              `json:"next"`
+	ImportCandidates []repoImportCandidate `json:"import_candidates,omitempty"`
 
 	warmProfileAvailable   bool
 	affectedAuditAvailable bool
@@ -44,6 +45,8 @@ func setupCommand(args []string) error {
 	runCheck := fs.Bool("run", false, "preview and run the selected remote check")
 	writeConfig := fs.Bool("write-config", false, "write .readyci.yml when no config exists")
 	detect := fs.Bool("detect", true, "detect common project checks when writing config")
+	importSource := fs.String("import", "", "select an existing command from make or github-actions")
+	importCandidate := fs.String("candidate", "", "import candidate ID from setup --preview --json")
 	force := fs.Bool("force", false, "allow replacing existing Ready CI configuration")
 	makefile := fs.Bool("makefile", false, "print Makefile wrapper targets for Ready CI")
 	writeMakefile := fs.Bool("write-makefile", false, "write Ready CI Makefile wrapper targets to readyci.mk")
@@ -60,7 +63,19 @@ func setupCommand(args []string) error {
 	if *profile != "remote-ci" && *profile != "strict" {
 		return cliConfigError(fmt.Sprintf("unknown setup profile %q", *profile), nil)
 	}
+	if *importSource != "" && *importSource != "make" && *importSource != "github-actions" {
+		return cliConfigError("--import must be make or github-actions", nil)
+	}
+	if (*importSource != "" || *importCandidate != "") && (!*detect || *printConfig || *makefile || *helper != "" || *writeMakefile || *writeHelpers) {
+		return cliConfigError("import selection requires detected setup without helper or print options", nil)
+	}
 	explicitAction := flagProvided(fs, "write-config") || flagProvided(fs, "run") || *writeMakefile || *writeHelpers || *writeHelper
+	if (*importSource != "" || *importCandidate != "") && explicitAction && *importCandidate == "" {
+		return cliConfigError("explicit import actions require --candidate ID", nil)
+	}
+	if (*importSource != "" || *importCandidate != "") && *runCheck && !*writeConfig {
+		return cliConfigError("running an imported candidate requires saving it with --write-config, or use guided setup", nil)
+	}
 	inspection := *preview || *printConfig || *jsonOutput || *makefile || *helper != ""
 	if *yes && (explicitAction || inspection) {
 		return cliConfigError("--yes runs guided setup; do not combine it with preview, JSON, or explicit write/run options", nil)
@@ -155,17 +170,19 @@ func setupCommand(args []string) error {
 		reportProjectID = ""
 	}
 	options := setupOptions{
-		APIURL:        *apiURL,
-		APIToken:      *apiToken,
-		ProjectID:     reportProjectID,
-		CheckName:     *checkName,
-		Profile:       *profile,
-		Image:         *image,
-		WriteConfig:   *writeConfig,
-		WriteMakefile: *writeMakefile,
-		WriteHelpers:  *writeHelpers,
-		Detect:        *detect,
-		Force:         *force,
+		APIURL:          *apiURL,
+		APIToken:        *apiToken,
+		ProjectID:       reportProjectID,
+		CheckName:       *checkName,
+		Profile:         *profile,
+		Image:           *image,
+		WriteConfig:     *writeConfig,
+		WriteMakefile:   *writeMakefile,
+		WriteHelpers:    *writeHelpers,
+		Detect:          *detect,
+		Force:           *force,
+		ImportSource:    *importSource,
+		ImportCandidate: *importCandidate,
 	}
 	if !explicitAction && !inspection {
 		if !*yes && !term.IsTerminal(int(os.Stdin.Fd())) {

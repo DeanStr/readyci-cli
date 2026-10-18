@@ -9,6 +9,8 @@ import (
 
 type detectedCheck struct {
 	Name             string
+	Runtimes         []string
+	RustTargetPaths  []string
 	Command          string
 	Prepare          []string
 	Services         []string
