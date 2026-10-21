@@ -9,6 +9,10 @@ import (
 const ProjectVerificationPolicySchemaVersion = "readyci.project_verification_policy.v1"
 const ProjectVerificationSourcePolicySchemaVersion = "readyci.project_verification_source_policy.v1"
 
+// VerificationSourceScopeProtocol is an explicit pre-upload capability: older
+// clients must never interpret a scope-set envelope as an unrestricted filter.
+const VerificationSourceScopeProtocol = "readyci.source-scopes.v1"
+
 type ProjectVerificationPolicyRevision struct {
 	PolicyID          string    `json:"policy_id"`
 	ProjectID         string    `json:"project_id"`

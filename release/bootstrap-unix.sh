@@ -4,7 +4,7 @@
 (
   set -euo pipefail
   command -v minisign >/dev/null || { echo 'Install Minisign, then retry: https://jedisct1.github.io/minisign/' >&2; exit 2; }
-  export READYCI_VERSION='v0.1.0-beta.14'
+  export READYCI_VERSION='v0.1.0-beta.15'
   export READYCI_RELEASE_BASE_URL="https://github.com/DeanStr/readyci-cli/releases/download/$READYCI_VERSION"
   export READYCI_MINISIGN_PUBLIC_KEY='RWSiWC6F4tE+M458zvmqGzOcQZvYD/Y6ww1/eo3Q88S+d3HuiXGK5wAE'
   unset READYCI_ALLOW_UNSIGNED_INSTALL

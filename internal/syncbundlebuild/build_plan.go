@@ -86,6 +86,7 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	}
 	if strings.TrimSpace(options.SourcePolicyDigest) != "" {
 		binding, bindingErr := syncbundle.NormalizeSourcePolicyBinding(syncbundle.SourcePolicyBinding{
+			Scopes:          options.SourceScopes,
 			Digest:          options.SourcePolicyDigest,
 			ExcludePatterns: append([]string(nil), options.ExcludePatterns...),
 			DefaultExcludePatterns: append(
@@ -130,6 +131,9 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	}
 	manifest.Deleted = deleted
 	manifest.ChangedFiles = changedFiles
+	if len(options.SourceScopes) > 0 {
+		manifest.UntrackedFiles = append([]string(nil), untrackedFiles...)
+	}
 	manifest.Git.Dirty = manifest.Git.Dirty || len(changedFiles) > 0
 	if err := validatePlannedReviewedFixtures(fixtures, baseline, workspace, trackedPaths, contentMode); err != nil {
 		return plannedBundle{}, fmt.Errorf("%w: %w", ErrUnsupportedRepository, err)

@@ -221,6 +221,9 @@ func validateManifest(manifest Manifest) error {
 	if err := validateSourceFilterEntries(manifest); err != nil {
 		return err
 	}
+	if err := validateUntrackedSourceOrigins(manifest, baselinePaths, workspacePaths); err != nil {
+		return err
+	}
 	deletedPaths := make(map[string]struct{}, len(manifest.Deleted))
 	for _, deleted := range manifest.Deleted {
 		rel, err := validateRelativePath(deleted)
@@ -245,6 +248,29 @@ func validateManifest(manifest Manifest) error {
 		return err
 	}
 	return validateSymlinkContainment(manifest)
+}
+
+func validateUntrackedSourceOrigins(manifest Manifest, baseline, workspace map[string]struct{}) error {
+	if len(manifest.UntrackedFiles) == 0 {
+		return nil
+	}
+	if manifest.SourcePolicy == nil || len(manifest.SourcePolicy.Scopes) == 0 || manifest.ChangeMode == ChangeModeStaged {
+		return fmt.Errorf("untracked origin metadata requires a working multi-scope source")
+	}
+	previous := ""
+	for _, rel := range manifest.UntrackedFiles {
+		if rel <= previous {
+			return fmt.Errorf("untracked source paths must be unique and sorted")
+		}
+		previous = rel
+		if _, exists := workspace[rel]; !exists {
+			return fmt.Errorf("untracked source path %q must be a workspace entry", rel)
+		}
+		if _, exists := baseline[rel]; exists {
+			return fmt.Errorf("multi-scope source cannot reclassify baseline path %q as untracked; stage its removal or restore its tracked state", rel)
+		}
+	}
+	return nil
 }
 
 func validateSnapshotDigestForRead(manifest Manifest) error {

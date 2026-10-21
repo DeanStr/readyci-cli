@@ -246,7 +246,8 @@
         "include_untracked": {"type": "boolean"},
         "use_project_ignore": {"type": "boolean"},
         "upload_baseline_session_id": {"type": "string", "maxLength": 160},
-        "source_policy_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        "source_policy_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_scopes": {"type": "array", "minItems": 2, "maxItems": 256, "items": {"$ref": "#/$defs/sourcePolicyBinding"}}
       }
     },
     "reviewedFixture": {
@@ -265,6 +266,36 @@
           ]
         },
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "sourcePolicyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "exclude_patterns", "default_exclude_patterns", "default_untracked_exclude_patterns", "reviewed_fixtures", "include_untracked", "project_ignore_used"],
+      "properties": {
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "exclude_patterns": {"type": ["array", "null"], "items": {"type": "string"}},
+        "default_exclude_patterns": {"type": ["array", "null"], "items": {"type": "string"}},
+        "default_untracked_exclude_patterns": {"type": ["array", "null"], "items": {"type": "string"}},
+        "reviewed_fixtures": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+            "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+          }
+        },
+        "include_untracked": {"type": "boolean"},
+        "project_ignore_used": {"const": false}
+      }
+    },
+    "verificationNodeSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_digest", "changed_files", "policy"],
+      "properties": {
+        "snapshot_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "baseline_key": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "changed_files": {"type": "array", "items": {"type": "string"}},
+        "policy": {"$ref": "#/$defs/sourcePolicyBinding"}
       }
     },
     "verificationPlan": {
@@ -313,6 +344,7 @@
                   "retryable_classifications": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
                 }
               },
+              "source": {"$ref": "#/$defs/verificationNodeSource"},
               "run": {"type": "object"}
             }
           }

@@ -81,6 +81,7 @@ func (c *Client) ProjectVerificationSourcePolicy(ctx context.Context, projectID,
 	path := "/v1/projects/" + url.PathEscape(projectID) + "/verification-policy/source-binding"
 	query := url.Values{}
 	query.Set("change_mode", changeMode)
+	query.Set("scope_protocol", preflightapi.VerificationSourceScopeProtocol)
 	if check != "" {
 		query.Set("check", check)
 	}

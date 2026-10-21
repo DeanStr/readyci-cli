@@ -54,7 +54,7 @@ func ValidateDependencySourceScope(warm, target CheckPlan) error {
 		return err
 	}
 	if warmKey != targetKey {
-		return fmt.Errorf("dependency check %q and consumer %q require different sync.exclude, reviewed_fixtures, or include_untracked settings (or change mode); one sealed verification session must use one exact workspace", warm.Name, target.Name)
+		return fmt.Errorf("dependency check %q and consumer %q require different sync.exclude, reviewed_fixtures, or include_untracked settings (or change mode); configure matching source settings for this installer and its consumer", warm.Name, target.Name)
 	}
 	return nil
 }

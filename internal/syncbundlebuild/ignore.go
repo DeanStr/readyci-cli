@@ -10,6 +10,7 @@ import (
 const defaultEnvExcludePattern = ".env*"
 
 type ignoreMatcher struct {
+	scopes            []syncbundle.SourcePolicyBinding
 	defaultPatterns   []string
 	untrackedPatterns []string
 	extraPatterns     []string
@@ -55,6 +56,14 @@ func (matcher ignoreMatcher) ignoredTracked(rel string) bool {
 }
 
 func (matcher ignoreMatcher) ignoredSource(rel string, tracked bool) bool {
+	if len(matcher.scopes) > 0 {
+		for _, scope := range matcher.scopes {
+			if syncbundle.SourcePolicyAllowsPath(scope, rel, !tracked) {
+				return false
+			}
+		}
+		return true
+	}
 	rel = syncbundle.CleanSlashPath(rel)
 	if rel == "" {
 		return true
@@ -102,6 +111,22 @@ func matchIgnorePatternsSkipping(patterns []string, rel string, skip func(string
 // sourceIgnoreMatcher is shared by planning, packaging, currentness, and path
 // previews, including the independent registered-policy filter.
 func sourceIgnoreMatcher(root string, options BuildOptions) (ignoreMatcher, bool, error) {
+	if options.RequireRegisteredScopes {
+		return ignoreMatcher{}, false, fmt.Errorf("mixed source scopes require an active registered verification policy")
+	}
+	if len(options.SourceScopes) > 0 {
+		if options.SourcePolicyDigest == "" || options.UseProjectIgnore == nil || *options.UseProjectIgnore {
+			return ignoreMatcher{}, false, fmt.Errorf("source scopes require a registered policy without project ignore")
+		}
+		binding, err := syncbundle.NormalizeSourcePolicyBinding(syncbundle.SourcePolicyBinding{Digest: options.SourcePolicyDigest, Scopes: options.SourceScopes})
+		if err != nil {
+			return ignoreMatcher{}, false, err
+		}
+		if len(binding.Scopes) < 2 {
+			return ignoreMatcher{}, false, fmt.Errorf("source scope sets require distinct filters")
+		}
+		return ignoreMatcher{scopes: binding.Scopes}, false, nil
+	}
 	useProjectIgnore := options.UseProjectIgnore == nil || *options.UseProjectIgnore
 	var extra []string
 	if useProjectIgnore {

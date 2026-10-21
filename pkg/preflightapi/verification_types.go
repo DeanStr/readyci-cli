@@ -118,6 +118,7 @@ type VerificationRetryPolicy struct {
 }
 
 type VerificationNodePlan struct {
+	Source           *VerificationNodeSource `json:"source,omitempty"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name"`
 	Kind             string                  `json:"kind"`
@@ -129,6 +130,23 @@ type VerificationNodePlan struct {
 	SuccessDependsOn []string                `json:"success_depends_on,omitempty"`
 	Retry            VerificationRetryPolicy `json:"retry"`
 	Run              CreateRunRequest        `json:"run"`
+}
+
+// VerificationNodeSource binds one server-derived view to the enclosing
+// session snapshot through the immutable plan digest.
+type VerificationNodeSource struct {
+	BaselineKey    string                         `json:"baseline_key,omitempty"`
+	SnapshotDigest string                         `json:"snapshot_digest"`
+	ChangedFiles   []string                       `json:"changed_files"`
+	Policy         syncbundle.SourcePolicyBinding `json:"policy"`
+}
+
+func VerificationNodeSnapshot(session VerificationSnapshot, node VerificationNodePlan) VerificationSnapshot {
+	if node.Source != nil {
+		session.Digest = node.Source.SnapshotDigest
+		session.ChangedFiles = node.Source.ChangedFiles
+	}
+	return session
 }
 
 type VerificationMatrixGroup struct {
@@ -185,14 +203,15 @@ type VerificationRecipe struct {
 // recompute whether a completed session still describes the caller's current
 // workspace. It is untrusted input and never grants source-policy authority.
 type VerificationSourceRecipe struct {
-	UploadBaselineSessionID         string                       `json:"upload_baseline_session_id,omitempty"`
-	ExcludePatterns                 []string                     `json:"exclude_patterns"`
-	DefaultExcludePatterns          []string                     `json:"default_exclude_patterns"`
-	DefaultUntrackedExcludePatterns []string                     `json:"default_untracked_exclude_patterns"`
-	ReviewedFixtures                []syncbundle.ReviewedFixture `json:"reviewed_fixtures"`
-	IncludeUntracked                bool                         `json:"include_untracked"`
-	UseProjectIgnore                bool                         `json:"use_project_ignore"`
-	SourcePolicyDigest              string                       `json:"source_policy_digest,omitempty"`
+	SourceScopes                    []syncbundle.SourcePolicyBinding `json:"source_scopes,omitempty"`
+	UploadBaselineSessionID         string                           `json:"upload_baseline_session_id,omitempty"`
+	ExcludePatterns                 []string                         `json:"exclude_patterns"`
+	DefaultExcludePatterns          []string                         `json:"default_exclude_patterns"`
+	DefaultUntrackedExcludePatterns []string                         `json:"default_untracked_exclude_patterns"`
+	ReviewedFixtures                []syncbundle.ReviewedFixture     `json:"reviewed_fixtures"`
+	IncludeUntracked                bool                             `json:"include_untracked"`
+	UseProjectIgnore                bool                             `json:"use_project_ignore"`
+	SourcePolicyDigest              string                           `json:"source_policy_digest,omitempty"`
 }
 
 type CreateVerificationSessionRequest struct {
@@ -504,6 +523,14 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 		}
 	}
 	req.Recipe.Source.SourcePolicyDigest = strings.TrimSpace(req.Recipe.Source.SourcePolicyDigest)
+	if len(req.Recipe.Source.SourceScopes) > 0 {
+		binding, scopeErr := syncbundle.NormalizeSourcePolicyBinding(syncbundle.SourcePolicyBinding{Digest: req.Recipe.Source.SourcePolicyDigest, Scopes: req.Recipe.Source.SourceScopes})
+		if scopeErr != nil || len(binding.Scopes) < 2 || req.Recipe.Source.UseProjectIgnore || req.Recipe.Purpose == ExecutionPurpose {
+			return req, fmt.Errorf("recipe source_scopes require a registered verification policy without project ignore")
+		}
+		req.Recipe.Source.SourceScopes = binding.Scopes
+	}
+
 	patterns := append(append(append([]string(nil), req.Recipe.Source.ExcludePatterns...), req.Recipe.Source.DefaultExcludePatterns...), req.Recipe.Source.DefaultUntrackedExcludePatterns...)
 	if err := syncbundle.ValidateExcludePatterns(patterns); err != nil {
 		return req, fmt.Errorf("recipe source patterns: %w", err)
@@ -698,6 +725,27 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 			return fmt.Errorf("verification node %q max_attempts must be between 1 and 10", node.ID)
 		}
 		node.Retry.RetryableClassifications = normalizedStrings(node.Retry.RetryableClassifications)
+		if node.Source != nil {
+			if plan.Authority != VerificationPlanAuthorityServer {
+				return fmt.Errorf("verification node %q source must be service-authorized", node.ID)
+			}
+			if err := syncbundle.ValidateSnapshotDigest(node.Source.SnapshotDigest); err != nil {
+				return fmt.Errorf("verification node %q source: %w", node.ID, err)
+			}
+			policy, err := syncbundle.NormalizeSourcePolicyBinding(node.Source.Policy)
+			if err != nil || len(policy.Scopes) != 0 || policy.ProjectIgnoreUsed {
+				return fmt.Errorf("verification node %q requires one registered source scope", node.ID)
+			}
+			changed, err := normalizedPaths(node.Source.ChangedFiles)
+			if err != nil {
+				return err
+			}
+			baseline, err := syncbundle.NormalizeBaselineKey(node.Source.BaselineKey)
+			if err != nil {
+				return err
+			}
+			node.Source = &VerificationNodeSource{BaselineKey: baseline, SnapshotDigest: node.Source.SnapshotDigest, ChangedFiles: changed, Policy: policy}
+		}
 		node.DependsOn = normalizedStrings(node.DependsOn)
 		node.SuccessDependsOn = normalizedStrings(node.SuccessDependsOn)
 		node.DependsOn = normalizedStrings(append(node.DependsOn, node.SuccessDependsOn...))

@@ -148,7 +148,7 @@ func TestSetupWarnsAboutMixedComponentSourcesWithoutChangingThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if warning := strings.Join(report.Warnings, "\n"); !strings.Contains(warning, "shared top-level sync policy") || !strings.Contains(warning, "named check separately") {
+	if warning := strings.Join(report.Warnings, "\n"); !strings.Contains(warning, "active trusted verification policy") || !strings.Contains(warning, "readyci verify") || !strings.Contains(warning, "shared upload scope") {
 		t.Fatalf("setup omitted actionable source guidance: %s", warning)
 	}
 	data, err := os.ReadFile(".readyci.yml")

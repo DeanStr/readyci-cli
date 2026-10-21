@@ -58,7 +58,7 @@ func TestClientEndpointWrappersBuildExpectedRequests(t *testing.T) {
 			},
 			method:     http.MethodGet,
 			path:       "/v1/projects/proj%20dev/verification-policy/source-binding",
-			queryParts: []string{"change_mode=working", "check=web+test"},
+			queryParts: []string{"change_mode=working", "check=web+test", "scope_protocol=readyci.source-scopes.v1"},
 		},
 		{
 			name: "create run",

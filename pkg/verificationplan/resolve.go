@@ -78,8 +78,9 @@ type ResolveOptions struct {
 // CheckPlan is one resolved check: what it runs, how often to retry it, and the
 // matrix it expands into.
 type CheckPlan struct {
-	Name string
-	Run  RunSpec
+	Source *preflightapi.VerificationNodeSource
+	Name   string
+	Run    RunSpec
 	// Identity a planner assigned to this node, for work it inserts rather than
 	// the user configuring it — a dependency warm-up, for example. It is kept out
 	// of RunSpec because it names the node in the graph rather than describing

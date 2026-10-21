@@ -14,6 +14,10 @@ func IsPublicEnvExamplePath(rel string) bool {
 }
 
 func validateSourceFilterEntries(manifest Manifest) error {
+	untracked := make(map[string]bool, len(manifest.UntrackedFiles))
+	for _, rel := range manifest.UntrackedFiles {
+		untracked[rel] = true
+	}
 	defaults := DefaultSourceExcludePatterns()
 	reviewed := make(map[string]bool, len(manifest.ReviewedFixtures))
 	for _, fixture := range manifest.ReviewedFixtures {
@@ -24,6 +28,12 @@ func validateSourceFilterEntries(manifest Manifest) error {
 		entries []Entry
 	}{{"baseline", manifest.Baseline}, {"workspace", manifest.Workspace}} {
 		for _, entry := range group.entries {
+			if manifest.SourcePolicy != nil && len(manifest.SourcePolicy.Scopes) > 0 {
+				if !SourcePolicyAllowsPath(*manifest.SourcePolicy, entry.Path, group.name == "workspace" && untracked[entry.Path]) {
+					return fmt.Errorf("no registered source scope admits %s entry %q", group.name, entry.Path)
+				}
+				continue
+			}
 			if manifest.SourcePolicy != nil && PathMatchesExcludePatterns(manifest.SourcePolicy.ExcludePatterns, entry.Path) {
 				return fmt.Errorf("source policy excludes %s entry %q", group.name, entry.Path)
 			}

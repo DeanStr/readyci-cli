@@ -42,6 +42,9 @@ type Manifest struct {
 	// binding against its own active policy revision before trusting the
 	// bundle's changed-file view.
 	SourcePolicy *SourcePolicyBinding `json:"source_policy,omitempty"`
+	// UntrackedFiles records origin only for a multi-scope upload. It lets the
+	// service project the same bytes through each scope's untracked-file policy.
+	UntrackedFiles []string `json:"untracked_files,omitempty"`
 	// ReviewedFixtures grants narrowly reviewed, content-bound exceptions to the
 	// default confidentiality filter. Explicit exclusions still take precedence.
 	ReviewedFixtures []ReviewedFixture `json:"reviewed_fixtures,omitempty"`
@@ -59,13 +62,17 @@ type Manifest struct {
 }
 
 type SourcePolicyBinding struct {
-	Digest                          string            `json:"digest"`
-	ExcludePatterns                 []string          `json:"exclude_patterns"`
-	DefaultExcludePatterns          []string          `json:"default_exclude_patterns"`
-	DefaultUntrackedExcludePatterns []string          `json:"default_untracked_exclude_patterns"`
-	ReviewedFixtures                []ReviewedFixture `json:"reviewed_fixtures"`
-	IncludeUntracked                bool              `json:"include_untracked"`
-	ProjectIgnoreUsed               bool              `json:"project_ignore_used"`
+	// Scopes is a canonical set of independently approved filters. The upload
+	// contains their union; execution receives one exact scope, never the union.
+	// Nested sets are invalid.
+	Scopes                          []SourcePolicyBinding `json:"scopes,omitempty"`
+	Digest                          string                `json:"digest"`
+	ExcludePatterns                 []string              `json:"exclude_patterns"`
+	DefaultExcludePatterns          []string              `json:"default_exclude_patterns"`
+	DefaultUntrackedExcludePatterns []string              `json:"default_untracked_exclude_patterns"`
+	ReviewedFixtures                []ReviewedFixture     `json:"reviewed_fixtures"`
+	IncludeUntracked                bool                  `json:"include_untracked"`
+	ProjectIgnoreUsed               bool                  `json:"project_ignore_used"`
 }
 
 func NormalizeBaselineKey(value string) (string, error) {

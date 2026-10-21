@@ -206,7 +206,7 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				}
 			}
 			nodes = append(nodes, preflightapi.VerificationNodePlan{
-				ID: id, Name: defaultString(identity.LogicalChildName, plan.Name), Kind: "check",
+				ID: id, Name: defaultString(identity.LogicalChildName, plan.Name), Kind: "check", Source: plan.Source,
 				Phase: item.phase, Condition: condition, MatrixGroup: matrixGroup,
 				Required: true, DependsOn: dependsOn,
 				SuccessDependsOn: successDependsOn,
@@ -218,6 +218,9 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 					Client: client.Client, Git: preflightapi.GitInfo{Materialization: "minimal_git", Repository: client.Repository},
 				},
 			})
+			if plan.Source != nil {
+				nodes[len(nodes)-1].Run.BundleBaselineKey = plan.Source.BaselineKey
+			}
 			currentIDs = append(currentIDs, id)
 		}
 		dependencies = currentIDs

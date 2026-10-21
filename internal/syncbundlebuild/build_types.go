@@ -15,10 +15,14 @@ type BuildResult struct {
 }
 
 type BuildOptions struct {
-	ChangeMode       string
-	ExcludePatterns  []string
-	IncludeUntracked *bool
-	OmitBaseline     bool
+	SourceScopes []syncbundle.SourcePolicyBinding
+	// RequireRegisteredScopes is a planning precondition, never an upload hint.
+	// Only an independently fetched registered policy can authorize mixed scopes.
+	RequireRegisteredScopes bool
+	ChangeMode              string
+	ExcludePatterns         []string
+	IncludeUntracked        *bool
+	OmitBaseline            bool
 	// UseProjectIgnore defaults to true. A registered service policy sets it to
 	// false so candidate-controlled .readyciignore bytes cannot narrow the
 	// source view used for an authoritative plan.

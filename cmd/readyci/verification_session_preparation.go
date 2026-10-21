@@ -171,7 +171,7 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 		}
 		includeUntracked := report.Sync.IncludeUntracked
 		sessionPlans := append(append(make([]affectedCheckPlan, 0, len(warmSelected)+len(selected)), warmSelected...), selected...)
-		prepared.BuildOptions, err = compatibleAffectedSessionBuildOptions(sessionPlans, syncbundlebuild.BuildOptions{
+		prepared.BuildOptions, err = registeredAffectedSessionBuildOptions(sessionPlans, syncbundlebuild.BuildOptions{
 			ChangeMode: report.ChangeMode, ExcludePatterns: append([]string(nil), report.Sync.ExcludePatterns...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), report.Sync.ReviewedFixtures...), IncludeUntracked: &includeUntracked,
 		})
 		if err != nil {

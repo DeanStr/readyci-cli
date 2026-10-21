@@ -40,6 +40,9 @@ func registeredPolicyBuildOptions(
 	active *syncbundle.SourcePolicyBinding,
 ) (syncbundlebuild.BuildOptions, error) {
 	if active == nil {
+		if fallback.RequireRegisteredScopes {
+			return syncbundlebuild.BuildOptions{}, cliConfigError("combined component scopes require an active trusted verification policy", nil)
+		}
 		return fallback, nil
 	}
 	binding, err := syncbundle.NormalizeSourcePolicyBinding(*active)
@@ -50,6 +53,7 @@ func registeredPolicyBuildOptions(
 	includeUntracked := binding.IncludeUntracked
 	return syncbundlebuild.BuildOptions{
 		ChangeMode:                      fallback.ChangeMode,
+		SourceScopes:                    binding.Scopes,
 		ExcludePatterns:                 append([]string(nil), binding.ExcludePatterns...),
 		DefaultExcludePatterns:          append([]string(nil), binding.DefaultExcludePatterns...),
 		DefaultUntrackedExcludePatterns: append([]string(nil), binding.DefaultUntrackedExcludePatterns...),
@@ -71,6 +75,7 @@ func verificationSourceRecipe(options syncbundlebuild.BuildOptions) *preflightap
 		useProjectIgnore = *options.UseProjectIgnore
 	}
 	return &preflightapi.VerificationSourceRecipe{
+		SourceScopes:                    options.SourceScopes,
 		ExcludePatterns:                 append([]string{}, options.ExcludePatterns...),
 		DefaultExcludePatterns:          append([]string{}, options.DefaultExcludePatterns...),
 		DefaultUntrackedExcludePatterns: append([]string{}, options.DefaultUntrackedExcludePatterns...),
@@ -89,6 +94,7 @@ func verificationSourceBuildOptions(recipe preflightapi.VerificationRecipe) (syn
 	useProjectIgnore := recipe.Source.UseProjectIgnore
 	return syncbundlebuild.BuildOptions{
 		ChangeMode:                      recipe.ChangeMode,
+		SourceScopes:                    recipe.Source.SourceScopes,
 		ExcludePatterns:                 append([]string(nil), recipe.Source.ExcludePatterns...),
 		DefaultExcludePatterns:          append([]string{}, recipe.Source.DefaultExcludePatterns...),
 		DefaultUntrackedExcludePatterns: append([]string{}, recipe.Source.DefaultUntrackedExcludePatterns...),
@@ -156,6 +162,27 @@ func compatibleAffectedSessionBuildOptions(plans []affectedCheckPlan, fallback s
 				"affected checks %q and %q require different sync.exclude, reviewed_fixtures, or include_untracked settings; one sealed verification session must use one exact workspace; use a shared top-level sync policy for combined checks, or run each named check separately",
 				plans[0].Plan.Name, selected.Plan.Name,
 			)
+		}
+	}
+	return first, nil
+}
+
+// Multiple affected scopes are authorized independently after consulting the
+// active registered policy. This only defers source compatibility; differing
+// change selections still fail before any upload.
+func registeredAffectedSessionBuildOptions(plans []affectedCheckPlan, fallback syncbundlebuild.BuildOptions) (syncbundlebuild.BuildOptions, error) {
+	if len(plans) == 0 {
+		return canonicalBuildOptions(fallback), nil
+	}
+	first := canonicalVerificationBuildOptions(plans[0].Plan.Options, fallback.ChangeMode)
+	key := verificationBuildOptionsKey(first)
+	for _, selected := range plans[1:] {
+		current := canonicalVerificationBuildOptions(selected.Plan.Options, fallback.ChangeMode)
+		if current.ChangeMode != first.ChangeMode {
+			return syncbundlebuild.BuildOptions{}, fmt.Errorf("combined verification requires one changes mode; set --changes explicitly")
+		}
+		if verificationBuildOptionsKey(current) != key {
+			first.RequireRegisteredScopes = true
 		}
 	}
 	return first, nil
@@ -246,9 +273,11 @@ func verificationBuildOptionsKey(options syncbundlebuild.BuildOptions) string {
 		DefaultExcludePatterns          []string
 		DefaultUntrackedExcludePatterns []string
 		ReviewedFixtures                []syncbundle.ReviewedFixture
+		SourceScopes                    []syncbundle.SourcePolicyBinding
+		RequireRegisteredScopes         bool
 	}{options.ChangeMode, includeUntracked, useProjectIgnore, options.SourcePolicyDigest,
 		options.ExcludePatterns, options.DefaultExcludePatterns, options.DefaultUntrackedExcludePatterns,
-		options.ReviewedFixtures})
+		options.ReviewedFixtures, options.SourceScopes, options.RequireRegisteredScopes})
 	return string(encoded)
 }
 
