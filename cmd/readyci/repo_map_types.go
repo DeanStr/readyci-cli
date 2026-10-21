@@ -1,5 +1,7 @@
 package main
 
+import "github.com/DeanStr/readyci-cli/pkg/preflightapi"
+
 type repoMapReport struct {
 	Status          string               `json:"status"`
 	ConfigPath      string               `json:"config_path,omitempty"`
@@ -65,9 +67,10 @@ type repoMakeMap struct {
 }
 
 type repoMakeTarget struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Line int    `json:"line"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Line        int    `json:"line"`
+	Conditional bool   `json:"conditional,omitempty"`
 }
 
 type repoGitHubActionsMap struct {
@@ -79,29 +82,41 @@ type repoGoModuleMap struct {
 }
 
 type repoWorkflowMap struct {
-	Path string            `json:"path"`
-	Jobs []repoWorkflowJob `json:"jobs,omitempty"`
-	Env  map[string]string `json:"env,omitempty"`
+	Path     string            `json:"path"`
+	Jobs     []repoWorkflowJob `json:"jobs,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Problems []string          `json:"problems,omitempty"`
 }
 
 type repoWorkflowJob struct {
-	Name         string                  `json:"name"`
-	RunsOn       []string                `json:"runs_on,omitempty"`
-	Needs        []string                `json:"needs,omitempty"`
-	Commands     []string                `json:"commands,omitempty"`
-	CommandLines []int                   `json:"command_lines,omitempty"`
-	RunSteps     []repoWorkflowRunStep   `json:"run_steps,omitempty"`
-	Runtimes     []string                `json:"runtimes,omitempty"`
-	Conditions   []repoWorkflowCondition `json:"conditions,omitempty"`
-	Requirements []string                `json:"requirements,omitempty"`
-	Unsupported  []string                `json:"unsupported,omitempty"`
+	ID                   string                                    `json:"id,omitempty"`
+	ScopeUnknown         bool                                      `json:"scope_unknown,omitempty"`
+	ParentJobID          string                                    `json:"parent_job_id,omitempty"`
+	Matrix               map[string]string                         `json:"matrix,omitempty"`
+	Timeout              string                                    `json:"timeout,omitempty"`
+	RuntimeRequirements  map[string]string                         `json:"runtime_requirements,omitempty"`
+	RuntimePins          map[string]string                         `json:"runtime_pins,omitempty"`
+	RuntimeResolutions   map[string]preflightapi.RuntimeResolution `json:"runtime_resolutions,omitempty"`
+	Name                 string                                    `json:"name"`
+	RunsOn               []string                                  `json:"runs_on,omitempty"`
+	Needs                []string                                  `json:"needs,omitempty"`
+	Commands             []string                                  `json:"commands,omitempty"`
+	CommandLines         []int                                     `json:"command_lines,omitempty"`
+	RunSteps             []repoWorkflowRunStep                     `json:"run_steps,omitempty"`
+	Runtimes             []string                                  `json:"runtimes,omitempty"`
+	Conditions           []repoWorkflowCondition                   `json:"conditions,omitempty"`
+	Requirements         []string                                  `json:"requirements,omitempty"`
+	Unsupported          []string                                  `json:"unsupported,omitempty"`
+	AutomaticUnsupported []string                                  `json:"automatic_unsupported,omitempty"`
 }
 
 type repoWorkflowRunStep struct {
-	Command          string `json:"command"`
-	Line             int    `json:"line"`
-	Shell            string `json:"shell,omitempty"`
-	WorkingDirectory string `json:"working_directory,omitempty"`
+	Command          string            `json:"command"`
+	Line             int               `json:"line"`
+	Shell            string            `json:"shell,omitempty"`
+	WorkingDirectory string            `json:"working_directory,omitempty"`
+	Env              map[string]string `json:"env,omitempty"`
+	Timeout          string            `json:"timeout,omitempty"`
 }
 
 type repoWorkflowCondition struct {
@@ -149,18 +164,28 @@ type repoOpenAPIMap struct {
 }
 
 type repoImportCandidate struct {
-	Runtimes           []string `json:"runtimes,omitempty"`
-	WorkingDirectories []string `json:"working_directories,omitempty"`
-	ID                 string   `json:"id,omitempty"`
-	Source             string   `json:"source"`
-	Name               string   `json:"name"`
-	Command            string   `json:"command,omitempty"`
-	Check              string   `json:"check,omitempty"`
-	Reason             string   `json:"reason,omitempty"`
-	Confidence         float64  `json:"confidence"`
-	Evidence           []string `json:"evidence,omitempty"`
-	Requirements       []string `json:"requirements,omitempty"`
-	Unsupported        []string `json:"unsupported,omitempty"`
+	ScopeUnknown         bool                                      `json:"scope_unknown,omitempty"`
+	ParentJobID          string                                    `json:"parent_job_id,omitempty"`
+	Matrix               map[string]string                         `json:"matrix,omitempty"`
+	RunSteps             []repoWorkflowRunStep                     `json:"run_steps,omitempty"`
+	Timeout              string                                    `json:"timeout,omitempty"`
+	RuntimeRequirements  map[string]string                         `json:"runtime_requirements,omitempty"`
+	RuntimePins          map[string]string                         `json:"runtime_pins,omitempty"`
+	RuntimeResolutions   map[string]preflightapi.RuntimeResolution `json:"runtime_resolutions,omitempty"`
+	TestEntrypoint       bool                                      `json:"test_entrypoint,omitempty"`
+	AutomaticUnsupported []string                                  `json:"automatic_unsupported,omitempty"`
+	Runtimes             []string                                  `json:"runtimes,omitempty"`
+	WorkingDirectories   []string                                  `json:"working_directories,omitempty"`
+	ID                   string                                    `json:"id,omitempty"`
+	Source               string                                    `json:"source"`
+	Name                 string                                    `json:"name"`
+	Command              string                                    `json:"command,omitempty"`
+	Check                string                                    `json:"check,omitempty"`
+	Reason               string                                    `json:"reason,omitempty"`
+	Confidence           float64                                   `json:"confidence"`
+	Evidence             []string                                  `json:"evidence,omitempty"`
+	Requirements         []string                                  `json:"requirements,omitempty"`
+	Unsupported          []string                                  `json:"unsupported,omitempty"`
 }
 
 type repoImportReport struct {

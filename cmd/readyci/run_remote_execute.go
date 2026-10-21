@@ -63,8 +63,8 @@ func executeRemoteRunInternal(options remoteRunOptions, outputMode remoteRunOutp
 	}()
 
 	bundleOptions := syncbundlebuild.BuildOptions{
-		ChangeMode:       changeMode,
-		ExcludePatterns:  append([]string(nil), options.SyncExclude...),
+		ChangeMode:      changeMode,
+		ExcludePatterns: append([]string(nil), options.SyncExclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.SyncReviewedFixtures...),
 		IncludeUntracked: options.IncludeUntracked,
 	}
 	bundlePath, bundle, deltaBundlePath, deltaBundle, err := syncbundlebuild.BuildFullAndDeltaToTempWithOptions(ctx, ".", bundleOptions)

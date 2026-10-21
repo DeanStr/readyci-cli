@@ -77,16 +77,33 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 	if err := syncbundle.ValidateExcludePatterns(cfg.Sync.Exclude); err != nil {
 		return cfg, configError(fmt.Errorf("%s: sync.exclude: %w", source, err))
 	}
+	var err error
+	cfg.Sync.ReviewedFixtures, err = syncbundle.NormalizeReviewedFixtures(cfg.Sync.ReviewedFixtures)
+	if err != nil {
+		return cfg, configError(fmt.Errorf("%s: sync.reviewed_fixtures: %w", source, err))
+	}
 	if cfg.Sync.RespectGitignore != nil && !*cfg.Sync.RespectGitignore {
 		return cfg, configError(fmt.Errorf("%s: sync.respect_gitignore=false is not supported yet", source))
 	}
 	for name, check := range cfg.Checks {
+		check.RuntimeRequirements, err = preflightapi.NormalizeRuntimeRequirements(check.RuntimeRequirements)
+		if err != nil {
+			return cfg, configError(fmt.Errorf("%s: checks.%s.runtime_requirements: %w", source, name, err))
+		}
 		if err := syncbundle.ValidateExcludePatterns(check.Sync.Exclude); err != nil {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.exclude: %w", source, name, err))
 		}
+		check.Sync.ReviewedFixtures, err = syncbundle.NormalizeReviewedFixtures(check.Sync.ReviewedFixtures)
+		if err != nil {
+			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.reviewed_fixtures: %w", source, name, err))
+		}
+		cfg.Checks[name] = check
 		if check.Sync.RespectGitignore != nil && !*check.Sync.RespectGitignore {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.respect_gitignore=false is not supported yet", source, name))
 		}
+	}
+	if err := ValidateDependencyChecks(cfg); err != nil {
+		return cfg, configError(fmt.Errorf("%s: %w", source, err))
 	}
 	return cfg, nil
 }

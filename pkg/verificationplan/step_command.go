@@ -9,9 +9,11 @@ const StepTerminationGraceSeconds = 1
 // StepCommand is shared by compiled plans and the worker's structured-step
 // supervisor. Only timeout's own diagnostic channel determines whether a
 // forced kill is a timeout; a customer command exiting 137 keeps that status.
+// The outer job shell has already loaded the image profile. Nested step shells
+// must preserve prepared PATH/venv/runtime selection instead of resetting it.
 func StepCommand(command string, timeoutSeconds int) string {
 	if timeoutSeconds <= 0 {
-		return "    /bin/bash -lc " + ShellQuoteArg(command) + "\n"
+		return "    /bin/bash --noprofile --norc -c " + ShellQuoteArg(command) + "\n"
 	}
 	// timeout cancels its KILL escalation when its immediate child exits. Keep
 	// this supervisor alive after TERM even if the customer shell exits first,
@@ -20,7 +22,7 @@ func StepCommand(command string, timeoutSeconds int) string {
 	// handling; running it in the foreground also preserves its stdin.
 	supervisor := `if [ "$1" = x ]; then export LC_ALL="$2"; else unset LC_ALL; fi
 trap 'while :; do sleep 1; done' TERM
-/bin/bash -lc "$3" 2>&3
+/bin/bash --noprofile --norc -c "$3" 2>&3
 exit $?`
 	return `__readyci_timeout_log="$(mktemp)" || exit 125
 # Keep command stderr out of timeout's diagnostic channel and preserve its locale.

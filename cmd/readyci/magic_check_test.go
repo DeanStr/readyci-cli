@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func setupInferredGoRepo(t *testing.T) string {
@@ -87,7 +89,7 @@ func TestCheckInfersFromRepoRootWhenRunFromSubdirectory(t *testing.T) {
 	)
 }
 
-func TestCheckInfersStarterConfigWithoutDetectorSignals(t *testing.T) {
+func TestCheckRequiresConfigurationWithoutTestEntrypoint(t *testing.T) {
 	t.Setenv("READYCI_API_URL", "")
 	t.Setenv("READYCI_API_TOKEN", "")
 	t.Setenv("READYCI_PROJECT_ID", "")
@@ -107,15 +109,15 @@ func TestCheckInfersStarterConfigWithoutDetectorSignals(t *testing.T) {
 	output, err := captureStdoutForCLITest(t, func() error {
 		return checkCommand([]string{"--dry-run"})
 	})
-	if err != nil {
-		t.Fatalf("check dry-run inferred starter config: %v\n%s", err, output)
+	if err == nil || normalizeCLIError(err).Classification != preflightapi.ClassificationConfigInvalid || !strings.Contains(err.Error(), "no supported root test entrypoint") {
+		t.Fatalf("check must require a documented test command: error=%v output=%s", err, output)
 	}
-	requireCLITestOutputContains(t, output,
-		"check: dry-run",
-		"name: ci",
-		"config: <inferred .readyci.yml>",
-		"command: make check",
-	)
+	if strings.Contains(output, "make check") {
+		t.Fatalf("unsupported repository received an invented test command: %s", output)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".readyci.yml")); !os.IsNotExist(err) {
+		t.Fatalf("inference wrote configuration for unsupported repository: %v", err)
+	}
 }
 
 func TestCheckFallsBackToDetectedCheckWhenInferredAffectedHasNoChanges(t *testing.T) {

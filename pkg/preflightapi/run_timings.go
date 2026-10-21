@@ -1,10 +1,15 @@
 package preflightapi
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // RunTimings describes server-observed lifecycle intervals. Command time includes
 // preparation inside the command; event delivery is part of these observations.
 type RunTimings struct {
+	WorkerPreparation       *PhaseTimings     `json:"worker_preparation"`
+	Resources               *RunResources     `json:"resources,omitempty"`
 	Basis                   string            `json:"basis"`
 	TotalMS                 *int64            `json:"total_ms"`
 	QueueMS                 *int64            `json:"queue_ms"`
@@ -28,6 +33,13 @@ func ObserveRunTimings(summary RunSummary, events []RunEvent) RunTimings {
 		if summary.ClaimedAt == nil || event.Timestamp.Before(*summary.ClaimedAt) || summary.CompletedAt != nil && event.Timestamp.After(*summary.CompletedAt) {
 			continue
 		}
+		if event.Type == EventAgentReady && result.WorkerPreparation == nil && started.IsZero() {
+			data, err := event.DataBytes()
+			var phases PhaseTimings
+			if err == nil && json.Unmarshal(data, &phases) == nil && phases.Basis == "worker_monotonic" && validPhaseDurations(phases.PhasesMS) {
+				result.WorkerPreparation = &phases
+			}
+		}
 		if event.Type == EventCommandStarted && started.IsZero() {
 			started = event.Timestamp
 		}
@@ -35,17 +47,51 @@ func ObserveRunTimings(summary RunSummary, events []RunEvent) RunTimings {
 			exited = event.Timestamp
 		}
 	}
+	var current []RunEvent
+	for _, event := range events {
+		if summary.ClaimedAt != nil && !event.Timestamp.Before(*summary.ClaimedAt) && (summary.CompletedAt == nil || !event.Timestamp.After(*summary.CompletedAt)) {
+			current = append(current, event)
+		}
+	}
+	result.Resources = ResourcesFromEvents(current)
+	if r := result.Resources; r != nil {
+		if r.PeakMemoryBytes != nil && *r.PeakMemoryBytes <= 1<<63-1 {
+			v := int64(*r.PeakMemoryBytes)
+			result.PeakMemoryBytes = &v
+			delete(result.Unavailable, "peak_memory_bytes")
+		}
+		if r.CPUUsageUS != nil {
+			v := float64(*r.CPUUsageUS) / 1e6
+			result.CPUSeconds = &v
+			delete(result.Unavailable, "cpu_seconds")
+		}
+	}
 	result.TotalMS = timingInterval(runTimingTimePointer(summary.CreatedAt), summary.CompletedAt)
 	result.QueueMS = timingInterval(summary.QueuedAt, summary.ClaimedAt)
 	result.WorkerPreparationMS = timingInterval(summary.ClaimedAt, runTimingTimePointer(started))
 	result.CommandMS = timingInterval(runTimingTimePointer(started), runTimingTimePointer(exited))
 	result.FinalizationMS = timingInterval(runTimingTimePointer(exited), summary.CompletedAt)
+	if result.WorkerPreparation == nil {
+		result.Unavailable["worker_preparation"] = "No worker-local preparation spans were recorded for this claim."
+	}
 	for name, value := range map[string]*int64{"total_ms": result.TotalMS, "queue_ms": result.QueueMS, "worker_preparation_ms": result.WorkerPreparationMS, "command_ms": result.CommandMS, "finalization_ms": result.FinalizationMS} {
 		if value == nil {
 			result.Unavailable[name] = "The required lifecycle boundaries have not been recorded."
 		}
 	}
 	return result
+}
+
+func validPhaseDurations(phases map[string]*int64) bool {
+	if len(phases) == 0 {
+		return false
+	}
+	for _, duration := range phases {
+		if duration != nil && *duration < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func runTimingTimePointer(value time.Time) *time.Time {

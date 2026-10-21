@@ -124,6 +124,11 @@ func normalizeCLIError(err error) cliError {
 		}
 		return typed
 	}
+	var admission *syncbundle.AdmissionError
+	if errors.As(err, &admission) {
+		return cliError{Code: "config_invalid", ExitCode: cliExitUsageOrConfig, Classification: preflightapi.ClassificationConfigInvalid, Message: err.Error(), Cause: err,
+			NextActions: []cliNextAction{{Kind: "inspect_source", Command: "readyci sync --dry-run --json"}}}
+	}
 	var interrupted cliInterruptedError
 	if errors.As(err, &interrupted) {
 		exitCode := 130

@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 
+	"github.com/DeanStr/readyci-cli/pkg/diagnosiscommon"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
@@ -34,10 +35,7 @@ func classifyCommandError(err error) string {
 
 func evidenceFromEvents(events []preflightapi.RunEvent, limit int) []agentEvidence {
 	analysis := localAnalyzeRunFailure(preflightapi.StatusFailed, "", nil, events, "")
-	items := analysis.Evidence
-	if limit > 0 && len(items) > limit {
-		items = items[:limit]
-	}
+	items := selectRunLogsFailureEvidence(analysis.Evidence, limit)
 	evidence := make([]agentEvidence, 0, len(items))
 	for _, item := range items {
 		evidence = append(evidence, agentEvidence{
@@ -86,7 +84,7 @@ func buildAgentRepairPacket(diagnosis agentDiagnosis, command, rerunCommand, log
 func rootCauseForClassification(kind string) string {
 	switch kind {
 	case preflightapi.ClassificationTestFailed:
-		return "The command reached the test runner and at least one test failed."
+		return "The test command failed; inspect the evidence to distinguish assertions from build or environment failures."
 	case preflightapi.ClassificationLintFailed:
 		return "The command reached the linter and reported style or static-analysis violations."
 	case preflightapi.ClassificationTypecheckFailed:
@@ -114,9 +112,11 @@ func rootCauseForClassification(kind string) string {
 	case preflightapi.ClassificationNetworkNotAllowed:
 		return "The run attempted network access that project policy did not allow."
 	case preflightapi.ClassificationDependencyDownloadFailed:
-		return "Dependency setup failed, commonly due to network, registry, or cache state."
+		return "A dependency or browser asset download failed. Inspect the observed DNS, TLS, or HTTP error and the resolved network policy; a DNS error alone does not prove policy denial."
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "The run environment is missing a dependency needed by the command."
+	case preflightapi.ClassificationEnvironmentSetupFailed:
+		return "A runtime, toolchain, platform, or filesystem prerequisite was not met; the command's exit code is preserved."
 	case preflightapi.ClassificationServiceSetupFailed:
 		return "A configured service failed before or during verification."
 	case preflightapi.ClassificationTimeout:
@@ -141,6 +141,11 @@ func rootCauseForClassification(kind string) string {
 }
 
 func repairTargetsForDiagnosis(diagnosis agentDiagnosis, evidence []agentEvidence) []agentRepairTarget {
+	if diagnosis.Kind == preflightapi.ClassificationEnvironmentSetupFailed || diagnosis.Kind == preflightapi.ClassificationDependencyDownloadFailed {
+		// A file mentioned by a prerequisite failure can be the test exposing it,
+		// rather than source that should be edited to make the check pass.
+		return nil
+	}
 	seen := map[string]bool{}
 	var targets []agentRepairTarget
 	add := func(path, reason string) {
@@ -153,6 +158,9 @@ func repairTargetsForDiagnosis(diagnosis agentDiagnosis, evidence []agentEvidenc
 	}
 	add(diagnosis.PrimaryFile, "primary file from failure analysis")
 	for _, item := range evidence {
+		if diagnosis.Kind == preflightapi.ClassificationTestFailed && diagnosiscommon.PythonWarningDiagnostic(item.Text) {
+			continue
+		}
 		add(item.Path, "referenced by failure evidence")
 		if len(targets) >= 8 {
 			break
@@ -323,6 +331,12 @@ func shouldRecommendAgentRerun(run agentVerifyRunReport) bool {
 }
 
 func recommendedNextStep(diagnosis agentDiagnosis, apiURL, check string, requestSecrets bool) string {
+	if diagnosis.Kind == preflightapi.ClassificationDependencyDownloadFailed {
+		return "Review the failed download endpoint, DNS/TLS or registry availability, and the check's explicit network requirements before retrying the same check. A DNS failure alone does not establish policy denial."
+	}
+	if diagnosis.Kind == preflightapi.ClassificationEnvironmentSetupFailed {
+		return "Reconcile the check's runtime, toolchain, platform, and filesystem requirements with the selected runner, then rerun the same check."
+	}
 	switch diagnosis.Action {
 	case preflightapi.AgentActionInspectTestReport:
 		return preflightapi.TestReportConflictMessage

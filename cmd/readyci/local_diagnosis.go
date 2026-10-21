@@ -61,11 +61,37 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	analysisText := command + "\n" + primaryFailureReason + "\n" + localRunEventSearchText(events)
 	analysisLower := strings.ToLower(analysisText)
 	evidence := localEvidenceFromEvents(events, 12)
+	for _, reason := range strings.Split(failureReason, "; ") {
+		if localContainsAny(strings.ToLower(reason), "firecracker shutdown failed", "remove firecracker cgroup", "terminate firecracker cgroup", "firecracker containment failure") {
+			analysis := localFailureAnalysis(preflightapi.ClassificationWorkerInternalError, 0.7, localDefaultSummary(preflightapi.ClassificationWorkerInternalError), reason)
+			analysis.Evidence = evidence
+			return analysis
+		}
+	}
 	if artifactFailureKind := localTerminalArtifactUploadFailureClassification(failureReason, events); artifactFailureKind != "" {
 		analysis := localFailureAnalysis(artifactFailureKind, 0.65, localDefaultSummary(artifactFailureKind), failureReason)
 		analysis.PrimaryFile = localPrimaryFileFromEvidence(evidence)
 		analysis.Evidence = evidence
 		return analysis
+	}
+	if diagnosiscommon.RuntimePreparationFailed(events, exitCode) {
+		analysis := localFailureAnalysis(preflightapi.ClassificationEnvironmentSetupFailed, 1,
+			"Required runtime preparation failed before repository commands started; inspect preparation logs.", "")
+		analysis.Evidence = evidence
+		return analysis
+	}
+	// Refine only an ordinary command failure. A worker's recorded primary
+	// failure reason retains precedence over a test runner's output.
+	if primaryFailureReason == "" {
+		if failure := diagnosiscommon.MavenTestFailureFromEvents(events, exitCode); failure != nil {
+			analysis := localFailureAnalysis(preflightapi.ClassificationTestFailed, 0.65,
+				localDefaultSummary(preflightapi.ClassificationTestFailed), failure.Summary)
+			analysis.Evidence = append(failure.Evidence, evidence...)
+			if len(analysis.Evidence) > 12 {
+				analysis.Evidence = analysis.Evidence[:12]
+			}
+			return analysis
+		}
 	}
 	if module := localMissingPythonModuleName(analysisText); module != "" && !localAnalysisTextLooksTestFailure(analysisText, analysisLower) {
 		analysis := localFailureAnalysis(preflightapi.ClassificationDependencySetupFailed, 0.55, failureReason, "Missing Python dependency: "+module+".")
@@ -74,6 +100,21 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		return analysis
 	}
 	kind, confidence := localClassifyCommandFailure(command, analysisText, exitCode)
+	if !localAnalysisTextLooksTestFailure(analysisText, analysisLower) && (kind == preflightapi.ClassificationDependencyDownloadFailed || kind == preflightapi.ClassificationLintFailed || kind == preflightapi.ClassificationBuildFailed || kind == preflightapi.ClassificationTestFailed) {
+		if download := diagnosiscommon.BrowserDownloadFailureFromEvents(events); download != nil {
+			kind, summary := preflightapi.ClassificationDependencyDownloadFailed, download.Summary
+			if download.ReachabilityFailure && strings.EqualFold(strings.TrimSpace(networkMode), preflightapi.DefaultNetworkMode) {
+				kind = preflightapi.ClassificationNetworkNotAllowed
+				summary = "Browser installation required a download, but this run used network_mode: none."
+			}
+			analysis := localFailureAnalysis(kind, 0.65, localDefaultSummary(kind), summary)
+			analysis.Evidence = append(download.Evidence, evidence...)
+			if len(analysis.Evidence) > 12 {
+				analysis.Evidence = analysis.Evidence[:12]
+			}
+			return analysis
+		}
+	}
 	if strings.HasPrefix(strings.ToLower(primaryFailureReason), "artifact upload failed:") {
 		kind = preflightapi.ClassificationSyncFailed
 		confidence = 0.6
@@ -109,6 +150,11 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	}
 	analysis := localFailureAnalysis(kind, confidence, localDefaultSummary(kind), summary)
 	analysis.PrimaryFile = localPrimaryFileFromEvidence(evidence)
+	if kind == preflightapi.ClassificationTestFailed {
+		if _, path := diagnosiscommon.PytestFailureSummary(evidence); path != "" {
+			analysis.PrimaryFile = path
+		}
+	}
 	if analysis.PrimaryFile == "" {
 		analysis.PrimaryFile = localPrimaryFile(analysisText)
 	}

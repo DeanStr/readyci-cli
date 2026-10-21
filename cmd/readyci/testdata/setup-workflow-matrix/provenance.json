@@ -1,0 +1,34 @@
+[
+  {
+    "repository": "caddyserver/caddy",
+    "commit": "719db53e946181dd10a9aae36721c3251f7f8dc1",
+    "source_path": ".github/workflows/ci.yml",
+    "source_url": "https://raw.githubusercontent.com/caddyserver/caddy/719db53e946181dd10a9aae36721c3251f7f8dc1/.github/workflows/ci.yml",
+    "sha256": "40e482908ccfab77349ce740832fccd0ec47428ad716db51b61a1278cc309664",
+    "fixture_path": "caddyserver--caddy/workflow.yml"
+  },
+  {
+    "repository": "fastapi/fastapi",
+    "commit": "3070b5105fe02c4afdba5e3aea6c2cf2e3796c7f",
+    "source_path": ".github/workflows/test.yml",
+    "source_url": "https://raw.githubusercontent.com/fastapi/fastapi/3070b5105fe02c4afdba5e3aea6c2cf2e3796c7f/.github/workflows/test.yml",
+    "sha256": "353d7900246c3efa39494b115449fb2d0cdbcd3a11e1d0993f30ee08514b7d03",
+    "fixture_path": "fastapi--fastapi/workflow.yml"
+  },
+  {
+    "repository": "gin-gonic/gin",
+    "commit": "0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646",
+    "source_path": ".github/workflows/gin.yml",
+    "source_url": "https://raw.githubusercontent.com/gin-gonic/gin/0f09c3a9b4626d9fe9979cf4d0521d6ae32ab646/.github/workflows/gin.yml",
+    "sha256": "1686281a79271a8d707b29bc4d3e4787b60dad8d39e7f053cb860d2c5af3d6d8",
+    "fixture_path": "gin-gonic--gin/workflow.yml"
+  },
+  {
+    "repository": "google/guava",
+    "commit": "669a232b4e20ae6e8bc6efc62caaf2f830d56327",
+    "source_path": ".github/workflows/ci.yml",
+    "source_url": "https://raw.githubusercontent.com/google/guava/669a232b4e20ae6e8bc6efc62caaf2f830d56327/.github/workflows/ci.yml",
+    "sha256": "ff63c577cbad33e96601d18485187310af2eb16c1dcb0de33da24bf171029c57",
+    "fixture_path": "google--guava/workflow.yml"
+  }
+]

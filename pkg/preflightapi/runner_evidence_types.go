@@ -89,6 +89,7 @@ func RunnerEvidenceEligible(spec RunSpec) bool {
 // bind the opaque server-selected revision digest instead.
 func RunnerExecutionDigest(spec RunSpec) (string, error) {
 	type execution struct {
+		RuntimeRequirements  map[string]string `json:"runtime_requirements,omitempty"`
 		RunID                string            `json:"run_id"`
 		TeamID               string            `json:"team_id,omitempty"`
 		RunGroupID           string            `json:"run_group_id"`
@@ -139,6 +140,7 @@ func RunnerExecutionDigest(spec RunSpec) (string, error) {
 		services[index].Logs = append([]string(nil), services[index].Logs...)
 	}
 	payload := execution{
+		RuntimeRequirements:  CloneRuntimeRequirements(spec.RuntimeRequirements),
 		RunID:                strings.TrimSpace(spec.RunID),
 		TeamID:               strings.TrimSpace(spec.TeamID),
 		RunGroupID:           strings.TrimSpace(spec.RunGroupID),

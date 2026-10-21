@@ -1,0 +1,51 @@
+version: 1
+project_id: matched-fixture
+image: ubuntu-24.04-ci
+runner_size: standard
+retries: 0
+sync:
+  include_untracked: true
+  exclude:
+  - .npmrc*
+  - test-results
+  - tmp
+artifacts:
+  paths:
+  - coverage/**
+  - test-results/**
+cache:
+  mode: cache-only
+  size: 10GiB
+  paths:
+  - ~/.cache/go-build
+  - ~/go/pkg/mod
+checks:
+  build:
+    steps:
+    - command: bash -e -c 'go mod download'
+      env:
+        CI: 'true'
+      name: step-1
+    - command: bash -e -c 'go test -race -tags=integration ./...'
+      env:
+        CI: 'true'
+      name: step-2
+    - command: bash -e -c 'go build -v ./cmd/gh'
+      env:
+        CI: 'true'
+      name: step-3
+    runtime_requirements:
+      go: 1.27.2,>=1.27.0
+    timeout: 20m
+network:
+  mode: allowlist
+  allowlist:
+  - go.dev
+  - dl.google.com
+  - proxy.golang.org
+  - sum.golang.org
+  - storage.googleapis.com
+  - tuf-repo.github.com
+  - tuf-repo-cdn.sigstore.dev
+  - ghcr.io
+  - pkg-containers.githubusercontent.com

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,13 +19,18 @@ func renderDetectedProjectTemplate(projectID, image, profile string, checks []de
 	if image != "" {
 		imageLine = fmt.Sprintf("image: %s\n\n", strconv.Quote(image))
 	}
+	for _, check := range checks {
+		signals = append(signals, check.PreparationReview...)
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "version: 1\nproject_id: %s\n%s", strconv.Quote(projectID), imageLine)
 	if len(signals) > 0 {
 		b.WriteString("# detected project signals:\n")
 		for _, signal := range signals {
-			fmt.Fprintf(&b, "# - %s\n", signal)
+			// Signals contain repository-controlled names and requirement text.
+			// Quote control characters so a newline cannot escape this comment.
+			fmt.Fprintf(&b, "# - %s\n", strconv.Quote(signal))
 		}
 		b.WriteString("\n")
 	}
@@ -54,6 +60,8 @@ artifacts:
 					cachePaths = append(cachePaths, "target")
 				}
 				cachePaths = append(cachePaths, "~/.cargo/registry", "~/.cargo/git")
+			case "python":
+				cachePaths = append(cachePaths, "~/.cache/pip")
 			}
 		}
 	}
@@ -89,7 +97,45 @@ artifacts:
 	b.WriteString("checks:\n")
 	for _, check := range checks {
 		fmt.Fprintf(&b, "  %s:\n", check.Name)
-		fmt.Fprintf(&b, "    command: %s\n", strconv.Quote(check.Command))
+		if len(check.Steps) == 0 {
+			fmt.Fprintf(&b, "    command: %s\n", strconv.Quote(check.Command))
+		} else {
+			b.WriteString("    steps:\n")
+			for _, step := range check.Steps {
+				fmt.Fprintf(&b, "      - name: %s\n        command: %s\n", strconv.Quote(step.Name), strconv.Quote(step.Command))
+				if len(step.Env) > 0 {
+					b.WriteString("        env:\n")
+					var keys []string
+					for key := range step.Env {
+						keys = append(keys, key)
+					}
+					sort.Strings(keys)
+					for _, key := range keys {
+						fmt.Fprintf(&b, "          %s: %s\n", key, strconv.Quote(step.Env[key]))
+					}
+				}
+				if step.Timeout != "" {
+					fmt.Fprintf(&b, "        timeout: %s\n", step.Timeout)
+				}
+			}
+		}
+		if len(check.RuntimeRequirements) > 0 {
+			b.WriteString("    runtime_requirements:\n")
+			var names []string
+			for name := range check.RuntimeRequirements {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			for _, name := range names {
+				fmt.Fprintf(&b, "      %s: %s\n", name, strconv.Quote(check.RuntimeRequirements[name]))
+			}
+		}
+		if len(check.Prepare) > 0 {
+			b.WriteString("    prepare:\n")
+			for _, command := range check.Prepare {
+				fmt.Fprintf(&b, "      - %s\n", strconv.Quote(command))
+			}
+		}
 		if check.Changes != "" {
 			fmt.Fprintf(&b, "    changes: %s\n", check.Changes)
 		}
@@ -111,6 +157,14 @@ func detectedNetworkConfig(profile string, checks []detectedCheck) string {
 	if profile == "strict" {
 		return "  mode: none"
 	}
+	hosts := detectedDependencyHosts(checks)
+	if len(hosts) == 0 {
+		return "  mode: none\n  # Add an explicit allowlist if this command fetches dependencies."
+	}
+	return "  mode: allowlist\n  allowlist:\n    - " + strings.Join(hosts, "\n    - ")
+}
+
+func detectedDependencyHosts(checks []detectedCheck) []string {
 	var hosts []string
 	seen := map[string]bool{}
 	for _, check := range checks {
@@ -120,9 +174,13 @@ func detectedNetworkConfig(profile string, checks []detectedCheck) string {
 			case "go":
 				selected = append(selected, "go.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com")
 			case "node":
-				selected = append(selected, "registry.npmjs.org", "registry.yarnpkg.com")
+				selected = append(selected, "registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org")
+			case "npm", "pnpm", "yarn":
+				selected = append(selected, "registry.npmjs.org", "registry.yarnpkg.com", "nodejs.org")
 			case "rust":
 				selected = append(selected, "index.crates.io", "static.crates.io", "static.rust-lang.org")
+			case "python":
+				selected = append(selected, "pypi.org", "files.pythonhosted.org")
 			}
 		}
 		for _, host := range selected {
@@ -132,10 +190,7 @@ func detectedNetworkConfig(profile string, checks []detectedCheck) string {
 			}
 		}
 	}
-	if len(hosts) == 0 {
-		return "  mode: none\n  # Add an explicit allowlist if this command fetches dependencies."
-	}
-	return "  mode: allowlist\n  allowlist:\n    - " + strings.Join(hosts, "\n    - ")
+	return hosts
 }
 
 func detectedCheckRuntimes(check detectedCheck) []string {

@@ -49,8 +49,8 @@ func planGitEntries(ctx context.Context, root string, blobs []gitSourceEntry, co
 		content := contents[blob.oid]
 		entry := syncbundle.Entry{Path: blob.rel, Mode: gitModeToFileMode(blob.mode)}
 		if blob.mode == "120000" {
-			if err := syncbundle.ValidateSymlinkTarget(string(content.data)); err != nil {
-				return nil, fmt.Errorf("git symlink %q has invalid target: %w", blob.rel, err)
+			if err := syncbundle.ValidateSymlinkTargetSyntax(string(content.data)); err != nil {
+				return nil, fmt.Errorf("%w: git symlink %q has invalid target: %w", ErrUnsupportedRepository, blob.rel, err)
 			}
 			entry.Type = syncbundle.EntryTypeSymlink
 			entry.Linkname = string(content.data)

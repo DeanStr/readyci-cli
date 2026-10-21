@@ -72,7 +72,7 @@ func adminTokensCreateCommand(args []string) error {
 	apiURL, adminToken := adminAPIFlags(fs)
 	name := fs.String("name", "CLI token", "API token name")
 	teamID := fs.String("team", "", "team id to create the token for; defaults to the development team")
-	scopes := fs.String("scopes", "runs:create,runs:read,cache:read,cache:purge,projects:read,projects:write,policies:read,secrets:read,secrets:write,account:read,tokens:read,tokens:write,members:read,members:write,billing:manage,feedback:write", "comma-separated token scopes")
+	scopes := fs.String("scopes", "runs:create,runs:read,cache:read,cache:purge,projects:read,projects:write,policies:read,policies:propose,secrets:read,secrets:write,account:read,tokens:read,tokens:write,members:read,members:write,billing:manage,feedback:write", "comma-separated token scopes")
 	userEmail := fs.String("email", "", "optional user email to own the token")
 	userName := fs.String("user-name", "", "optional user display name")
 	role := fs.String("role", "owner", "team role for --email: owner, admin, member, or viewer")

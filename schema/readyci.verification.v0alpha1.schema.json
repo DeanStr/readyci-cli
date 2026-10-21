@@ -24,6 +24,16 @@
     }
   ],
   "$defs": {
+    "phaseTimings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Request-local diagnostic monotonic wall-clock spans; nested spans overlap and unobserved phases are null. Excluded from verification evidence.",
+      "required": ["basis", "phases_ms"],
+      "properties": {
+        "basis": {"enum": ["api_monotonic", "worker_monotonic"]},
+        "phases_ms": {"type": "object", "additionalProperties": {"type": ["integer", "null"], "minimum": 0}}
+      }
+    },
     "schemaVersion": {
       "const": "readyci.verification.v0alpha1"
     },
@@ -171,6 +181,7 @@
         "updated_at": {"type": "string", "format": "date-time"},
         "completed_at": {"type": "string", "format": "date-time"},
         "result_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source_completion_timings": {"$ref": "#/$defs/phaseTimings"},
         "warnings": {
           "type": "array",
           "description": "Follow-up for retained diagnostic reports; does not alter verdict, classification, or result_digest.",
@@ -226,14 +237,34 @@
     "verificationSourceRecipe": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["exclude_patterns", "default_exclude_patterns", "include_untracked", "use_project_ignore"],
+      "required": ["exclude_patterns", "default_exclude_patterns", "default_untracked_exclude_patterns", "reviewed_fixtures", "include_untracked", "use_project_ignore"],
       "properties": {
         "exclude_patterns": {"type": "array", "items": {"type": "string"}},
         "default_exclude_patterns": {"type": "array", "items": {"type": "string"}},
+        "default_untracked_exclude_patterns": {"type": "array", "items": {"type": "string"}},
+        "reviewed_fixtures": {"type": "array", "items": {"$ref": "#/$defs/reviewedFixture"}, "uniqueItems": true},
         "include_untracked": {"type": "boolean"},
         "use_project_ignore": {"type": "boolean"},
         "upload_baseline_session_id": {"type": "string", "maxLength": 160},
         "source_policy_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "reviewedFixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "allOf": [
+            {"not": {"pattern": "[\\\\*?\\[\\]\\x00-\\x1F\\x7F]"}},
+            {"not": {"pattern": "^(?:/|\\./|[A-Za-z]:)|/$|//"}},
+            {"not": {"pattern": "(?:^|/)\\.\\.?(?:/|$)"}},
+            {"not": {"pattern": "(?:^|/)\\.[gG][iI][tT](?:/|$)"}}
+          ]
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },
     "verificationPlan": {

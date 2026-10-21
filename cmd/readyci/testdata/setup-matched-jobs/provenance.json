@@ -1,0 +1,152 @@
+[
+  {
+    "name": "sveltejs--svelte",
+    "repository": "sveltejs/svelte",
+    "commit": "40bb08482f4857d91221638dec544a532bc35389",
+    "workflow": ".github/workflows/ci.yml",
+    "job": "Tests",
+    "matrix": {
+      "node-version": 24,
+      "os": "ubuntu-latest"
+    },
+    "candidate_id": "github-actions:.github/workflows/ci.yml:Tests:matrix:6ac83c46b63a5b9ff221a9f7f87067048ef625450f7eed9d444c323235f56be0",
+    "check": "tests",
+    "reviewed_network_allowlist": [
+      "registry.npmjs.org",
+      "registry.yarnpkg.com",
+      "nodejs.org",
+      "cdn.playwright.dev",
+      "playwright.download.prss.microsoft.com",
+      "storage.googleapis.com"
+    ],
+    "omitted_candidates": [
+      "github-actions:.github/workflows/ci.yml:Benchmarks",
+      "github-actions:.github/workflows/ci.yml:Lint",
+      "github-actions:.github/workflows/ci.yml:TSGo",
+      "github-actions:.github/workflows/ci.yml:TestNoAsync",
+      "github-actions:.github/workflows/ci.yml:Tests:matrix:72b01236e2090898ee857cadf951165aa8060744160b41722bf48f1e70985b0d",
+      "github-actions:.github/workflows/ci.yml:Tests:matrix:c563541668056084e758fd5b24298b0ced5106b4fbc0a413261a5fec85337862",
+      "github-actions:.github/workflows/ci.yml:Tests:matrix:f22349799bbe2b30d6b4cb9051df9e4af1dfcde219e8a5cee4a4c8b7e198aeff",
+      "github-actions:.github/workflows/ci.yml:Tests:matrix:fba7d03c6109d99dcd4d2979df281cc9c1820c364242b7b4f0d1773bb8883cf4"
+    ],
+    "manual_oracle": "Source-reviewed independent full selected upstream job. Only the project identifier is replaced by matched-fixture. Network is an explicit reviewed override, not an inferred endpoint-completeness claim. Separate jobs and other matrix cells are omitted explicitly.",
+    "manual_config_sha256": "f529643dd0173332816e1bcc240c8024ea40672b7238cd1160b95b824df01a35",
+    "sealed_command_sha256": "50e5acff0444711e472ad7b97b4b66516b66b0ba3dd428f6da05e25c831c065c",
+    "sources": [
+      {
+        "path": ".github/workflows/ci.yml",
+        "git_blob_sha1": "3846690135201dcef620ae1c4f8fc31d00b12637",
+        "sha256": "1050576fa00f49c4987b8227e2c48272a4aa54e296434f7777107452f8d37488",
+        "source_url": "https://raw.githubusercontent.com/sveltejs/svelte/40bb08482f4857d91221638dec544a532bc35389/.github/workflows/ci.yml"
+      },
+      {
+        "path": "package.json",
+        "git_blob_sha1": "41f93d526ca474f7c487e00b02ce6e940776f16e",
+        "sha256": "70894ffe10fc38f5b0c5d92b3a05fef49ef9fe72f5a259a5a2f603a87a836acd",
+        "source_url": "https://raw.githubusercontent.com/sveltejs/svelte/40bb08482f4857d91221638dec544a532bc35389/package.json"
+      }
+    ],
+    "sealed_policy_sha256": "a24d5a125b133f21daf29dabe545060b22ee2be95ab916933aed68f4bee41a6a",
+    "native_proof_sha256": "7a858084d987149daa51422d38764bddbb8a97ca426bd6cc06f735b55dd3e8c3",
+    "test_step": "step-3",
+    "detected_test_entrypoint": true
+  },
+  {
+    "name": "cli--cli",
+    "repository": "cli/cli",
+    "commit": "fa92838bef95fe4a29c1587693885d5e9bdb6cf1",
+    "workflow": ".github/workflows/go.yml",
+    "job": "build",
+    "matrix": {
+      "os": "ubuntu-latest"
+    },
+    "candidate_id": "github-actions:.github/workflows/go.yml:build:matrix:e026499afbee972d5896b8028acb7e9c5fd94922444387175ab580fc0cf15664",
+    "check": "build",
+    "test_step": "step-2",
+    "reviewed_network_allowlist": [
+      "go.dev",
+      "dl.google.com",
+      "proxy.golang.org",
+      "sum.golang.org",
+      "storage.googleapis.com",
+      "tuf-repo.github.com",
+      "tuf-repo-cdn.sigstore.dev",
+      "ghcr.io",
+      "pkg-containers.githubusercontent.com"
+    ],
+    "omitted_candidates": [
+      "github-actions:.github/workflows/go.yml:build:matrix:09e198356a61fb00af0e53de644a48a36a20ed43957041563b325de6f1fe6bc8",
+      "github-actions:.github/workflows/go.yml:build:matrix:59cccdd155f9e599ea154222d17b506c6cf97225d0b8e912eb1f79bd689d441a",
+      "github-actions:.github/workflows/go.yml:integration-tests:matrix:09e198356a61fb00af0e53de644a48a36a20ed43957041563b325de6f1fe6bc8",
+      "github-actions:.github/workflows/go.yml:integration-tests:matrix:59cccdd155f9e599ea154222d17b506c6cf97225d0b8e912eb1f79bd689d441a",
+      "github-actions:.github/workflows/go.yml:integration-tests:matrix:e026499afbee972d5896b8028acb7e9c5fd94922444387175ab580fc0cf15664"
+    ],
+    "manual_oracle": "Source-reviewed independent complete Linux build matrix job: download, race-enabled integration-tagged tests over ./..., then build. Only project identifier is replaced by matched-fixture. Explicit reviewed nine-host policy. Other OS cells and the separate token-dependent attestation integration job are omitted.",
+    "manual_config_sha256": "bc82d931e412d7425a313461b7b193b48086725b3042591509cc61662c04e5be",
+    "sealed_command_sha256": "65217d295c85f95ec83ac3fdedab3ba35e84d348fd0c81c3d878030504ef97c7",
+    "sealed_policy_sha256": "b98921f8845f1399faca6d3b3e00b3f742b204f0802c423b8dcf7caa972c1f3b",
+    "native_proof_sha256": "0731bea873f2fa05734e242b8dbe44b31940323a808d231df4904c2a2f77616b",
+    "sources": [
+      {
+        "path": ".github/workflows/go.yml",
+        "git_blob_sha1": "b2bde80bf868ecb07ba069be6bd68f14bf9cedef",
+        "sha256": "62af6adcecc4a334df5ec4abf19b1b673745a0d3fd1b91d5f75cb8ae5041db2c",
+        "source_url": "https://raw.githubusercontent.com/cli/cli/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/.github/workflows/go.yml"
+      },
+      {
+        "path": "go.mod",
+        "git_blob_sha1": "a7bbb9497bee143955c42959faed4e0ba294c5eb",
+        "sha256": "44e035ee06267032b212da39aa815844ffae8a83e5424429a36f97d8e615ae08",
+        "source_url": "https://raw.githubusercontent.com/cli/cli/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/go.mod"
+      }
+    ],
+    "detected_test_entrypoint": true
+  },
+  {
+    "name": "vuejs--core",
+    "repository": "vuejs/core",
+    "commit": "bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c",
+    "workflow": ".github/workflows/test.yml",
+    "job": "unit-test",
+    "candidate_id": "github-actions:.github/workflows/test.yml:unit-test",
+    "check": "unit-test",
+    "test_step": "step-2",
+    "reviewed_network_allowlist": [
+      "registry.npmjs.org",
+      "registry.yarnpkg.com",
+      "nodejs.org"
+    ],
+    "omitted_candidates": [
+      "github-actions:.github/workflows/test.yml:e2e-test",
+      "github-actions:.github/workflows/test.yml:lint-and-test-dts",
+      "github-actions:.github/workflows/test.yml:unit-test-windows"
+    ],
+    "manual_oracle": "Independently source-reviewed complete Linux unit-test job: pnpm install then exact pnpm run test-unit over all unit, unit-gc and unit-jsdom projects, without added --run or test filters. Only project identifier is replaced by matched-fixture. Explicit reviewed three-host network policy and ten-GiB cache are retained; Windows/e2e/lint/type jobs and other workflows are omitted. Reviewed lts/* catalog resolution is frozen to the native-run catalog.",
+    "manual_config_sha256": "5198ac81d310133ccef96db5b38a02f3b7a5eeb7b9810fac6fc758eb7a5254d6",
+    "sealed_command_sha256": "a19a0a52ff59bfec6703679d6cf85bfac0452a22a37026a414015cfa782aa6cd",
+    "sealed_policy_sha256": "ee123ac8bb53822e74981b24eb399c6cc1a59180a014baa4cf7f68fef8ec2cfb",
+    "native_proof_sha256": "f33a4833778f2270f9406a34868c7b69ca889c831761ca761989cd9db3f99b3c",
+    "sources": [
+      {
+        "path": ".github/workflows/test.yml",
+        "git_blob_sha1": "10399410106b4b410c41be3c7f0dd2c65b304938",
+        "sha256": "e3c271c035e23b87a1351b3459e2c37670322c518bee295a465b5f604b8fe189",
+        "source_url": "https://raw.githubusercontent.com/vuejs/core/bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c/.github/workflows/test.yml"
+      },
+      {
+        "path": "package.json",
+        "git_blob_sha1": "0526786fe1bec386b709c785c698f3bc890d0fd3",
+        "sha256": "358089953fe565f76d6add8a5cb0a99d9240c2f63e89470bf64e424655a2edf3",
+        "source_url": "https://raw.githubusercontent.com/vuejs/core/bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c/package.json"
+      },
+      {
+        "path": ".node-version",
+        "git_blob_sha1": "1a2f5bd2045147ae9638adf9a51971e031542b0c",
+        "sha256": "a784a891ee985530f25d616fa372d1b360fc9d4ef38932ab8dc2f45edfa5b01d",
+        "source_url": "https://raw.githubusercontent.com/vuejs/core/bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c/.node-version"
+      }
+    ],
+    "detected_test_entrypoint": false,
+    "selection_note": "Explicit reviewed selection is required: the static test-entrypoint heuristic does not classify this custom test-unit script. The exact whole selected job is retained and its tests completed in both native lanes."
+  }
+]

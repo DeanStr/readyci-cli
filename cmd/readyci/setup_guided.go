@@ -64,11 +64,18 @@ func guidedSetup(options setupOptions, input io.Reader, output io.Writer, yes bo
 			}
 		}
 		template := remoteCIProjectTemplateWithProfile(report.ProjectID, options.Image, options.Profile)
-		if options.Detect {
-			template = detectedProjectTemplateWithProfile(".", report.ProjectID, options.Image, options.Profile)
-		}
 		if imported != nil {
-			template = setupImportedTemplate(options, report.ProjectID, *imported)
+			template = setupImportedTemplateWithScope(".", options, report.ProjectID, *imported, report.scopeCandidates)
+			options.ImportScope = selectedSetupImportScope(*imported, report.scopeCandidates)
+		} else if options.Detect {
+			template, err = setupDetectedTemplate(".", report.ProjectID, options, report.ImportCandidates)
+			if err != nil {
+				return err
+			}
+		}
+		template, err = applySetupNetworkPolicy(template, options)
+		if err != nil {
+			return err
 		}
 		cfg, err := config.ParseProjectConfig([]byte(template), "starter configuration")
 		if err != nil {
@@ -151,6 +158,12 @@ func confirmSetup(reader *bufio.Reader, output io.Writer, question string) (bool
 }
 
 func setupCheck(options setupOptions, report setupReport, dryRun bool) error {
+	if err := validateSetupEnvironment(report.Environment); err != nil {
+		return err
+	}
+	if len(report.Checks) == 0 {
+		return cliConfigError("configuration required: add the repository's documented test command to .readyci.yml before running setup", nil)
+	}
 	args := []string{"--api-url", options.APIURL, "--project", report.ProjectID}
 	if options.APIToken != "" {
 		args = append(args, "--token", options.APIToken)
@@ -165,6 +178,9 @@ func setupCheck(options setupOptions, report setupReport, dryRun bool) error {
 }
 
 func validateGuidedSetupCheck(name string, checks []string) error {
+	if len(checks) == 0 {
+		return cliConfigError("configuration required: no runnable test check was selected; configure the repository's documented tests before saving or running setup", nil)
+	}
 	name = strings.TrimSpace(name)
 	if name != "" && !containsString(checks, name) {
 		return cliConfigError(fmt.Sprintf("unknown check %q (available: %s)", name, strings.Join(checks, ", ")), nil)

@@ -1,0 +1,30 @@
+{
+  "artifact_paths": [
+    "coverage/**",
+    "test-results/**"
+  ],
+  "cache_lane_size_bytes": 10737418240,
+  "cache_mode": "cache-only",
+  "command_alias": "build",
+  "docker": false,
+  "image": "ubuntu-24.04-ci",
+  "network_allowlist": [
+    "dl.google.com",
+    "ghcr.io",
+    "go.dev",
+    "pkg-containers.githubusercontent.com",
+    "proxy.golang.org",
+    "storage.googleapis.com",
+    "sum.golang.org",
+    "tuf-repo-cdn.sigstore.dev",
+    "tuf-repo.github.com"
+  ],
+  "network_mode": "allowlist",
+  "region": "default",
+  "runner_size": "standard",
+  "runtime_requirements": {
+    "go": "1.27.2,>=1.27.0"
+  },
+  "secrets_requested": false,
+  "timeout_seconds": 1200
+}

@@ -1,0 +1,18 @@
+[
+  {
+    "repository": "sveltejs/svelte",
+    "commit": "40bb08482f4857d91221638dec544a532bc35389",
+    "source_path": "package.json",
+    "source_url": "https://raw.githubusercontent.com/sveltejs/svelte/40bb08482f4857d91221638dec544a532bc35389/package.json",
+    "sha256": "70894ffe10fc38f5b0c5d92b3a05fef49ef9fe72f5a259a5a2f603a87a836acd",
+    "fixture_path": "sveltejs--svelte/package.json"
+  },
+  {
+    "repository": "vuejs/core",
+    "commit": "bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c",
+    "source_path": "package.json",
+    "source_url": "https://raw.githubusercontent.com/vuejs/core/bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c/package.json",
+    "sha256": "358089953fe565f76d6add8a5cb0a99d9240c2f63e89470bf64e424655a2edf3",
+    "fixture_path": "vuejs--core/package.json"
+  }
+]

@@ -46,6 +46,8 @@ readyci run --docker --network-mode none --runner-size xlarge --timeout 90m "mak
 
 Inside the runner, Ready CI writes that manifest to Git metadata and exports `CHECK_TOUCHED_FILES_FROM`, `READYCI_CHANGED_FILES`, and `READYCI_CHANGE_MODE`, so scripts such as `scripts/check-touched.sh` can use the same narrow-check flow they use locally. Check-level `sync.include_untracked` can override the project default, so staged/pre-commit checks can avoid uploading untracked workspace files while edit-loop checks still include them. `readyci affected` treats untracked files as part of the working/all edit loop unless a check explicitly sets `sync.include_untracked: false`. `readyci sync --dry-run` shows the untracked-file count and sample, and real runs warn before upload when untracked files are included. Check-level `sync.exclude` adds to the project exclude list.
 
+Generated-output defaults filter untracked files; tracked source such as Go's `src/cmd/dist` remains included. Explicit exclusions still apply to tracked files. Secret-shaped `.env*` files remain excluded even when tracked. For public test fixtures, `sync.reviewed_fixtures` grants an exact path and SHA-256 exception, checked against every selected source version and again by the service. See [workspace sync configuration](../docs/user/configuration.md#workspace-sync).
+
 Use `readyci affected` for the standard changed-file workflow. If `affected.rules` or `affected.profiles` is configured, Ready CI maps changed path globs to one or more configured checks and runs only those checks. Local built-in profiles are the conservative baseline `docs`, `go`, `readyci`, and `shell`; use `readyci plan --recommend --suggest-config` for hosted frontend, OpenAPI, DB, ops, Rust, and other richer packs. Profiles only select checks that already exist in the config, so explicit `affected.rules` can always refine the shape. Rules can use `paths_from` to derive path globs from a repository manifest, for example `file: scripts/targets.txt` with `template: tests/${line}.rs`, which keeps generated fixture/test-target lists and affected routing in sync. `readyci affected explain` and `readyci affected audit --json` include the manifest file and line number behind derived patterns. Use rule-level `exclude` to keep broad catch-alls from overlapping precise rules, and use `affected.subsumes` to say an aggregate check replaces narrower checks when both match. Set `affected.unmatched_checks` to one or more comprehensive checks when unknown paths should run a safe default; unlike a `"**"` rule, this applies only when no ordinary rule matched, so it preserves selective routing. Leaving it unset keeps strict fail-closed coverage. Without rules, Ready CI auto-selects a configured `affected` check, falls back to the common `touched` check used by existing projects, then tries narrow standard checks such as `go` or `web`. Use `readyci affected --staged` for staged/pre-commit verification, pass `--check NAME` to choose a specific configured check, run `readyci affected explain --why-not PATH` to see why a path selects or skips checks, and run `readyci affected audit --examples --duplicates` to test fixtures, find uncovered source-like files, and catch redundant aggregate+narrow check selections. Add `affected.audit_ignore` for tracked legacy/vendor/data paths that should be intentionally exempt from strict audit coverage without changing uploads or affected execution. `readyci affected suggest` prints a starter affected-rule/test/ignore snippet and includes Cargo dependency-graph rules when matching `rust-*` package checks exist; `readyci affected cargo` prints full Cargo package check/rule scaffolding from `cargo metadata`. `readyci affected audit --fix` can append missing fixture tests to the config; add `--fix-ignore-unmatched` only for files you intentionally want to add to `affected.audit_ignore`.
 
 Solo developers and small teams can use `readyci check` directly and treat its process exit as the check result; no registered policy is required. Use `readyci verify` when a coding agent or protected workflow needs a service-authorized, workspace-bound verdict. Registered policy remains an explicit advanced control until Ready CI has a provider-verified default-branch source; candidate workspace bytes are never promoted automatically.
@@ -163,9 +165,21 @@ readyci check staged
 readyci check db
 ```
 
-`readyci affected --json` creates runs and emits an execution report. Configured dependency preparation is automatic and included in the same session; `readyci verify --json --progress=status` performs that step automatically when the repository defines the explicit `dependencies` check. All warmed targets must use the same cache-lane size and key namespace. The dependency phase produces one cache-bound warm node per selected runner size instead of inferring checks or expanding nodes for unrelated cache quotas. Each mixed-runner node mounts the union of target cache paths because cache-lane affinity is project/worker scoped rather than runner-size scoped. A native warm node is placed on a Docker-capable worker when its targets need Docker, and parallel warm or target matrices are rejected because one warm node cannot provision multiple worker-local lanes. Dependency warming has no implicit unrestricted-network fallback: configure `network.warm_mode: allowlist` and `network.warm_allowlist` for public deployments. `network.warm_mode: default` is an explicit local/private-only option. The service rebuilds authorized warm nodes from the active registered policy instead of trusting their commands from the client proposal. An explicit `readyci verify --check dependencies` is itself a scoped warm operation: it targets the consumer checks selected by affected-file policy for the current workspace, including their runner sizes and cache paths, and does not run the dependency command a second time as a no-network verify node.
+`readyci affected --json` creates runs and emits an execution report. Configured dependency preparation is automatic and included in the same session; `readyci verify --json --progress=status` performs that step automatically when the repository defines `dependencies` or the selected check names a `dependency_check`. Targets sharing an installer must use the same cache-lane size and key namespace. The dependency phase groups consumers by runner size and identical effective runtime requirements. Runtime groups remain stable across check selections. Each consumer binds to its group's successful worker and cache lane. Every preparation mounts the union of target cache paths because cache-lane affinity is project/worker scoped rather than runner-size scoped. A native warm node is placed on a Docker-capable worker when its targets need Docker, and parallel warm or target matrices are rejected because one warm node cannot provision multiple worker-local lanes. Dependency warming has no implicit unrestricted-network fallback: configure `network.warm_mode: allowlist` and `network.warm_allowlist` for public deployments. `network.warm_mode: default` is an explicit local/private-only option. The service rebuilds authorized warm nodes from the active registered policy instead of trusting their commands from the client proposal. An explicit `readyci verify --check dependencies` is itself a scoped warm operation: it targets the consumer checks selected by affected-file policy for the current workspace, including their runner sizes and cache paths, and does not run the dependency command a second time as a no-network verify node.
 
-Configured `cache.paths` are linked into the persistent `/cache` lane before the command runs. Optional `cache.key_files` hash lockfiles and toolchain files into the cache target, which gives projects fresh dependency caches when files such as `Cargo.lock`, `go.sum`, `pnpm-lock.yaml`, `package-lock.json`, `poetry.lock`, or `uv.lock` change. Checks may also define `prepare`, `post`, and `always` shell phases around the main command. Use `concurrency_group` and `concurrency_limit` for checks that touch shared external state, such as DB/Testcontainers suites that should run one at a time. Concurrency is scoped per team, project, and group; `concurrency_group` defaults to a limit of 1, higher limits allow bounded parallelism, and `concurrency_limit: 0` opts a check out of an inherited project-level group. `keep_failed: true` or `--keep-failed` uploads `.readyci/failed-workspace.tar.gz` as a downloadable artifact on command failure, and also writes a copy to `/cache/failed-runs/$READYCI_RUN_ID/workspace.tar.gz` when a persistent cache lane is attached.
+Use `checks.<name>.dependency_check: web-dependencies` to select a component
+installer instead of the default `dependencies` check. Define `web-dependencies`
+as a named check with the dependency command and the same `sync` scope as its
+consumer, then run `readyci check web-test`. The installer runs without project
+secrets under `network.warm_mode`; the test retains its configured network
+policy and binds to that installer's exact cache lane. Different installers
+namespace configured cache paths even when their SDK requirements match.
+Missing, self-referencing and nested installer references fail configuration.
+Components with different upload scopes use separate named sessions; every node
+within one session still uses one exact source snapshot. See the
+[component preparation example](../docs/user/configuration.md#network).
+
+Configured `cache.paths` are linked into the persistent `/cache` lane before the command runs. Runtime requirements namespace those paths so incompatible toolchains can reuse a physical lane without overwriting each other's dependencies. Each consumer combines its runtime requirements with the configured preparation requirements. It shares that full cache namespace even when preparation runs separately or is skipped, without requiring SDKs used only during preparation. Optional `cache.key_files` hash lockfiles and toolchain files into the cache target, which gives projects fresh dependency caches when files such as `Cargo.lock`, `go.sum`, `pnpm-lock.yaml`, `package-lock.json`, `poetry.lock`, or `uv.lock` change. Pruning old lockfile generations stays within the runtime namespace. Checks may also define `prepare`, `post`, and `always` shell phases around the main command. Use `concurrency_group` and `concurrency_limit` for checks that touch shared external state, such as DB/Testcontainers suites that should run one at a time. Concurrency is scoped per team, project, and group; `concurrency_group` defaults to a limit of 1, higher limits allow bounded parallelism, and `concurrency_limit: 0` opts a check out of an inherited project-level group. `keep_failed: true` or `--keep-failed` uploads `.readyci/failed-workspace.tar.gz` as a downloadable artifact on command failure, and also writes a copy to `/cache/failed-runs/$READYCI_RUN_ID/workspace.tar.gz` when a persistent cache lane is attached.
 
 Use `region` in `.readyci.yml`, check-level `region`, or `--region` to pin a run to a worker location. Workers with no configured location advertise the `default` region. Use `runner_size` in `.readyci.yml`, check-level `runner_size`, or `readyci run --runner-size` for ad hoc commands that need a larger runner than the project default. Use `timeout` in `.readyci.yml`, check-level `timeout`, or `readyci check --timeout` / `readyci run --timeout` when a run needs a longer deadline than the project default.
 
@@ -294,13 +308,136 @@ fails closed when the retained source or frozen policy revision is unavailable.
 
 Setup imports preserve each GitHub Actions step's effective shell settings:
 an unspecified shell uses `bash -e`, while explicit `bash` also enables
-`pipefail`. Runtime cache and network suggestions use manifests in the root and
+`pipefail`. Literal workflow, job, and step environments retain their precedence
+and each run step has an independent shell. Declared positive integer job and
+step `timeout-minutes` become Ready CI deadlines. If the job declares no timeout,
+the generated Ready CI check retains the 20-minute setup default; it does not
+inherit GitHub's provider default. Runtime cache and network suggestions use manifests in the root and
 selected working directories, plus recognized setup actions. Review the proposed
 allowlist; `--profile strict` keeps network access disabled. Ready CI reconstructs
 Git metadata from a synthetic baseline without original history or tags, so
-checkout depths other than a literal `1` require manual translation.
+checkout depths other than a literal `1` require manual translation. Checkout
+`persist-credentials: false` is supported; checkout credentials are not imported.
 
-Ordinary `run`, `check`, and `affected` executions exclude project secrets unless `--request-secrets` is supplied; server scope and secret-release policy still apply, and automatic dependency preparation always excludes secrets. Human execution displays live test stdout/stderr; `--json` emits only the final result document and `--detach` does not watch. Project secrets are write-only in API/dashboard responses and are injected into the worker environment only for claimed runs in that project. Use `readyci login` for human CLI access; it prints the login URL and opens a browser when possible. Use `readyci login --no-browser` when you want to copy the URL into another browser on the same workstation, including WSL setups where the Windows browser can reach the WSL localhost callback. For SSH or remote terminals, use SSH port forwarding for the callback or prefer an explicit scoped token via `READYCI_API_TOKEN`. Use explicit scoped `READYCI_API_TOKEN` values for automation or AI coding agents.
+Automatic setup imports an unambiguous supported root workflow test job.
+Package scripts are inspected statically; placeholder scripts such as
+`test: echo TODO` do not establish a test entrypoint. Explicit workflow or
+configured runtime versions override version-manager defaults such as `.nvmrc`
+and `.go-version`, while package engine bounds, language minimums and
+package-manager integrity declarations still apply.
+Multiple jobs and matrix variants require explicit selection and review:
+
+```bash
+readyci setup --preview --json
+readyci setup --preview --json --candidate 'ID_FROM_PREVIEW'
+readyci setup --print --candidate 'ID_FROM_PREVIEW'
+readyci setup --write-config --candidate 'ID_FROM_PREVIEW'
+```
+
+With no configuration file, an unambiguous automatic preview includes
+`proposed_config`, selected checks, effective network and runtime requirements,
+and capability preflight when authenticated. It writes no files and starts no
+runs. Imported previews also include `import_scope`: the selected
+candidate plus other discovered verification jobs and variants that it does not
+cover. Generated YAML comments retain those omitted IDs and blockers. Selecting
+one candidate does not establish complete upstream or repository test coverage.
+Printing a selected configuration requires no sign-in and writes no files.
+
+The inferred allowlist covers recognized dependency and runtime download
+destinations. It does not establish which external endpoints the tests need.
+Use `readyci setup --print --candidate ID --network-allowlist HOSTS` to review a
+complete replacement policy, then pass the same comma-separated hosts to
+`--preview --json` or `--write-config`. The override applies to preparation and
+all steps of each generated check and remains subject to server policy; it
+does not grant access to omitted dependency destinations or prove endpoint
+reachability. Setup reports the effective `network_allowlist` and a
+`network_review` separating inferred dependency destinations from the explicit
+override. Empty or invalid overrides and `--profile strict` conflicts fail
+before writes. Existing configuration requires `--force` regeneration; for a
+single existing run, use `readyci check --network-mode allowlist
+--network-allowlist HOSTS`.
+
+Static scalar matrices expose at most 64 concrete variants per job, including
+unsupported operating systems. Select the exact Ubuntu variant to import;
+Windows and macOS siblings remain visible as omitted scope. Cartesian axes with
+literal exclusions, include-only matrices, and combined axis/include overlays
+are supported. Exclusions apply before includes. Includes add fields to
+compatible original combinations, may replace fields added by earlier includes,
+and append independent combinations when original axis values conflict. Quote
+version strings to preserve their spelling. Object-valued axes, dynamic
+expressions, include-only matrices with exclusions, and ambiguous or duplicate
+rows require explicit configuration.
+
+Within an explicitly selected job or matrix variant, setup resolves a bounded
+static expression subset: scalar `matrix` values, the effective `env` scope,
+literal-runner `runner.os`, single-quoted strings, numeric/boolean/null literals,
+`!`, `==`, `!=`, `&&`, `||`, parentheses, and scalar `format()` substitutions.
+Only the reviewed x64 `ubuntu-latest`, `ubuntu-22.04`, and `ubuntu-24.04`
+runner labels can produce runnable imported checks; ARM, self-hosted, and custom
+labels remain blocked. Matrix booleans and numbers retain their types; the strings `'false'` and `'0'`
+remain truthy. Missing matrix fields evaluate to an empty string. Field-specific
+GitHub context restrictions still apply. Step environments override enclosing
+values for that step; expressions are evaluated once without shell expansion.
+Missing environment values remain unknown. After a command or action could
+export variables, expressions cannot assume workflow/job environment values
+remain static; use explicit current-step values or translate that scope manually.
+Known-false steps are listed as conditional omissions in the preview and
+generated configuration. A false job or a job with no remaining steps stays
+blocked. Provider contexts, secrets, status functions, outputs, dynamic matrices,
+and unsupported functions still require explicit translation. This does not
+import dependent jobs, provider caches, or an entire upstream workflow.
+
+Guided setup groups matrix variants under their upstream job and displays each
+variant's concrete values and remaining blockers. Choose a numbered variant or
+paste its candidate ID. Selecting a blocked variant explains the problem and
+lets you choose again. The reviewed configuration identifies the selected
+candidate and the other jobs and variants left uncovered; `--yes` still
+requires an unambiguous supported job or an explicit `--candidate ID`.
+
+Provider contexts, secrets, job dependencies, services, conditions,
+failure-handling overrides, and unsupported actions remain explicit blockers.
+Runtime versions must be supported by the selected runner or its approved
+providers; translating a matrix does not install arbitrary toolchains or grant
+network access.
+
+The reviewed `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1`
+import supports `node-version: lts/*` with omitted or false `check-latest`.
+Setup resolves the selector once to a numeric major (currently `24`) and
+reports the original selector and reviewed catalog under the selected import
+candidate. The generated configuration states that the saved check does not
+track future LTS changes. It uses ordinary numeric runtime selection, and
+continues working after the import catalog expires. Review and regenerate the
+configuration when you want to change the major. This does not guarantee the
+latest patch or reproduce setup-node's moving runtime selection on every run.
+New alias imports require a fresh catalog. Other moving aliases, action
+revisions and `check-latest: true` require explicit configuration.
+
+Alias provenance is report-only. Configuration and execution accept numeric
+runtime requirements and reject `runtime_resolutions`. The dedicated Runtime
+Catalog Freshness workflow checks for expiry daily; unrelated builds and
+releases do not depend on the catalog's clock. Refreshing the import catalog
+requires an updated CLI, while the API and worker keep their numeric runtime
+and approved archive policy. See the
+[runtime configuration contract](../docs/user/configuration.md#checks).
+
+Choose a numeric runtime explicitly with `readyci setup --runtime node=24`
+to replace a workflow's `lts/*` selector, including after the import catalog
+expires. Setup discloses this as a user-selected pin and preserves source
+compatibility constraints. Repeat `--runtime` for supported workflow declarations
+of `node`, `go`, `python`, or `pnpm`; values must be numeric versions or series.
+Numeric workflow requirements are intersected with the choice. Unsupported
+selectors, action inputs and sequential runtime changes still require explicit
+configuration. Preview first with `--preview --json`, then use the same flags
+with `--candidate ID --write-config` to save the selected workflow. Existing
+configuration requires `--force` to regenerate it.
+
+Root Make targets retain their exact Makefile, while nested
+targets are offered only as component imports. Unknown projects stop before
+configuration writes or uploads. `readyci setup --print --detect=false` supplies
+an empty scaffold without an invented command. Node detection prefers declared
+test scripts and does not substitute a build or typecheck for tests.
+
+Ordinary `run`, `check`, and `affected` executions exclude project secrets unless `--request-secrets` is supplied; server scope and secret-release policy still apply, and automatic dependency preparation always excludes secrets. Human execution displays live test stdout/stderr; `--json` emits only the final result document and `--detach` does not watch. Project secrets are write-only in API/dashboard responses and are injected into the worker environment only for claimed runs in that project. Use `readyci login` for human CLI access; it prints the login URL and opens a browser when possible. Use `readyci login --no-browser` when you want to copy the URL into another browser on the same workstation, including WSL setups where the Windows browser can reach the WSL localhost callback. For SSH or remote terminals, use `readyci login --device` and approve its matching code from your normal browser, or supply an explicit scoped token via `READYCI_API_TOKEN`. Use explicit scoped `READYCI_API_TOKEN` values for automation or AI coding agents.
 
 Operator tokens can manage worker inventory with `readyci admin workers`,
 `readyci admin workers drain`, `readyci admin workers undrain`, and

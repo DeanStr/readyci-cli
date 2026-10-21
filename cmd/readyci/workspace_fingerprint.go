@@ -21,6 +21,7 @@ import (
 
 type workspaceFingerprintOptions struct {
 	ExcludePatterns  []string
+	ReviewedFixtures []syncbundle.ReviewedFixture
 	IncludeUntracked *bool
 	ChangeMode       string
 }
@@ -45,6 +46,7 @@ func workspaceFingerprint(ctx context.Context, optionValues ...workspaceFingerpr
 	filter, err := syncbundlebuild.NewPathFilter(ctx, repoRoot, syncbundlebuild.BuildOptions{
 		ChangeMode:       changeMode,
 		ExcludePatterns:  append([]string(nil), options.ExcludePatterns...),
+		ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.ReviewedFixtures...),
 		IncludeUntracked: options.IncludeUntracked,
 	})
 	if err != nil {

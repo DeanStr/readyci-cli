@@ -423,7 +423,7 @@ checks:
 	}
 }
 
-func TestRepoMapIgnoresDynamicGitHubActionsExpressions(t *testing.T) {
+func TestRepoMapResolvesStaticAndIgnoresDynamicGitHubActionsExpressions(t *testing.T) {
 	repo := chdirCLITestRepo(t, "repo-map-gha-expressions")
 	writeFileForRepoMapTest(t, filepath.Join(repo, ".github", "workflows", "ci.yml"), `
 name: ci
@@ -440,6 +440,9 @@ jobs:
       - run: readyci check ${{ matrix.check }}
       - run: make ${{ matrix.target }}
       - run: make -C ${{ matrix.dir }} check
+      - run: readyci check ${{ inputs.check }}
+      - run: make ${{ inputs.target }}
+      - run: make -C ${{ vars.dir }} check
 `)
 	writeFileForRepoMapTest(t, filepath.Join(repo, ".readyci.yml"), `
 project_id: airline
@@ -455,7 +458,7 @@ checks:
 	if len(report.UndefinedChecks) != 0 {
 		t.Fatalf("undefined checks = %+v, want dynamic GitHub Actions check expression ignored", report.UndefinedChecks)
 	}
-	if len(report.UndefinedMake) != 0 {
-		t.Fatalf("undefined make = %+v, want dynamic GitHub Actions make expressions ignored", report.UndefinedMake)
+	if len(report.UndefinedMake) != 2 || report.UndefinedMake[0].Target != "check-ci" || report.UndefinedMake[1].Target != "cli:check" {
+		t.Fatalf("undefined make = %+v, want concrete matrix Make references and no dynamic provider references", report.UndefinedMake)
 	}
 }

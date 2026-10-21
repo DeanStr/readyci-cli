@@ -34,6 +34,12 @@ func successfulExecutionTestHandler(t *testing.T, childHandler http.Handler, acc
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/workers/capability" {
+			writeCLITestJSON(w, http.StatusOK, preflightapi.WorkerCapabilityCheckResponse{
+				Claimable: true, UploadCapable: true, Policy: &preflightapi.WorkerCapabilityPolicy{Allowed: true},
+			})
+			return
+		}
 		// Legacy command fixtures model scheduling and uploads, without test output.
 		if strings.HasSuffix(r.URL.Path, "/events") && r.URL.Query().Get("format") == "json" {
 			runID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/runs/"), "/events")

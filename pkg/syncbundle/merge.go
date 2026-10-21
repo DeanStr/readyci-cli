@@ -22,16 +22,20 @@ func WriteBaselineBundle(reader io.Reader, writer io.Writer) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	baselineDigest, err := WorkspaceContentDigest(baselineEntries, nil, nil)
+	baselineBinding := manifest.ContentBinding()
+	baselineBinding.ReviewedFixtures = ReviewedFixturesInEntries(manifest.ReviewedFixtures, baselineEntries)
+	baselineDigest, err := WorkspaceContentDigest(baselineEntries, nil, nil, baselineBinding)
 	if err != nil {
 		return Manifest{}, err
 	}
 
 	baselineManifest := Manifest{
-		Version:        FormatVersion,
-		SnapshotDigest: baselineDigest,
-		BaselineKey:    manifest.BaselineKey,
-		Baseline:       manifest.Baseline,
+		Version:          FormatVersion,
+		Submodules:       manifest.Submodules,
+		SnapshotDigest:   baselineDigest,
+		BaselineKey:      manifest.BaselineKey,
+		Baseline:         manifest.Baseline,
+		ReviewedFixtures: ReviewedFixturesInEntries(manifest.ReviewedFixtures, baselineEntries),
 	}
 	if err := validateRehydratedBundleBounds(baselineManifest, baselineEntries, nil); err != nil {
 		return Manifest{}, err
@@ -63,6 +67,9 @@ func RehydrateDeltaBundle(baselineReader, deltaReader io.Reader, writer io.Write
 	if !reflect.DeepEqual(baselineManifest.Baseline, deltaManifest.Baseline) {
 		return Manifest{}, fmt.Errorf("bundle baseline metadata does not match referenced baseline")
 	}
+	if !reflect.DeepEqual(baselineManifest.Submodules, deltaManifest.Submodules) {
+		return Manifest{}, fmt.Errorf("bundle submodule pins do not match referenced baseline")
+	}
 
 	baselineEntries, err := archiveEntriesFromBundleFiles("baseline", baselineManifest.Baseline, baselineFiles)
 	if err != nil {
@@ -77,7 +84,7 @@ func RehydrateDeltaBundle(baselineReader, deltaReader io.Reader, writer io.Write
 	merged.Version = FormatVersion
 	merged.BaselineRef = false
 	merged.Baseline = baselineManifest.Baseline
-	digest, err := WorkspaceContentDigest(baselineEntries, workspaceEntries, merged.Deleted)
+	digest, err := WorkspaceContentDigest(baselineEntries, workspaceEntries, merged.Deleted, merged.ContentBinding())
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -116,12 +123,11 @@ func archiveEntriesFromBundleFiles(group string, entries []Entry, files map[stri
 }
 
 func validateRehydratedBundleBounds(manifest Manifest, baseline, workspace []ArchiveEntry) error {
-	entryCount := 1 + len(baseline) + len(workspace)
-	if entryCount > MaxBundleEntries {
-		return fmt.Errorf("rehydrated bundle contains more than %d entries", MaxBundleEntries)
+	if _, err := ManifestAdmission(manifest); err != nil {
+		return err
 	}
 
-	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}

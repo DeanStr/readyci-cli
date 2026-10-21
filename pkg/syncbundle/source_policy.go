@@ -2,6 +2,7 @@ package syncbundle
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -22,6 +23,14 @@ func NormalizeSourcePolicyBinding(binding SourcePolicyBinding) (SourcePolicyBind
 	binding.DefaultExcludePatterns, err = normalizeSourcePolicyExcludePatterns(binding.DefaultExcludePatterns)
 	if err != nil {
 		return SourcePolicyBinding{}, fmt.Errorf("default source policy %w", err)
+	}
+	binding.DefaultUntrackedExcludePatterns, err = normalizeSourcePolicyExcludePatterns(binding.DefaultUntrackedExcludePatterns)
+	if err != nil {
+		return SourcePolicyBinding{}, fmt.Errorf("default untracked source policy %w", err)
+	}
+	binding.ReviewedFixtures, err = NormalizeReviewedFixtures(binding.ReviewedFixtures)
+	if err != nil {
+		return SourcePolicyBinding{}, fmt.Errorf("source policy reviewed fixtures: %w", err)
 	}
 	return binding, nil
 }
@@ -73,6 +82,12 @@ func validateSourcePolicyBinding(binding SourcePolicyBinding) error {
 		if binding.DefaultExcludePatterns[index] != normalized.DefaultExcludePatterns[index] {
 			return fmt.Errorf("source policy default exclude patterns are not normalized")
 		}
+	}
+	if !slices.Equal(binding.DefaultUntrackedExcludePatterns, normalized.DefaultUntrackedExcludePatterns) {
+		return fmt.Errorf("source policy untracked default exclude patterns are not normalized")
+	}
+	if !slices.Equal(binding.ReviewedFixtures, normalized.ReviewedFixtures) {
+		return fmt.Errorf("source policy reviewed fixtures are not normalized")
 	}
 	return nil
 }

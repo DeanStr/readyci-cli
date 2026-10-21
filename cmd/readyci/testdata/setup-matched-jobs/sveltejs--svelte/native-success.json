@@ -1,0 +1,52 @@
+{
+  "schema": "readyci.matched-job-native-proof.v1",
+  "repository": "sveltejs/svelte",
+  "commit": "40bb08482f4857d91221638dec544a532bc35389",
+  "complete_capture_sha256": "9cf7642115a0c9e62cbb3a8e47ac49cfa3822a5aff37bbbdd8c0d2a58b6d684f",
+  "paired_preparation_sha256": "a34c52437ddb6e99bd873f0ed35de3616dcd75f36a120361e41d59b0ec7869a8",
+  "sealed_command_sha256": "50e5acff0444711e472ad7b97b4b66516b66b0ba3dd428f6da05e25c831c065c",
+  "proof_limit": "Step labels identify command output, not independent per-step exit receipts. Automatic step-2 produced no output with retained browser cache. The exact fail-fast sealed command, step-3 output and overall successful exit establish completion. Native test-report API was unavailable; test totals are retained console output. Cache warmth may differ between arms.",
+  "lanes": [
+    {
+      "lane": "manual",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:c3d2047258c46c2db4bd632e9398dae3672da074959d90cfec8c9920f780e324",
+      "execution_digest": "sha256:2002443a539b31184ece767adc8d91c10a11c59b2f1ceba634f52cf771806eae",
+      "workspace_digest": "sha256:2fdc7373a92a4b9a6f3bd0f66855f12e7f35fa1fffb2b9598c74b728fbe1ca87",
+      "sealed_plan_digest": "sha256:eb747ff3cd21588a49663b54eece2ece4be0956d7627e6726ad87fa0bd56edbc",
+      "sealed_command_sha256": "50e5acff0444711e472ad7b97b4b66516b66b0ba3dd428f6da05e25c831c065c",
+      "complete_log_sha256": "b51003b45893ca6dd6a956798d405d71c80b3610b9ccc8f51fe5e919a1bcc4b3",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-1",
+        "step-2",
+        "step-3"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "Test Files 34 passed (34); Tests 7896 passed | 45 skipped (7941)"
+    },
+    {
+      "lane": "automatic",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:cd12019fce90bb89ed5638420b30057296f1bebf0ad793d50387f7a5c7f4ab59",
+      "execution_digest": "sha256:311b183545b46f0a954626b62771729004d7f6430f34378e349fb5c64f195185",
+      "workspace_digest": "sha256:d2629b6d1cdc2aeb78fb1f6967e3110d8ebdb72b8e6dddbd4a0655adda8c6ec6",
+      "sealed_plan_digest": "sha256:35031b1926b942268a6af5ac0295aa8021e165592b0f765cac8e6c36abb772c8",
+      "sealed_command_sha256": "50e5acff0444711e472ad7b97b4b66516b66b0ba3dd428f6da05e25c831c065c",
+      "complete_log_sha256": "f8d7f43b06fe48b4ceb3dc665dbe4db228d4d25375f12f493a8a5999c7d951b6",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-1",
+        "step-3"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "Test Files 34 passed (34); Tests 7896 passed | 45 skipped (7941)"
+    }
+  ]
+}

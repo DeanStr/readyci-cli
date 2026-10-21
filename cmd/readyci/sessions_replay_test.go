@@ -14,13 +14,14 @@ import (
 
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 func TestSessionsRetryDetachUsesServerOwnedSuccessorEndpoint(t *testing.T) {
 	recipe := preflightapi.VerificationRecipe{
 		SchemaVersion: preflightapi.VerificationRecipeSchemaVersion,
 		ChangeMode:    "working",
-		Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{}, DefaultExcludePatterns: []string{}, IncludeUntracked: true, UseProjectIgnore: true},
+		Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{}, DefaultExcludePatterns: []string{}, DefaultUntrackedExcludePatterns: []string{}, ReviewedFixtures: []syncbundle.ReviewedFixture{}, IncludeUntracked: true, UseProjectIgnore: true},
 	}
 	recipeDigest, err := preflightapi.VerificationRecipeDigest(recipe)
 	if err != nil {
@@ -186,7 +187,7 @@ checks:
 		Rerunnable:    true,
 		Check:         "cli",
 		ChangeMode:    "working",
-		Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{"recipe-excluded.txt"}, DefaultExcludePatterns: []string{}, IncludeUntracked: true, UseProjectIgnore: false},
+		Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{"recipe-excluded.txt"}, DefaultExcludePatterns: []string{}, DefaultUntrackedExcludePatterns: []string{}, ReviewedFixtures: []syncbundle.ReviewedFixture{}, IncludeUntracked: true, UseProjectIgnore: false},
 	}
 	recipe.Digest, _ = preflightapi.VerificationRecipeDigest(recipe)
 	var server *httptest.Server
@@ -347,7 +348,7 @@ func TestSessionsRerunRejectsTamperedRecipeDigest(t *testing.T) {
 				Rerunnable:    true,
 				Check:         "cli",
 				ChangeMode:    "working",
-				Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{}, DefaultExcludePatterns: []string{}, IncludeUntracked: true, UseProjectIgnore: true},
+				Source:        &preflightapi.VerificationSourceRecipe{ExcludePatterns: []string{}, DefaultExcludePatterns: []string{}, DefaultUntrackedExcludePatterns: []string{}, ReviewedFixtures: []syncbundle.ReviewedFixture{}, IncludeUntracked: true, UseProjectIgnore: true},
 			},
 		})
 	}))

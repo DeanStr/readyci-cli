@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -92,7 +93,7 @@ func makeInvocationsFromCommand(command string) []makeInvocation {
 		pendingDirectory := false
 		dynamicDirectory := executable.DirDynamic
 		dir := executable.Dir
-		for _, argWord := range args[1:] {
+		for index, argWord := range args[1:] {
 			arg := argWord.Text
 			if arg == "" {
 				continue
@@ -123,6 +124,10 @@ func makeInvocationsFromCommand(command string) []makeInvocation {
 				continue
 			}
 			if strings.HasPrefix(arg, "-") {
+				if arg == "-j" || arg == "--jobs" {
+					pendingValue = index+2 < len(args) && !args[index+2].Dynamic && makeStaticJobCount(args[index+2].Text)
+					continue
+				}
 				if value, ok := makeInlineDirectoryValue(arg); ok {
 					var resolved bool
 					dir, resolved = resolveMakeDir(dir, value)
@@ -147,6 +152,19 @@ func makeInvocationsFromCommand(command string) []makeInvocation {
 		}
 	}
 	return uniqueMakeInvocations(invocations)
+}
+
+func makeStaticJobCount(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, ch := range value {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	count, err := strconv.Atoi(value)
+	return err == nil && count > 0
 }
 
 func makeDynamicDirectoryOption(token string) bool {

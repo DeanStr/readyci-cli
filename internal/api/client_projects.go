@@ -77,10 +77,13 @@ func (c *Client) ProjectVerificationPolicy(ctx context.Context, projectID string
 	return getJSON[preflightapi.ProjectVerificationPolicyResponse](ctx, c, "/v1/projects/"+url.PathEscape(projectID)+"/verification-policy")
 }
 
-func (c *Client) ProjectVerificationSourcePolicy(ctx context.Context, projectID, changeMode string) (preflightapi.ProjectVerificationSourcePolicyResponse, error) {
+func (c *Client) ProjectVerificationSourcePolicy(ctx context.Context, projectID, changeMode, check string) (preflightapi.ProjectVerificationSourcePolicyResponse, error) {
 	path := "/v1/projects/" + url.PathEscape(projectID) + "/verification-policy/source-binding"
 	query := url.Values{}
 	query.Set("change_mode", changeMode)
+	if check != "" {
+		query.Set("check", check)
+	}
 	return getJSON[preflightapi.ProjectVerificationSourcePolicyResponse](ctx, c, path+"?"+query.Encode())
 }
 
@@ -114,4 +117,8 @@ func (c *Client) WorkerCapability(ctx context.Context, req preflightapi.WorkerCa
 
 func (c *Client) CreateUserAPIToken(ctx context.Context, req preflightapi.CreateAPITokenRequest) (preflightapi.CreateAPITokenResponse, error) {
 	return postJSONResponse[preflightapi.CreateAPITokenResponse](ctx, c, "/v1/account/tokens", req)
+}
+
+func (c *Client) ProposeProjectVerificationPolicy(ctx context.Context, projectID string, req preflightapi.PreviewProjectVerificationPolicyRequest) (preflightapi.ProjectVerificationPolicyProposal, error) {
+	return postJSONResponse[preflightapi.ProjectVerificationPolicyProposal](ctx, c, "/v1/projects/"+url.PathEscape(projectID)+"/verification-policy/proposals", req)
 }

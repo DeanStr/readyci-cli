@@ -33,12 +33,9 @@ func NewPathFilter(ctx context.Context, cwd string, options BuildOptions) (PathF
 	if changeMode == syncbundle.ChangeModeStaged {
 		includeUntracked = false
 	}
-	var knownPaths map[string]struct{}
-	if !includeUntracked {
-		knownPaths, err = knownGitPaths(ctx, root)
-		if err != nil {
-			return PathFilter{}, err
-		}
+	knownPaths, err := knownGitPaths(ctx, root)
+	if err != nil {
+		return PathFilter{}, err
 	}
 	return PathFilter{
 		matcher:          matcher,
@@ -55,7 +52,11 @@ func (filter PathFilter) Includes(path string) (bool, error) {
 	if syncbundle.IsGitControlPath(rel) {
 		return false, nil
 	}
-	if filter.matcher.ignored(rel) {
+	ignored := filter.matcher.ignored(rel)
+	if filter.pathKnownToGit(rel) {
+		ignored = filter.matcher.ignoredTracked(rel)
+	}
+	if ignored {
 		return false, nil
 	}
 	if !filter.includeUntracked && !filter.pathKnownToGit(rel) {
@@ -71,7 +72,7 @@ func (filter PathFilter) pathKnownToGit(rel string) bool {
 
 func knownGitPaths(ctx context.Context, root string) (map[string]struct{}, error) {
 	known := make(map[string]struct{})
-	indexPaths, err := gitOutput(ctx, root, "ls-files", "-z", "--cached")
+	indexPaths, err := gitOutput(ctx, root, "ls-files", "-z", "--cached", "--recurse-submodules")
 	if err != nil {
 		return nil, err
 	}

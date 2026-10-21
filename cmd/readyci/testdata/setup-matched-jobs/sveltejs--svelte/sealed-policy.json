@@ -1,0 +1,28 @@
+{
+  "artifact_paths": [
+    "coverage/**",
+    "test-results/**"
+  ],
+  "cache_lane_size_bytes": 10737418240,
+  "cache_mode": "cache-only",
+  "command_alias": "tests",
+  "docker": false,
+  "image": "ubuntu-24.04-ci",
+  "network_allowlist": [
+    "cdn.playwright.dev",
+    "nodejs.org",
+    "playwright.download.prss.microsoft.com",
+    "registry.npmjs.org",
+    "registry.yarnpkg.com",
+    "storage.googleapis.com"
+  ],
+  "network_mode": "allowlist",
+  "region": "default",
+  "runner_size": "standard",
+  "runtime_requirements": {
+    "node": "24",
+    "pnpm": "10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800"
+  },
+  "secrets_requested": false,
+  "timeout_seconds": 900
+}

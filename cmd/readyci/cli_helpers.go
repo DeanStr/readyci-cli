@@ -207,7 +207,7 @@ func printFullUsage() {
 	fmt.Fprintln(os.Stderr, "  readyci usage [--api-url URL] [--token TOKEN] [--json]")
 	fmt.Fprintln(os.Stderr, "  readyci feedback [--api-url URL] [--token TOKEN] [--project PROJECT] [--run RUN_ID|latest] [--category CATEGORY] [--message TEXT] [--include-logs] [--json] [message]")
 	fmt.Fprintln(os.Stderr, "  readyci project get|set [--project PROJECT] [--trusted-secret-command COMMAND] [--trusted-secret-command-hash HASH]")
-	fmt.Fprintln(os.Stderr, "  readyci project policy get|preview [--project PROJECT] [--file .readyci.yml] (activation is browser-only)")
+	fmt.Fprintln(os.Stderr, "  readyci project policy get|preview|propose [--project PROJECT] [--file .readyci.yml] (activation is browser-only)")
 	fmt.Fprintln(os.Stderr, "  readyci secrets list|set|delete [--project PROJECT]")
 	fmt.Fprintln(os.Stderr, "  readyci run [--json] [--request-secrets] [--api-url URL] [--token TOKEN] [--retry N] [--detach] [--open] [--changes MODE] [--runner-size SIZE] [--timeout DURATION] [--cache-path PATH] [--keep-failed] [--concurrency-group GROUP] [--concurrency-limit N] [--network-mode MODE] [--network-allowlist HOSTS] [--docker] <command>")
 	fmt.Fprintln(os.Stderr, "  readyci affected [--skip-warm] [--request-secrets] [--api-url URL] [--token TOKEN] [--check NAME] [--staged] [--timeout DURATION] [--dry-run] [--json] [--watch] [--open]")

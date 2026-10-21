@@ -1,0 +1,9 @@
+{
+  "repository": "pallets/flask",
+  "commit": "d086db856be187255b8ec61ef409357393020f32",
+  "source_path": ".github/workflows/tests.yaml",
+  "source_url": "https://raw.githubusercontent.com/pallets/flask/d086db856be187255b8ec61ef409357393020f32/.github/workflows/tests.yaml",
+  "sha256": "b9e91de90c44bd4d2926296389d96e20c7105c979afbc228022c198c7b6bc51b",
+  "git_blob_sha1": "a8991315db27b7f04399f0993b015f9cc91df453",
+  "fixture_path": "flask-tests.yaml"
+}

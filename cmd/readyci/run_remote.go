@@ -8,53 +8,58 @@ import (
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type remoteRunOptions struct {
-	APIURL                string
-	APIToken              string
-	ProjectID             string
-	Region                string
-	IdempotencyKey        string
-	RunGroupKey           string
-	RunGroupKind          string
-	RunGroupName          string
-	RunGroupPredecessorID string
-	LogicalChildID        string
-	LogicalChildName      string
-	MatrixVariant         string
-	Attempt               int
-	Command               string
-	CommandAlias          string
-	Steps                 []preflightapi.RunStepSpec
-	ConcurrencyGroup      string
-	ConcurrencyLimit      int
-	Env                   map[string]string
-	PrepareCommands       []string
-	PostCommands          []string
-	AlwaysCommands        []string
-	Image                 string
-	RunnerSize            string
-	TimeoutSeconds        int
-	CacheMode             string
-	CacheLaneSizeBytes    int64
-	ArtifactPaths         []string
-	NetworkMode           string
-	NetworkAllowlist      []string
-	Docker                bool
-	Services              []preflightapi.RunServiceSpec
-	WorkerSelector        map[string]string
-	ChangeMode            string
-	SecretsRequested      *bool
-	SyncExclude           []string
-	IncludeUntracked      *bool
-	CachePaths            []string
-	CacheKeyFiles         []string
-	KeepFailed            bool
-	Open                  bool
-	DashboardURL          string
-	Progress              agentProgressSink
-	Detach                bool
+	CacheDependencyCheck     string
+	CacheRuntimeRequirements map[string]string
+	RuntimeRequirements      map[string]string
+	APIURL                   string
+	APIToken                 string
+	ProjectID                string
+	Region                   string
+	IdempotencyKey           string
+	RunGroupKey              string
+	RunGroupKind             string
+	RunGroupName             string
+	RunGroupPredecessorID    string
+	LogicalChildID           string
+	LogicalChildName         string
+	MatrixVariant            string
+	Attempt                  int
+	Command                  string
+	CommandAlias             string
+	Steps                    []preflightapi.RunStepSpec
+	ConcurrencyGroup         string
+	ConcurrencyLimit         int
+	Env                      map[string]string
+	PrepareCommands          []string
+	PostCommands             []string
+	AlwaysCommands           []string
+	Image                    string
+	RunnerSize               string
+	TimeoutSeconds           int
+	CacheMode                string
+	CacheLaneSizeBytes       int64
+	ArtifactPaths            []string
+	NetworkMode              string
+	NetworkAllowlist         []string
+	Docker                   bool
+	Services                 []preflightapi.RunServiceSpec
+	WorkerSelector           map[string]string
+	ChangeMode               string
+	SecretsRequested         *bool
+	SyncExclude              []string
+	SyncReviewedFixtures     []syncbundle.ReviewedFixture
+	IncludeUntracked         *bool
+	CachePaths               []string
+	CacheKeyFiles            []string
+	KeepFailed               bool
+	Open                     bool
+	DashboardURL             string
+	Progress                 agentProgressSink
+	Detach                   bool
 }
 
 type remoteRunOutputMode int

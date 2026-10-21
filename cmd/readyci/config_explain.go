@@ -7,42 +7,44 @@ import (
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type configExplainReport struct {
-	ConfigPath           string                      `json:"config_path"`
-	ProjectID            string                      `json:"project_id"`
-	Region               string                      `json:"region"`
-	Image                string                      `json:"image"`
-	RunnerSize           string                      `json:"runner_size"`
-	TimeoutSeconds       int                         `json:"timeout_seconds,omitempty"`
-	Timeout              string                      `json:"timeout,omitempty"`
-	Retries              int                         `json:"retries"`
-	ConcurrencyGroup     string                      `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit     int                         `json:"concurrency_limit,omitempty"`
-	CacheMode            string                      `json:"cache_mode"`
-	CacheLaneSizeBytes   int64                       `json:"cache_lane_size_bytes,omitempty"`
-	CachePaths           []string                    `json:"cache_paths,omitempty"`
-	CacheKeyFiles        []string                    `json:"cache_key_files,omitempty"`
-	ArtifactPaths        []string                    `json:"artifact_paths,omitempty"`
-	NetworkMode          string                      `json:"network_mode"`
-	NetworkAllowlist     []string                    `json:"network_allowlist,omitempty"`
-	WarmNetworkMode      string                      `json:"warm_network_mode,omitempty"`
-	WarmNetworkAllowlist []string                    `json:"warm_network_allowlist,omitempty"`
-	SyncExclude          []string                    `json:"sync_exclude,omitempty"`
-	IncludeUntracked     bool                        `json:"include_untracked"`
-	AffectedProfiles     []string                    `json:"affected_profiles,omitempty"`
-	AffectedRules        []configExplainAffectedRule `json:"affected_rules,omitempty"`
-	AffectedUnmatched    []string                    `json:"affected_unmatched_checks,omitempty"`
-	AffectedTests        int                         `json:"affected_tests,omitempty"`
-	AffectedAuditIgnore  []string                    `json:"affected_audit_ignore,omitempty"`
-	AffectedSubsumes     map[string][]string         `json:"affected_subsumes,omitempty"`
-	Services             []configExplainService      `json:"services,omitempty"`
-	Checks               []configExplainCheckReport  `json:"checks"`
-	FieldHelp            []config.ConfigField        `json:"field_help,omitempty"`
-	Status               string                      `json:"status"`
-	Error                string                      `json:"error,omitempty"`
-	Warnings             []string                    `json:"warnings,omitempty"`
+	ConfigPath           string                       `json:"config_path"`
+	ProjectID            string                       `json:"project_id"`
+	Region               string                       `json:"region"`
+	Image                string                       `json:"image"`
+	RunnerSize           string                       `json:"runner_size"`
+	TimeoutSeconds       int                          `json:"timeout_seconds,omitempty"`
+	Timeout              string                       `json:"timeout,omitempty"`
+	Retries              int                          `json:"retries"`
+	ConcurrencyGroup     string                       `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit     int                          `json:"concurrency_limit,omitempty"`
+	CacheMode            string                       `json:"cache_mode"`
+	CacheLaneSizeBytes   int64                        `json:"cache_lane_size_bytes,omitempty"`
+	CachePaths           []string                     `json:"cache_paths,omitempty"`
+	CacheKeyFiles        []string                     `json:"cache_key_files,omitempty"`
+	ArtifactPaths        []string                     `json:"artifact_paths,omitempty"`
+	NetworkMode          string                       `json:"network_mode"`
+	NetworkAllowlist     []string                     `json:"network_allowlist,omitempty"`
+	WarmNetworkMode      string                       `json:"warm_network_mode,omitempty"`
+	WarmNetworkAllowlist []string                     `json:"warm_network_allowlist,omitempty"`
+	SyncExclude          []string                     `json:"sync_exclude,omitempty"`
+	SyncReviewedFixtures []syncbundle.ReviewedFixture `json:"sync_reviewed_fixtures,omitempty"`
+	IncludeUntracked     bool                         `json:"include_untracked"`
+	AffectedProfiles     []string                     `json:"affected_profiles,omitempty"`
+	AffectedRules        []configExplainAffectedRule  `json:"affected_rules,omitempty"`
+	AffectedUnmatched    []string                     `json:"affected_unmatched_checks,omitempty"`
+	AffectedTests        int                          `json:"affected_tests,omitempty"`
+	AffectedAuditIgnore  []string                     `json:"affected_audit_ignore,omitempty"`
+	AffectedSubsumes     map[string][]string          `json:"affected_subsumes,omitempty"`
+	Services             []configExplainService       `json:"services,omitempty"`
+	Checks               []configExplainCheckReport   `json:"checks"`
+	FieldHelp            []config.ConfigField         `json:"field_help,omitempty"`
+	Status               string                       `json:"status"`
+	Error                string                       `json:"error,omitempty"`
+	Warnings             []string                     `json:"warnings,omitempty"`
 }
 
 type configExplainAffectedRule struct {
@@ -79,35 +81,37 @@ type checkWhenChangesReport struct {
 }
 
 type configExplainCheckReport struct {
-	Name               string            `json:"name"`
-	Command            string            `json:"command,omitempty"`
-	PrepareCommands    []string          `json:"prepare,omitempty"`
-	PostCommands       []string          `json:"post,omitempty"`
-	AlwaysCommands     []string          `json:"always,omitempty"`
-	Image              string            `json:"image,omitempty"`
-	Region             string            `json:"region,omitempty"`
-	RunnerSize         string            `json:"runner_size,omitempty"`
-	TimeoutSeconds     int               `json:"timeout_seconds,omitempty"`
-	ConcurrencyGroup   string            `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit   int               `json:"concurrency_limit,omitempty"`
-	CacheMode          string            `json:"cache_mode,omitempty"`
-	CacheLaneSizeBytes int64             `json:"cache_lane_size_bytes,omitempty"`
-	CachePaths         []string          `json:"cache_paths,omitempty"`
-	CacheKeyFiles      []string          `json:"cache_key_files,omitempty"`
-	ArtifactPaths      []string          `json:"artifact_paths,omitempty"`
-	NetworkMode        string            `json:"network_mode,omitempty"`
-	NetworkAllowlist   []string          `json:"network_allowlist,omitempty"`
-	SyncExclude        []string          `json:"sync_exclude,omitempty"`
-	IncludeUntracked   bool              `json:"include_untracked"`
-	Docker             bool              `json:"docker"`
-	Services           []string          `json:"services,omitempty"`
-	WorkerSelector     map[string]string `json:"worker_selector,omitempty"`
-	When               *checkWhenReport  `json:"when,omitempty"`
-	ChangeMode         string            `json:"change_mode,omitempty"`
-	KeepFailed         bool              `json:"keep_failed"`
-	Retries            int               `json:"retries"`
-	MatrixVariantCount int               `json:"matrix_variant_count"`
-	Error              string            `json:"error,omitempty"`
+	RuntimeRequirements  map[string]string            `json:"runtime_requirements,omitempty"`
+	Name                 string                       `json:"name"`
+	Command              string                       `json:"command,omitempty"`
+	PrepareCommands      []string                     `json:"prepare,omitempty"`
+	PostCommands         []string                     `json:"post,omitempty"`
+	AlwaysCommands       []string                     `json:"always,omitempty"`
+	Image                string                       `json:"image,omitempty"`
+	Region               string                       `json:"region,omitempty"`
+	RunnerSize           string                       `json:"runner_size,omitempty"`
+	TimeoutSeconds       int                          `json:"timeout_seconds,omitempty"`
+	ConcurrencyGroup     string                       `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit     int                          `json:"concurrency_limit,omitempty"`
+	CacheMode            string                       `json:"cache_mode,omitempty"`
+	CacheLaneSizeBytes   int64                        `json:"cache_lane_size_bytes,omitempty"`
+	CachePaths           []string                     `json:"cache_paths,omitempty"`
+	CacheKeyFiles        []string                     `json:"cache_key_files,omitempty"`
+	ArtifactPaths        []string                     `json:"artifact_paths,omitempty"`
+	NetworkMode          string                       `json:"network_mode,omitempty"`
+	NetworkAllowlist     []string                     `json:"network_allowlist,omitempty"`
+	SyncExclude          []string                     `json:"sync_exclude,omitempty"`
+	SyncReviewedFixtures []syncbundle.ReviewedFixture `json:"sync_reviewed_fixtures,omitempty"`
+	IncludeUntracked     bool                         `json:"include_untracked"`
+	Docker               bool                         `json:"docker"`
+	Services             []string                     `json:"services,omitempty"`
+	WorkerSelector       map[string]string            `json:"worker_selector,omitempty"`
+	When                 *checkWhenReport             `json:"when,omitempty"`
+	ChangeMode           string                       `json:"change_mode,omitempty"`
+	KeepFailed           bool                         `json:"keep_failed"`
+	Retries              int                          `json:"retries"`
+	MatrixVariantCount   int                          `json:"matrix_variant_count"`
+	Error                string                       `json:"error,omitempty"`
 }
 
 func buildConfigExplainReport(cfg config.ProjectConfig, configPath string) configExplainReport {
@@ -151,15 +155,15 @@ func buildConfigExplainReport(cfg config.ProjectConfig, configPath string) confi
 		NetworkAllowlist:     append([]string(nil), cfg.Network.Allowlist...),
 		WarmNetworkMode:      cfg.Network.WarmMode,
 		WarmNetworkAllowlist: append([]string(nil), cfg.Network.WarmAllowlist...),
-		SyncExclude:          append([]string(nil), cfg.Sync.Exclude...),
-		IncludeUntracked:     includeUntracked,
-		AffectedProfiles:     profiles,
-		AffectedUnmatched:    append([]string(nil), cfg.Affected.UnmatchedChecks...),
-		AffectedTests:        len(cfg.Affected.Tests),
-		AffectedAuditIgnore:  append([]string(nil), cfg.Affected.AuditIgnore...),
-		AffectedSubsumes:     copyAffectedSubsumes(cfg.Affected.Subsumes),
-		Warnings:             append([]string(nil), warnings...),
-		Status:               "ok",
+		SyncExclude:          append([]string(nil), cfg.Sync.Exclude...), SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), cfg.Sync.ReviewedFixtures...),
+		IncludeUntracked:    includeUntracked,
+		AffectedProfiles:    profiles,
+		AffectedUnmatched:   append([]string(nil), cfg.Affected.UnmatchedChecks...),
+		AffectedTests:       len(cfg.Affected.Tests),
+		AffectedAuditIgnore: append([]string(nil), cfg.Affected.AuditIgnore...),
+		AffectedSubsumes:    copyAffectedSubsumes(cfg.Affected.Subsumes),
+		Warnings:            append([]string(nil), warnings...),
+		Status:              "ok",
 	}
 	for _, name := range sortedServiceNames(cfg.Services) {
 		service := cfg.Services[name]
@@ -199,17 +203,18 @@ func buildConfigExplainReport(cfg config.ProjectConfig, configPath string) confi
 			check := cfg.Checks[name]
 			syncConfig := effectiveCheckSyncConfig(cfg.Sync, check.Sync)
 			report.Checks = append(report.Checks, configExplainCheckReport{
-				Name:             name,
-				Command:          check.Command,
-				PrepareCommands:  append([]string(nil), check.Prepare...),
-				PostCommands:     append([]string(nil), check.Post...),
-				AlwaysCommands:   append([]string(nil), check.Always...),
-				SyncExclude:      append([]string(nil), syncConfig.Exclude...),
-				IncludeUntracked: includeUntrackedValue(syncConfig.IncludeUntracked),
-				Services:         append([]string(nil), check.Services...),
-				WorkerSelector:   copyStringMap(check.WorkerSelector),
-				When:             checkWhenReportFromConfig(check.When),
-				Error:            err.Error(),
+				Name:            name,
+				Command:         check.Command,
+				PrepareCommands: append([]string(nil), check.Prepare...),
+				PostCommands:    append([]string(nil), check.Post...),
+				AlwaysCommands:  append([]string(nil), check.Always...),
+				SyncExclude:     append([]string(nil), syncConfig.Exclude...), SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
+				IncludeUntracked:    includeUntrackedValue(syncConfig.IncludeUntracked),
+				Services:            append([]string(nil), check.Services...),
+				RuntimeRequirements: preflightapi.CloneRuntimeRequirements(check.RuntimeRequirements),
+				WorkerSelector:      copyStringMap(check.WorkerSelector),
+				When:                checkWhenReportFromConfig(check.When),
+				Error:               err.Error(),
 			})
 			continue
 		}
@@ -232,16 +237,17 @@ func buildConfigExplainReport(cfg config.ProjectConfig, configPath string) confi
 			ArtifactPaths:      append([]string(nil), plan.Options.ArtifactPaths...),
 			NetworkMode:        plan.Options.NetworkMode,
 			NetworkAllowlist:   append([]string(nil), plan.Options.NetworkAllowlist...),
-			SyncExclude:        append([]string(nil), plan.Options.SyncExclude...),
-			IncludeUntracked:   includeUntrackedValue(plan.Options.IncludeUntracked),
-			Docker:             plan.Options.Docker,
-			Services:           append([]string(nil), plan.Services...),
-			WorkerSelector:     copyStringMap(plan.Options.WorkerSelector),
-			When:               plan.When,
-			ChangeMode:         plan.Options.ChangeMode,
-			KeepFailed:         plan.Options.KeepFailed,
-			Retries:            plan.Retries,
-			MatrixVariantCount: len(plan.Variants),
+			SyncExclude:        append([]string(nil), plan.Options.SyncExclude...), SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...),
+			IncludeUntracked:    includeUntrackedValue(plan.Options.IncludeUntracked),
+			Docker:              plan.Options.Docker,
+			Services:            append([]string(nil), plan.Services...),
+			RuntimeRequirements: preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements),
+			WorkerSelector:      copyStringMap(plan.Options.WorkerSelector),
+			When:                plan.When,
+			ChangeMode:          plan.Options.ChangeMode,
+			KeepFailed:          plan.Options.KeepFailed,
+			Retries:             plan.Retries,
+			MatrixVariantCount:  len(plan.Variants),
 		})
 	}
 	return report
@@ -295,6 +301,9 @@ func printConfigExplainReport(report configExplainReport) {
 	fmt.Printf("include_untracked: %t\n", report.IncludeUntracked)
 	for _, pattern := range report.SyncExclude {
 		fmt.Printf("sync_exclude: %s\n", pattern)
+	}
+	for _, fixture := range report.SyncReviewedFixtures {
+		fmt.Printf("sync_reviewed_fixture: %s sha256=%s\n", fixture.Path, fixture.SHA256)
 	}
 	if len(report.AffectedProfiles) > 0 {
 		fmt.Printf("affected_profiles: %s\n", strings.Join(report.AffectedProfiles, ", "))
@@ -404,6 +413,9 @@ func printConfigExplainReport(report configExplainReport) {
 		fmt.Printf("  include_untracked: %t\n", check.IncludeUntracked)
 		for _, pattern := range check.SyncExclude {
 			fmt.Printf("  sync_exclude: %s\n", pattern)
+		}
+		for _, fixture := range check.SyncReviewedFixtures {
+			fmt.Printf("  sync_reviewed_fixture: %s sha256=%s\n", fixture.Path, fixture.SHA256)
 		}
 		fmt.Printf("  docker: %t\n", check.Docker)
 		if len(check.Services) > 0 {

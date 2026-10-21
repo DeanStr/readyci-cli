@@ -11,19 +11,21 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 // These durations are caller observations, never verification evidence.
 type executionTimings struct {
-	PackageMS          int64  `json:"package_ms"`
-	UploadMS           int64  `json:"upload_and_validation_ms"`
-	RemoteMS           int64  `json:"remote_wait_ms"`
-	TotalMS            int64  `json:"total_ms"`
-	UploadBytes        int64  `json:"upload_bytes"`
-	SessionCreateMS    *int64 `json:"session_create_ms"`
-	SourcePrepareMS    *int64 `json:"source_prepare_ms"`
-	SourceTransferMS   *int64 `json:"source_transfer_ms"`
-	SourceValidationMS *int64 `json:"source_validation_ms"`
+	SourceCompletion   *preflightapi.PhaseTimings `json:"source_completion"`
+	PackageMS          int64                      `json:"package_ms"`
+	UploadMS           int64                      `json:"upload_and_validation_ms"`
+	RemoteMS           int64                      `json:"remote_wait_ms"`
+	TotalMS            int64                      `json:"total_ms"`
+	UploadBytes        int64                      `json:"upload_bytes"`
+	SessionCreateMS    *int64                     `json:"session_create_ms"`
+	SourcePrepareMS    *int64                     `json:"source_prepare_ms"`
+	SourceTransferMS   *int64                     `json:"source_transfer_ms"`
+	SourceValidationMS *int64                     `json:"source_validation_ms"`
 }
 
 func observedDurationMS(start time.Time) *int64 {
@@ -71,13 +73,11 @@ func executeSessionPlans(plans, warm []checkRunPlan, token string, jsonOutput bo
 		selected = append(selected, affectedCheckPlan{Plan: all[i]})
 	}
 	// Snapshot packaging is one shared contract across every node.
-	build, err := compatibleAffectedSessionBuildOptions(selected, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, IncludeUntracked: first.IncludeUntracked})
+	build, err := compatibleAffectedSessionBuildOptions(selected, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
 	if err != nil {
-		return err
-	}
-	if err := validateExplicitDependencyWarmSecretRequest(first.CommandAlias, agentIntentEditLoop, requestSecrets); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
+
 	project, err := executionProjectID(first.APIURL, first.ProjectID)
 	if err != nil {
 		return err
@@ -107,7 +107,7 @@ func executeSessionPlans(plans, warm []checkRunPlan, token string, jsonOutput bo
 	var warmNames []string
 	if selectedPlan != nil && selectedPlan.Mode == "warm" {
 		for _, p := range warm {
-			warmNames = append(warmNames, p.Name)
+			warmNames = appendUniqueString(warmNames, p.Name)
 		}
 	}
 	logs := executionLogsForOutput(jsonOutput, token)

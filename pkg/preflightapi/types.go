@@ -156,6 +156,7 @@ const (
 	EventCommandStarted   = "command_started"
 	EventStdout           = "stdout"
 	EventStderr           = "stderr"
+	EventResourceUsage    = "resource_usage"
 	EventCommandExited    = "command_exited"
 	EventArtifactUploaded = "artifact_uploaded"
 	EventLogTruncated     = "log_truncated"

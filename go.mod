@@ -8,6 +8,8 @@ require mvdan.cc/sh/v3 v3.13.1
 
 require github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 
+require github.com/pelletier/go-toml/v2 v2.4.3
+
 require (
 	aead.dev/minisign v0.3.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.0

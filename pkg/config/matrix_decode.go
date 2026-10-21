@@ -190,6 +190,9 @@ func (cfg *CheckConfig) UnmarshalYAML(value *yaml.Node) error {
 		cfg.Command = command
 		return nil
 	}
+	if err := validateCheckKnownFields(value); err != nil {
+		return err
+	}
 	retriesSet := mappingHasKey(value, "retries")
 	concurrencyGroupSet := mappingHasKey(value, "concurrency_group")
 	concurrencyLimitSet := mappingHasKey(value, "concurrency_limit")

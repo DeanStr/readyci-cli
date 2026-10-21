@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -11,24 +12,32 @@ import (
 )
 
 type setupReport struct {
-	APIURL           string                `json:"api_url"`
-	ProjectID        string                `json:"project_id"`
-	ConfigPath       string                `json:"config_path,omitempty"`
-	ConfigStatus     string                `json:"config_status"`
-	AuthStatus       string                `json:"auth_status"`
-	TeamID           string                `json:"team_id,omitempty"`
-	PlanID           string                `json:"plan_id,omitempty"`
-	Check            string                `json:"check,omitempty"`
-	Checks           []string              `json:"checks,omitempty"`
-	Written          []string              `json:"written,omitempty"`
-	Warnings         []string              `json:"warnings,omitempty"`
-	Next             []string              `json:"next"`
-	ImportCandidates []repoImportCandidate `json:"import_candidates,omitempty"`
+	APIURL           string                  `json:"api_url"`
+	ProjectID        string                  `json:"project_id"`
+	ConfigPath       string                  `json:"config_path,omitempty"`
+	ConfigStatus     string                  `json:"config_status"`
+	AuthStatus       string                  `json:"auth_status"`
+	TeamID           string                  `json:"team_id,omitempty"`
+	PlanID           string                  `json:"plan_id,omitempty"`
+	Check            string                  `json:"check,omitempty"`
+	Checks           []string                `json:"checks,omitempty"`
+	Written          []string                `json:"written,omitempty"`
+	Warnings         []string                `json:"warnings,omitempty"`
+	Next             []string                `json:"next"`
+	ImportCandidates []repoImportCandidate   `json:"import_candidates,omitempty"`
+	SelectionStatus  string                  `json:"selection_status,omitempty"`
+	SelectionReason  string                  `json:"selection_reason,omitempty"`
+	ImportScope      *setupImportScope       `json:"import_scope,omitempty"`
+	ProposedConfig   string                  `json:"proposed_config,omitempty"`
+	Environment      *setupEnvironmentReport `json:"environment,omitempty"`
+	RuntimePins      map[string]string       `json:"runtime_pins,omitempty"`
 
 	warmProfileAvailable   bool
 	affectedAuditAvailable bool
 	authError              error
 	configError            error
+	scopeCandidates        []repoImportCandidate
+	configGenerated        bool
 }
 
 func setupCommand(args []string) error {
@@ -39,6 +48,9 @@ func setupCommand(args []string) error {
 	checkName := fs.String("check", "", "preferred configured check for first-run commands")
 	profile := fs.String("profile", "remote-ci", "setup profile: remote-ci or strict")
 	image := fs.String("image", "", "runner image for the generated configuration")
+	networkAllowlist := fs.String("network-allowlist", "", "replace generated network policy with this reviewed comma-separated allowlist for the entire check")
+	var runtimeSelections stringSliceFlag
+	fs.Var(&runtimeSelections, "runtime", "pin an imported workflow runtime numerically, e.g. node=24 or python=3.12; repeatable for node, go, python, pnpm")
 	printConfig := fs.Bool("print", false, "print starter configuration locally without authentication or writes")
 	preview := fs.Bool("preview", false, "inspect setup without writing files, signing in, or running checks")
 	yes := fs.Bool("yes", false, "save configuration and run the first check without prompts; requires authentication")
@@ -58,16 +70,34 @@ func setupCommand(args []string) error {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci setup [--yes|--preview] [--api-url URL] [--token TOKEN] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--write-config] [--run] [--write-makefile] [--write-helpers] [--detect=false] [--force] [--makefile] [--helper NAME] [--write-helper] [--json]", nil)
+		return cliConfigError("usage: readyci setup [--yes|--preview] [--api-url URL] [--token TOKEN] [--project PROJECT] [--check NAME] [--profile remote-ci|strict] [--runtime NAME=VERSION] [--write-config] [--run] [--write-makefile] [--write-helpers] [--detect=false] [--force] [--makefile] [--helper NAME] [--write-helper] [--json]", nil)
 	}
 	if *profile != "remote-ci" && *profile != "strict" {
 		return cliConfigError(fmt.Sprintf("unknown setup profile %q", *profile), nil)
 	}
+	runtimePins, err := parseSetupRuntimePins(runtimeSelections)
+	if err != nil {
+		return err
+	}
+	if len(runtimePins) > 0 && (!*detect || *makefile || *helper != "" || *writeMakefile || *writeHelpers || *importSource == "make") {
+		return cliConfigError("--runtime requires detected workflow setup without helper output", nil)
+	}
+	var reviewedNetwork []string
+	if flagProvided(fs, "network-allowlist") {
+		var err error
+		reviewedNetwork, err = normalizeSetupNetworkAllowlist(*networkAllowlist, *profile)
+		if err != nil {
+			return err
+		}
+		if *makefile || *helper != "" || *writeMakefile || *writeHelpers {
+			return cliConfigError("--network-allowlist configures generated project checks and cannot be combined with helper output", nil)
+		}
+	}
 	if *importSource != "" && *importSource != "make" && *importSource != "github-actions" {
 		return cliConfigError("--import must be make or github-actions", nil)
 	}
-	if (*importSource != "" || *importCandidate != "") && (!*detect || *printConfig || *makefile || *helper != "" || *writeMakefile || *writeHelpers) {
-		return cliConfigError("import selection requires detected setup without helper or print options", nil)
+	if (*importSource != "" || *importCandidate != "") && (!*detect || *makefile || *helper != "" || *writeMakefile || *writeHelpers) {
+		return cliConfigError("import selection requires detected setup without helper output", nil)
 	}
 	explicitAction := flagProvided(fs, "write-config") || flagProvided(fs, "run") || *writeMakefile || *writeHelpers || *writeHelper
 	if (*importSource != "" || *importCandidate != "") && explicitAction && *importCandidate == "" {
@@ -95,9 +125,35 @@ func setupCommand(args []string) error {
 			return err
 		}
 		if *detect {
-			fmt.Print(detectedProjectTemplateWithProfile(".", project, *image, *profile))
+			options := setupOptions{Detect: true, Image: *image, Profile: *profile, ImportSource: *importSource, ImportCandidate: *importCandidate, NetworkAllowlist: reviewedNetwork, RuntimePins: runtimePins}
+			allCandidates := setupImportCandidates(".", "", runtimePins)
+			candidates := filterSetupImportCandidates(allCandidates, options.ImportSource)
+			var template string
+			var err error
+			if options.ImportSource != "" || options.ImportCandidate != "" {
+				var selected *repoImportCandidate
+				selected, err = selectSetupImport(options, candidates, nil, io.Discard, true)
+				if err == nil {
+					template = setupImportedTemplateWithScope(".", options, project, *selected, allCandidates)
+					err = validateSetupRuntimeTemplate(".", template)
+				}
+			} else {
+				template, err = setupDetectedTemplate(".", project, options, candidates)
+			}
+			if err != nil {
+				return err
+			}
+			template, err = applySetupNetworkPolicy(template, options)
+			if err != nil {
+				return err
+			}
+			fmt.Print(template)
 		} else {
-			fmt.Print(remoteCIProjectTemplateWithProfile(project, *image, *profile))
+			template, err := applySetupNetworkPolicy(remoteCIProjectTemplateWithProfile(project, *image, *profile), setupOptions{NetworkAllowlist: reviewedNetwork})
+			if err != nil {
+				return err
+			}
+			fmt.Print(template)
 		}
 		return nil
 	}
@@ -170,19 +226,21 @@ func setupCommand(args []string) error {
 		reportProjectID = ""
 	}
 	options := setupOptions{
-		APIURL:          *apiURL,
-		APIToken:        *apiToken,
-		ProjectID:       reportProjectID,
-		CheckName:       *checkName,
-		Profile:         *profile,
-		Image:           *image,
-		WriteConfig:     *writeConfig,
-		WriteMakefile:   *writeMakefile,
-		WriteHelpers:    *writeHelpers,
-		Detect:          *detect,
-		Force:           *force,
-		ImportSource:    *importSource,
-		ImportCandidate: *importCandidate,
+		APIURL:           *apiURL,
+		APIToken:         *apiToken,
+		ProjectID:        reportProjectID,
+		CheckName:        *checkName,
+		Profile:          *profile,
+		Image:            *image,
+		WriteConfig:      *writeConfig,
+		WriteMakefile:    *writeMakefile,
+		WriteHelpers:     *writeHelpers,
+		Detect:           *detect,
+		Force:            *force,
+		ImportSource:     *importSource,
+		ImportCandidate:  *importCandidate,
+		NetworkAllowlist: reviewedNetwork,
+		RuntimePins:      runtimePins,
 	}
 	if !explicitAction && !inspection {
 		if !*yes && !term.IsTerminal(int(os.Stdin.Fd())) {

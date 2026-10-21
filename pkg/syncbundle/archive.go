@@ -21,18 +21,23 @@ type ArchiveEntry struct {
 	Data   []byte
 }
 
-func BaselineContentKey(entries []ArchiveEntry) (string, error) {
-	if len(entries) == 0 {
+func BaselineContentKey(entries []ArchiveEntry, binding ContentBinding) (string, error) {
+	if len(entries) == 0 && len(binding.Submodules) == 0 {
 		return "", nil
 	}
-	return contentDigest(entries, "baseline")
+	binding.ReviewedFixtures = ReviewedFixturesInEntries(binding.ReviewedFixtures, entries)
+	digest, err := contentDigest(entries, "baseline")
+	if err != nil {
+		return "", err
+	}
+	return bindContentDigest(digest, "baseline", binding)
 }
 
 // WorkspaceContentDigest returns a deterministic digest for the workspace that
 // results from applying workspace entries and deletions to baseline entries.
 // Paths, entry types, modes, symlink targets, and file bytes are all bound into
 // the digest. Archive layout and compression are intentionally excluded.
-func WorkspaceContentDigest(baseline, workspace []ArchiveEntry, deleted []string) (string, error) {
+func WorkspaceContentDigest(baseline, workspace []ArchiveEntry, deleted []string, binding ContentBinding) (string, error) {
 	materialized := materializedWorkspaceEntries(baseline, workspace, deleted)
 	paths := make([]string, 0, len(materialized))
 	for path := range materialized {
@@ -44,6 +49,10 @@ func WorkspaceContentDigest(baseline, workspace []ArchiveEntry, deleted []string
 		ordered = append(ordered, materialized[path])
 	}
 	digest, err := contentDigest(ordered, "workspace")
+	if err != nil {
+		return "", err
+	}
+	digest, err = bindContentDigest(digest, "workspace", binding)
 	if err != nil {
 		return "", err
 	}
@@ -199,8 +208,13 @@ func contentDigest(entries []ArchiveEntry, entrySet string) (string, error) {
 }
 
 func WriteBundle(writer io.Writer, manifest Manifest, baseline, workspace []ArchiveEntry) error {
+	var err error
+	baseline, workspace, err = freezeReviewedFixtureSources(manifest, baseline, workspace)
+	if err != nil {
+		return err
+	}
 	if manifest.SnapshotDigest == "" && !manifest.BaselineRef {
-		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted)
+		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted, manifest.ContentBinding())
 		if err != nil {
 			return err
 		}
@@ -216,16 +230,18 @@ func WriteBundle(writer io.Writer, manifest Manifest, baseline, workspace []Arch
 	if err := validateBundleWriteInputs(manifest, baseline, workspace); err != nil {
 		return err
 	}
-
-	gzipWriter := gzip.NewWriter(writer)
-	gzipWriter.Name = "bundle.tar"
-	gzipWriter.ModTime = time.Unix(0, 0).UTC()
-	tarWriter := tar.NewWriter(gzipWriter)
-
-	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if _, err := ManifestAdmission(manifest); err != nil {
+		return err
+	}
+	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
+
+	gzipWriter := gzip.NewWriter(&admissionWriter{writer: writer, resource: "compressed_bytes", limit: MaxCompressedBundleBytes})
+	gzipWriter.Name = "bundle.tar"
+	gzipWriter.ModTime = time.Unix(0, 0).UTC()
+	tarWriter := tar.NewWriter(&admissionWriter{writer: gzipWriter, resource: "expanded_bytes", limit: MaxExpandedBundleBytes})
 	if err := writeTarFile(tarWriter, "manifest.json", 0o644, manifestBytes); err != nil {
 		return err
 	}
@@ -264,12 +280,15 @@ func validateBundleWriteInputs(manifest Manifest, baseline, workspace []ArchiveE
 	if err := validateArchiveEntriesForManifest("workspace", manifest.Workspace, workspace, false); err != nil {
 		return err
 	}
+	if err := ValidateReviewedFixtureContents(manifest, baseline, workspace); err != nil {
+		return err
+	}
 	if manifest.BaselineKey != "" && !manifest.BaselineRef {
 		orderedBaseline, err := archiveEntriesInManifestOrder("baseline", manifest.Baseline, baseline)
 		if err != nil {
 			return err
 		}
-		key, err := BaselineContentKey(orderedBaseline)
+		key, err := BaselineContentKey(orderedBaseline, manifest.ContentBinding())
 		if err != nil {
 			return err
 		}
@@ -278,7 +297,7 @@ func validateBundleWriteInputs(manifest Manifest, baseline, workspace []ArchiveE
 		}
 	}
 	if !manifest.BaselineRef {
-		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted)
+		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted, manifest.ContentBinding())
 		if err != nil {
 			return err
 		}

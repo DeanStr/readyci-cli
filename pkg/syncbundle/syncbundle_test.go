@@ -135,11 +135,11 @@ func TestBaselineContentKeyUsesSourceWhenWritingBundle(t *testing.T) {
 		Mode: 0o644,
 		Size: int64(len("base from source\n")),
 	}
-	sourceKey, err := BaselineContentKey([]ArchiveEntry{{Entry: entry, Source: sourcePath}})
+	sourceKey, err := BaselineContentKey([]ArchiveEntry{{Entry: entry, Source: sourcePath}}, ContentBinding{})
 	if err != nil {
 		t.Fatalf("source baseline key: %v", err)
 	}
-	dataKey, err := BaselineContentKey([]ArchiveEntry{{Entry: entry, Data: []byte("base from source\n")}})
+	dataKey, err := BaselineContentKey([]ArchiveEntry{{Entry: entry, Data: []byte("base from source\n")}}, ContentBinding{})
 	if err != nil {
 		t.Fatalf("data baseline key: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestWriteBundleHashesBaselineKeyInManifestOrder(t *testing.T) {
 		{Entry: first, Data: []byte("first")},
 		{Entry: second, Data: []byte("second")},
 	}
-	baselineKey, err := BaselineContentKey(manifestOrder)
+	baselineKey, err := BaselineContentKey(manifestOrder, ContentBinding{})
 	if err != nil {
 		t.Fatalf("baseline key: %v", err)
 	}
@@ -545,8 +545,8 @@ func TestValidateRejectsWindowsAbsoluteAndBackslashPaths(t *testing.T) {
 	}
 	for _, value := range []string{`dir\target.txt`, `..\target.txt`, `C:\target.txt`, `\\server\share\target.txt`, "dir\ntarget.txt"} {
 		t.Run("symlink_"+value, func(t *testing.T) {
-			if err := ValidateSymlinkTarget(value); err == nil {
-				t.Fatalf("ValidateSymlinkTarget(%q) succeeded, want rejection", value)
+			if err := ValidateSymlinkTargetSyntax(value); err == nil {
+				t.Fatalf("ValidateSymlinkTargetSyntax(%q) succeeded, want rejection", value)
 			}
 		})
 	}
@@ -739,7 +739,7 @@ func TestReadBundleContentsRejectsChangedFilesThatOmitWorkspaceChanges(t *testin
 		Entry: Entry{Path: "modified.go", Type: entryTypeFile, Mode: 0o644, Size: int64(len("changed\n"))},
 		Data:  []byte("changed\n"),
 	}}
-	digest, err := WorkspaceContentDigest(nil, workspace, nil)
+	digest, err := WorkspaceContentDigest(nil, workspace, nil, ContentBinding{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,7 +903,7 @@ func testManifestWithDigest(manifest Manifest, files map[string]string) Manifest
 		}
 		return out
 	}
-	digest, err := WorkspaceContentDigest(entries("baseline", manifest.Baseline), entries("workspace", manifest.Workspace), manifest.Deleted)
+	digest, err := WorkspaceContentDigest(entries("baseline", manifest.Baseline), entries("workspace", manifest.Workspace), manifest.Deleted, ContentBinding{})
 	if err != nil {
 		manifest.SnapshotDigest = "sha256:" + strings.Repeat("0", 64)
 		return manifest

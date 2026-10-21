@@ -9,6 +9,7 @@ import (
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 var version = "0.1.0-dev"
@@ -281,14 +282,14 @@ func runCommand(args []string) error {
 		NetworkAllowlist:   allowlist,
 		Docker:             effectiveDocker,
 		ChangeMode:         *flags.changes,
-		SyncExclude:        append([]string(nil), cfg.Sync.Exclude...),
-		IncludeUntracked:   cfg.Sync.IncludeUntracked,
-		CachePaths:         cachePathValues,
-		CacheKeyFiles:      cacheKeyFiles,
-		KeepFailed:         *flags.keepFailed,
-		Open:               *flags.openRun,
-		DashboardURL:       *flags.dashboardURL,
-		Detach:             *flags.detach,
+		SyncExclude:        append([]string(nil), cfg.Sync.Exclude...), SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), cfg.Sync.ReviewedFixtures...),
+		IncludeUntracked: cfg.Sync.IncludeUntracked,
+		CachePaths:       cachePathValues,
+		CacheKeyFiles:    cacheKeyFiles,
+		KeepFailed:       *flags.keepFailed,
+		Open:             *flags.openRun,
+		DashboardURL:     *flags.dashboardURL,
+		Detach:           *flags.detach,
 	}
 	return executeSessionPlans([]checkRunPlan{{Name: "command", Options: options, Retries: literalCommandRetries(*flags.retryCount, flagProvided(fs, "retry")), RetryProvided: flagProvided(fs, "retry")}}, nil, token, *flags.jsonOutput)
 }

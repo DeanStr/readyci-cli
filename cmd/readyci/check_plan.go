@@ -33,19 +33,20 @@ type checkResolveOptions struct {
 }
 
 type checkRunPlan struct {
-	SkipWarm         bool
-	RetryProvided    bool
-	Name             string
-	Options          remoteRunOptions
-	Retries          int
-	Matrix           config.MatrixConfig
-	Variants         []matrixVariant
-	Services         []string
-	ServiceSpecs     []preflightapi.RunServiceSpec
-	When             *checkWhenReport
-	WhenConfig       config.WhenConfig
-	RegionDefaulted  bool
-	DiagnosticRegion string
+	DependencyWarmTargets []string
+	SkipWarm              bool
+	RetryProvided         bool
+	Name                  string
+	Options               remoteRunOptions
+	Retries               int
+	Matrix                config.MatrixConfig
+	Variants              []matrixVariant
+	Services              []string
+	ServiceSpecs          []preflightapi.RunServiceSpec
+	When                  *checkWhenReport
+	WhenConfig            config.WhenConfig
+	RegionDefaulted       bool
+	DiagnosticRegion      string
 }
 
 type checkExecutionOptions struct {

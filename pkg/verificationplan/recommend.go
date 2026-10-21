@@ -44,6 +44,15 @@ func RecommendCheck(cfg config.ProjectConfig, explicit, goal, intent string) (Re
 		}
 		return Recommendation{Check: explicit, Reason: "Explicit check requested."}, nil
 	}
+	consumers := make(map[string]config.CheckConfig, len(cfg.Checks))
+	for name, check := range cfg.Checks {
+		if !config.IsDependencyCheck(cfg, name) {
+			consumers[name] = check
+		}
+	}
+	if len(consumers) > 0 {
+		cfg.Checks = consumers
+	}
 	if intent == IntentFixtureUpdate {
 		if name := fixtureUpdateCheckName(cfg); name != "" {
 			return Recommendation{

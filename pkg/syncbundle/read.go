@@ -68,7 +68,7 @@ func readManifestEntryData(reader io.Reader, header *tar.Header) ([]byte, error)
 		return nil, fmt.Errorf("manifest.json has invalid size")
 	}
 	if header.Size > MaxManifestBytes {
-		return nil, fmt.Errorf("manifest.json exceeds %d bytes", MaxManifestBytes)
+		return nil, &AdmissionError{"manifest_bytes", header.Size, MaxManifestBytes}
 	}
 	data, err := io.ReadAll(io.LimitReader(reader, header.Size+1))
 	if err != nil {
@@ -106,9 +106,19 @@ func ValidateWithManifest(reader io.Reader) (Manifest, error) {
 	return manifest, err
 }
 
+// ValidateManifest validates source metadata and symlink containment in both
+// the Git baseline and the materialized workspace. It does not read file bytes
+// or validate their digest; bundle readers and writers validate those as well.
+func ValidateManifest(manifest Manifest) error {
+	return validateManifest(manifest)
+}
+
 func validateManifest(manifest Manifest) error {
 	if manifest.Version != FormatVersion {
 		return fmt.Errorf("unsupported bundle format version %d", manifest.Version)
+	}
+	if err := validateSubmodules(manifest); err != nil {
+		return err
 	}
 	if manifest.BaselineKey != "" {
 		normalized, err := NormalizeBaselineKey(manifest.BaselineKey)
@@ -135,6 +145,9 @@ func validateManifest(manifest Manifest) error {
 		if err := validateSourcePolicyBinding(*manifest.SourcePolicy); err != nil {
 			return err
 		}
+	}
+	if err := validateReviewedFixtureDeclaration(manifest); err != nil {
+		return err
 	}
 	for _, changed := range manifest.ChangedFiles {
 		rel, err := validateRelativePath(changed)
@@ -184,7 +197,7 @@ func validateManifest(manifest Manifest) error {
 				if entry.Size != 0 {
 					return fmt.Errorf("%s symlink entry %q must not include size", group.name, entry.Path)
 				}
-				if err := validateSymlinkTarget(entry.Linkname); err != nil {
+				if err := ValidateSymlinkTargetSyntax(entry.Linkname); err != nil {
 					return fmt.Errorf("%s symlink %q has invalid target: %w", group.name, entry.Path, err)
 				}
 			default:
@@ -204,6 +217,9 @@ func validateManifest(manifest Manifest) error {
 		if err := rejectPathPrefixConflicts(group.name, group.entries); err != nil {
 			return err
 		}
+	}
+	if err := validateSourceFilterEntries(manifest); err != nil {
+		return err
 	}
 	deletedPaths := make(map[string]struct{}, len(manifest.Deleted))
 	for _, deleted := range manifest.Deleted {
@@ -228,7 +244,7 @@ func validateManifest(manifest Manifest) error {
 	if err := validateWorkspaceBaselineReplacements(baselinePaths, workspacePaths, deletedPaths); err != nil {
 		return err
 	}
-	return nil
+	return validateSymlinkContainment(manifest)
 }
 
 func validateSnapshotDigestForRead(manifest Manifest) error {

@@ -8,6 +8,9 @@ import (
 
 func setupImportRuntimes(root string, candidate repoImportCandidate) []string {
 	runtimes := append([]string(nil), candidate.Runtimes...)
+	for _, runtime := range setupCommandRuntimes(root, candidate.Command) {
+		runtimes = appendUniqueString(runtimes, runtime)
+	}
 	directories := append([]string{"."}, candidate.WorkingDirectories...)
 	for _, dir := range directories {
 		if dir == "" {

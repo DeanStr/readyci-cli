@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -23,26 +24,30 @@ type syncDryRunOptions struct {
 }
 
 type syncDryRunReport struct {
-	Root              string                 `json:"root"`
-	ConfigPath        string                 `json:"config_path,omitempty"`
-	CheckName         string                 `json:"check,omitempty"`
-	ChangeMode        string                 `json:"change_mode"`
-	IncludeUntracked  bool                   `json:"include_untracked"`
-	ExcludePatterns   []string               `json:"exclude_patterns,omitempty"`
-	Git               syncbundle.GitMetadata `json:"git"`
-	CompressedBytes   int64                  `json:"compressed_bytes"`
-	ExpandedBytes     int64                  `json:"expanded_bytes"`
-	BaselineCount     int                    `json:"baseline_count"`
-	WorkspaceCount    int                    `json:"workspace_count"`
-	DeletedCount      int                    `json:"deleted_count"`
-	ChangedFilesCount int                    `json:"changed_files_count"`
-	UntrackedCount    int                    `json:"untracked_count"`
-	BaselineFiles     []string               `json:"baseline_files,omitempty"`
-	WorkspaceFiles    []string               `json:"workspace_files,omitempty"`
-	DeletedFiles      []string               `json:"deleted_files,omitempty"`
-	ChangedFiles      []string               `json:"changed_files,omitempty"`
-	UntrackedFiles    []string               `json:"untracked_files,omitempty"`
-	Warnings          []string               `json:"warnings,omitempty"`
+	Root              string                       `json:"root"`
+	ConfigPath        string                       `json:"config_path,omitempty"`
+	CheckName         string                       `json:"check,omitempty"`
+	ChangeMode        string                       `json:"change_mode"`
+	IncludeUntracked  bool                         `json:"include_untracked"`
+	ExcludePatterns   []string                     `json:"exclude_patterns,omitempty"`
+	ReviewedFixtures  []syncbundle.ReviewedFixture `json:"reviewed_fixtures,omitempty"`
+	Git               syncbundle.GitMetadata       `json:"git"`
+	CompressedBytes   int64                        `json:"compressed_bytes"`
+	ExpandedBytes     int64                        `json:"expanded_bytes"`
+	ManifestBytes     int64                        `json:"manifest_bytes"`
+	EntryCount        int                          `json:"entry_count"`
+	AdmissionLimits   syncbundle.AdmissionLimits   `json:"admission_limits"`
+	BaselineCount     int                          `json:"baseline_count"`
+	WorkspaceCount    int                          `json:"workspace_count"`
+	DeletedCount      int                          `json:"deleted_count"`
+	ChangedFilesCount int                          `json:"changed_files_count"`
+	UntrackedCount    int                          `json:"untracked_count"`
+	BaselineFiles     []string                     `json:"baseline_files,omitempty"`
+	WorkspaceFiles    []string                     `json:"workspace_files,omitempty"`
+	DeletedFiles      []string                     `json:"deleted_files,omitempty"`
+	ChangedFiles      []string                     `json:"changed_files,omitempty"`
+	UntrackedFiles    []string                     `json:"untracked_files,omitempty"`
+	Warnings          []string                     `json:"warnings,omitempty"`
 }
 
 func syncCommand(args []string) error {
@@ -114,14 +119,23 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 		ChangeMode:       normalizedChangeMode,
 		ExcludePatterns:  append([]string(nil), syncConfig.Exclude...),
 		IncludeUntracked: syncConfig.IncludeUntracked,
+		ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
 	})
 	if err != nil {
+		var admission *syncbundle.AdmissionError
+		if errors.As(err, &admission) {
+			return syncDryRunReport{}, cliConfigError(err.Error(), err)
+		}
 		return syncDryRunReport{}, err
 	}
 	defer os.Remove(bundlePath)
 	expandedBytes, err := decompressedBundleBytes(bundlePath)
 	if err != nil {
 		return syncDryRunReport{}, err
+	}
+	usage, err := syncbundle.ManifestAdmission(result.Manifest)
+	if err != nil {
+		return syncDryRunReport{}, cliConfigError(err.Error(), err)
 	}
 	report := syncDryRunReport{
 		Root:              result.Root,
@@ -130,9 +144,13 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 		ChangeMode:        result.Manifest.ChangeMode,
 		IncludeUntracked:  includeUntracked,
 		ExcludePatterns:   append([]string(nil), syncConfig.Exclude...),
+		ReviewedFixtures:  append([]syncbundle.ReviewedFixture(nil), result.Manifest.ReviewedFixtures...),
 		Git:               result.Manifest.Git,
 		CompressedBytes:   result.Size,
 		ExpandedBytes:     expandedBytes,
+		ManifestBytes:     usage.ManifestBytes,
+		EntryCount:        usage.Entries,
+		AdmissionLimits:   syncbundle.SourceAdmissionLimits(),
 		BaselineCount:     len(result.Manifest.Baseline),
 		WorkspaceCount:    len(result.Manifest.Workspace),
 		DeletedCount:      len(result.Manifest.Deleted),
@@ -175,6 +193,8 @@ func printSyncDryRunReport(report syncDryRunReport) {
 	fmt.Printf("include_untracked: %t\n", report.IncludeUntracked)
 	fmt.Printf("compressed_bytes: %d\n", report.CompressedBytes)
 	fmt.Printf("expanded_bytes: %d\n", report.ExpandedBytes)
+	fmt.Printf("manifest_bytes: %d\n", report.ManifestBytes)
+	fmt.Printf("bundle_entries: %d\n", report.EntryCount)
 	fmt.Printf("baseline_entries: %d\n", report.BaselineCount)
 	fmt.Printf("workspace_entries: %d\n", report.WorkspaceCount)
 	fmt.Printf("deleted_entries: %d\n", report.DeletedCount)

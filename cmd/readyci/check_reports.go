@@ -16,20 +16,22 @@ type checkListReport struct {
 }
 
 type checkListSummary struct {
-	Name             string            `json:"name"`
-	Command          string            `json:"command"`
-	Steps            []checkStepReport `json:"steps,omitempty"`
-	Changes          string            `json:"changes"`
-	Image            string            `json:"image,omitempty"`
-	Region           string            `json:"region,omitempty"`
-	Docker           bool              `json:"docker"`
-	ConcurrencyGroup string            `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit int               `json:"concurrency_limit,omitempty"`
-	CacheMode        string            `json:"cache_mode,omitempty"`
-	Timeout          string            `json:"timeout,omitempty"`
-	Matrix           int               `json:"matrix_variants"`
-	Services         []string          `json:"services,omitempty"`
-	WorkerSelector   map[string]string `json:"worker_selector,omitempty"`
+	DependencyCheck     string            `json:"dependency_check,omitempty"`
+	RuntimeRequirements map[string]string `json:"runtime_requirements,omitempty"`
+	Name                string            `json:"name"`
+	Command             string            `json:"command"`
+	Steps               []checkStepReport `json:"steps,omitempty"`
+	Changes             string            `json:"changes"`
+	Image               string            `json:"image,omitempty"`
+	Region              string            `json:"region,omitempty"`
+	Docker              bool              `json:"docker"`
+	ConcurrencyGroup    string            `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit    int               `json:"concurrency_limit,omitempty"`
+	CacheMode           string            `json:"cache_mode,omitempty"`
+	Timeout             string            `json:"timeout,omitempty"`
+	Matrix              int               `json:"matrix_variants"`
+	Services            []string          `json:"services,omitempty"`
+	WorkerSelector      map[string]string `json:"worker_selector,omitempty"`
 }
 
 type checkStepReport struct {
@@ -41,41 +43,43 @@ type checkStepReport struct {
 }
 
 type checkDryRunReport struct {
-	SkipWarm           bool                          `json:"skip_warm"`
-	SecretsRequested   bool                          `json:"secrets_requested"`
-	Check              string                        `json:"check"`
-	ConfigPath         string                        `json:"config_path"`
-	ProjectID          string                        `json:"project_id"`
-	Region             string                        `json:"region"`
-	Command            string                        `json:"command"`
-	Steps              []checkStepReport             `json:"steps,omitempty"`
-	PrepareCommands    []string                      `json:"prepare,omitempty"`
-	PostCommands       []string                      `json:"post,omitempty"`
-	AlwaysCommands     []string                      `json:"always,omitempty"`
-	Image              string                        `json:"image"`
-	RunnerSize         string                        `json:"runner_size"`
-	TimeoutSeconds     int                           `json:"timeout_seconds"`
-	ConcurrencyGroup   string                        `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit   int                           `json:"concurrency_limit,omitempty"`
-	CacheMode          string                        `json:"cache_mode"`
-	CachePaths         []string                      `json:"cache_paths,omitempty"`
-	CacheKeyFiles      []string                      `json:"cache_key_files,omitempty"`
-	ArtifactPaths      []string                      `json:"artifact_paths,omitempty"`
-	NetworkMode        string                        `json:"network_mode"`
-	NetworkAllowlist   []string                      `json:"network_allowlist,omitempty"`
-	Docker             bool                          `json:"docker"`
-	Services           []string                      `json:"services,omitempty"`
-	ServiceDefinitions []preflightapi.RunServiceSpec `json:"service_definitions,omitempty"`
-	WorkerSelector     map[string]string             `json:"worker_selector,omitempty"`
-	When               *checkWhenReport              `json:"when,omitempty"`
-	ChangeMode         string                        `json:"change_mode"`
-	KeepFailed         bool                          `json:"keep_failed"`
-	Retries            int                           `json:"retries"`
-	MatrixVariants     []string                      `json:"matrix_variants,omitempty"`
-	MatrixVariantCount int                           `json:"matrix_variant_count"`
-	Warnings           []string                      `json:"warnings,omitempty"`
-	Plan               *verificationPlan             `json:"plan,omitempty"`
-	Sync               syncDryRunReport              `json:"sync"`
+	DependencyCheck     string                        `json:"dependency_check,omitempty"`
+	RuntimeRequirements map[string]string             `json:"runtime_requirements,omitempty"`
+	SkipWarm            bool                          `json:"skip_warm"`
+	SecretsRequested    bool                          `json:"secrets_requested"`
+	Check               string                        `json:"check"`
+	ConfigPath          string                        `json:"config_path"`
+	ProjectID           string                        `json:"project_id"`
+	Region              string                        `json:"region"`
+	Command             string                        `json:"command"`
+	Steps               []checkStepReport             `json:"steps,omitempty"`
+	PrepareCommands     []string                      `json:"prepare,omitempty"`
+	PostCommands        []string                      `json:"post,omitempty"`
+	AlwaysCommands      []string                      `json:"always,omitempty"`
+	Image               string                        `json:"image"`
+	RunnerSize          string                        `json:"runner_size"`
+	TimeoutSeconds      int                           `json:"timeout_seconds"`
+	ConcurrencyGroup    string                        `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit    int                           `json:"concurrency_limit,omitempty"`
+	CacheMode           string                        `json:"cache_mode"`
+	CachePaths          []string                      `json:"cache_paths,omitempty"`
+	CacheKeyFiles       []string                      `json:"cache_key_files,omitempty"`
+	ArtifactPaths       []string                      `json:"artifact_paths,omitempty"`
+	NetworkMode         string                        `json:"network_mode"`
+	NetworkAllowlist    []string                      `json:"network_allowlist,omitempty"`
+	Docker              bool                          `json:"docker"`
+	Services            []string                      `json:"services,omitempty"`
+	ServiceDefinitions  []preflightapi.RunServiceSpec `json:"service_definitions,omitempty"`
+	WorkerSelector      map[string]string             `json:"worker_selector,omitempty"`
+	When                *checkWhenReport              `json:"when,omitempty"`
+	ChangeMode          string                        `json:"change_mode"`
+	KeepFailed          bool                          `json:"keep_failed"`
+	Retries             int                           `json:"retries"`
+	MatrixVariants      []string                      `json:"matrix_variants,omitempty"`
+	MatrixVariantCount  int                           `json:"matrix_variant_count"`
+	Warnings            []string                      `json:"warnings,omitempty"`
+	Plan                *verificationPlan             `json:"plan,omitempty"`
+	Sync                syncDryRunReport              `json:"sync"`
 }
 
 func buildCheckListReport(cfg config.ProjectConfig, configPath string) checkListReport {
@@ -91,20 +95,22 @@ func buildCheckListReport(cfg config.ProjectConfig, configPath string) checkList
 			matrixCount = 0
 		}
 		checks = append(checks, checkListSummary{
-			Name:             name,
-			Command:          check.Command,
-			Steps:            checkStepReportsFromConfig(check.Steps),
-			Changes:          defaultString(check.Changes, "working"),
-			Image:            check.Image,
-			Region:           preflightapi.NormalizeRegion(defaultString(check.Region, cfg.Region)),
-			Docker:           effectiveCheckDocker(cfg, name, check, checkResolveOptions{}),
-			ConcurrencyGroup: concurrencyGroup,
-			ConcurrencyLimit: concurrencyLimit,
-			CacheMode:        defaultString(check.CacheMode, check.Cache.Mode),
-			Timeout:          defaultString(check.Timeout, secondsLabel(check.TimeoutSeconds)),
-			Matrix:           matrixCount,
-			Services:         append([]string(nil), check.Services...),
-			WorkerSelector:   copyStringMap(check.WorkerSelector),
+			DependencyCheck:     check.DependencyCheck,
+			Name:                name,
+			Command:             check.Command,
+			Steps:               checkStepReportsFromConfig(check.Steps),
+			Changes:             defaultString(check.Changes, "working"),
+			Image:               check.Image,
+			Region:              preflightapi.NormalizeRegion(defaultString(check.Region, cfg.Region)),
+			Docker:              effectiveCheckDocker(cfg, name, check, checkResolveOptions{}),
+			ConcurrencyGroup:    concurrencyGroup,
+			ConcurrencyLimit:    concurrencyLimit,
+			CacheMode:           defaultString(check.CacheMode, check.Cache.Mode),
+			Timeout:             defaultString(check.Timeout, secondsLabel(check.TimeoutSeconds)),
+			Matrix:              matrixCount,
+			Services:            append([]string(nil), check.Services...),
+			RuntimeRequirements: preflightapi.CloneRuntimeRequirements(check.RuntimeRequirements),
+			WorkerSelector:      copyStringMap(check.WorkerSelector),
 		})
 	}
 	return checkListReport{ConfigPath: configPath, Checks: checks}
@@ -144,6 +150,9 @@ func printCheckListReport(report checkListReport) {
 		if check.Matrix != 1 {
 			parts = append(parts, fmt.Sprintf("matrix=%d", check.Matrix))
 		}
+		if check.DependencyCheck != "" {
+			parts = append(parts, "dependency_check="+check.DependencyCheck)
+		}
 		if len(check.Steps) > 0 {
 			parts = append(parts, fmt.Sprintf("steps=%d", len(check.Steps)))
 		}
@@ -167,39 +176,41 @@ func buildCheckDryRunReport(ctx context.Context, cwd string, cfg config.ProjectC
 		}
 	}
 	report := checkDryRunReport{
-		SkipWarm:           plan.SkipWarm,
-		SecretsRequested:   plan.Options.SecretsRequested != nil && *plan.Options.SecretsRequested,
-		Check:              plan.Name,
-		ConfigPath:         configPath,
-		ProjectID:          defaultString(plan.Options.ProjectID, "proj_dev"),
-		Region:             checkPlanDiagnosticRegion(plan),
-		Command:            plan.Options.Command,
-		Steps:              checkStepReportsFromSpecs(plan.Options.Steps),
-		PrepareCommands:    append([]string(nil), plan.Options.PrepareCommands...),
-		PostCommands:       append([]string(nil), plan.Options.PostCommands...),
-		AlwaysCommands:     append([]string(nil), plan.Options.AlwaysCommands...),
-		Image:              defaultString(plan.Options.Image, preflightapi.DefaultImage),
-		RunnerSize:         defaultString(plan.Options.RunnerSize, "standard"),
-		TimeoutSeconds:     defaultInt(plan.Options.TimeoutSeconds, defaultRunTimeoutSeconds),
-		ConcurrencyGroup:   plan.Options.ConcurrencyGroup,
-		ConcurrencyLimit:   plan.Options.ConcurrencyLimit,
-		CacheMode:          defaultString(plan.Options.CacheMode, "cache-only"),
-		CachePaths:         append([]string(nil), plan.Options.CachePaths...),
-		CacheKeyFiles:      append([]string(nil), plan.Options.CacheKeyFiles...),
-		ArtifactPaths:      append([]string(nil), plan.Options.ArtifactPaths...),
-		NetworkMode:        plan.Options.NetworkMode,
-		NetworkAllowlist:   append([]string(nil), plan.Options.NetworkAllowlist...),
-		Docker:             plan.Options.Docker,
-		Services:           append([]string(nil), plan.Services...),
-		ServiceDefinitions: cloneRunServices(plan.ServiceSpecs),
-		WorkerSelector:     copyStringMap(plan.Options.WorkerSelector),
-		When:               plan.When,
-		ChangeMode:         plan.Options.ChangeMode,
-		KeepFailed:         plan.Options.KeepFailed,
-		Retries:            plan.Retries,
-		MatrixVariants:     variantNames,
-		MatrixVariantCount: len(plan.Variants),
-		Sync:               syncReport,
+		DependencyCheck:     cfg.Checks[plan.Name].DependencyCheck,
+		SkipWarm:            plan.SkipWarm,
+		SecretsRequested:    plan.Options.SecretsRequested != nil && *plan.Options.SecretsRequested,
+		Check:               plan.Name,
+		ConfigPath:          configPath,
+		ProjectID:           defaultString(plan.Options.ProjectID, "proj_dev"),
+		Region:              checkPlanDiagnosticRegion(plan),
+		Command:             plan.Options.Command,
+		Steps:               checkStepReportsFromSpecs(plan.Options.Steps),
+		PrepareCommands:     append([]string(nil), plan.Options.PrepareCommands...),
+		PostCommands:        append([]string(nil), plan.Options.PostCommands...),
+		AlwaysCommands:      append([]string(nil), plan.Options.AlwaysCommands...),
+		Image:               defaultString(plan.Options.Image, preflightapi.DefaultImage),
+		RunnerSize:          defaultString(plan.Options.RunnerSize, "standard"),
+		TimeoutSeconds:      defaultInt(plan.Options.TimeoutSeconds, defaultRunTimeoutSeconds),
+		ConcurrencyGroup:    plan.Options.ConcurrencyGroup,
+		ConcurrencyLimit:    plan.Options.ConcurrencyLimit,
+		CacheMode:           defaultString(plan.Options.CacheMode, "cache-only"),
+		CachePaths:          append([]string(nil), plan.Options.CachePaths...),
+		CacheKeyFiles:       append([]string(nil), plan.Options.CacheKeyFiles...),
+		ArtifactPaths:       append([]string(nil), plan.Options.ArtifactPaths...),
+		NetworkMode:         plan.Options.NetworkMode,
+		NetworkAllowlist:    append([]string(nil), plan.Options.NetworkAllowlist...),
+		Docker:              plan.Options.Docker,
+		Services:            append([]string(nil), plan.Services...),
+		ServiceDefinitions:  cloneRunServices(plan.ServiceSpecs),
+		RuntimeRequirements: preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements),
+		WorkerSelector:      copyStringMap(plan.Options.WorkerSelector),
+		When:                plan.When,
+		ChangeMode:          plan.Options.ChangeMode,
+		KeepFailed:          plan.Options.KeepFailed,
+		Retries:             plan.Retries,
+		MatrixVariants:      variantNames,
+		MatrixVariantCount:  len(plan.Variants),
+		Sync:                syncReport,
 	}
 	report.Warnings = append(report.Warnings, artifactProducerWarningsForPaths(report, checkSpecificArtifactPaths(report.ArtifactPaths, cfg.Artifacts.Paths))...)
 	return report, nil

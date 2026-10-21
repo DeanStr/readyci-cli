@@ -486,7 +486,7 @@ checks:
 
 	assertConfigInvalid := func(label string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "different sync.exclude or include_untracked") {
+		if err == nil || !strings.Contains(err.Error(), "different sync.exclude, reviewed_fixtures, or include_untracked") {
 			t.Fatalf("%s error = %v, want source-filter conflict", label, err)
 		}
 		normalized := normalizeCLIError(err)

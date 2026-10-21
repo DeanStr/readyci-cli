@@ -102,7 +102,7 @@ func TestUploadVerificationSessionSourceUsesDirectObjectStoreContract(t *testing
 				t.Error("completion happened before object upload")
 			}
 			completed = true
-			_ = json.NewEncoder(w).Encode(preflightapi.VerificationSession{SessionID: sessionID})
+			_ = json.NewEncoder(w).Encode(preflightapi.VerificationSession{SessionID: sessionID, SourceCompletionTimings: &preflightapi.PhaseTimings{Basis: "api_monotonic", PhasesMS: map[string]*int64{"unused_ms": nil}}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -134,6 +134,9 @@ func TestUploadVerificationSessionSourceUsesDirectObjectStoreContract(t *testing
 	}
 	if session.SessionID != sessionID || !prepared || !objectUploaded || !completed {
 		t.Fatalf("session=%+v prepared=%t uploaded=%t completed=%t", session, prepared, objectUploaded, completed)
+	}
+	if timings.SourceCompletion == nil || timings.SourceCompletion.Basis != "api_monotonic" {
+		t.Fatalf("server source timings not copied: %+v", timings)
 	}
 	for name, value := range map[string]*int64{"prepare": timings.SourcePrepareMS, "transfer": timings.SourceTransferMS, "validation": timings.SourceValidationMS} {
 		if value == nil || *value < 0 {

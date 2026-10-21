@@ -8,19 +8,22 @@ import (
 )
 
 type detectedCheck struct {
-	Name             string
-	Runtimes         []string
-	RustTargetPaths  []string
-	Command          string
-	Prepare          []string
-	Services         []string
-	Changes          string
-	Timeout          string
-	Docker           bool
-	Network          string
-	ConcurrencyGroup string
-	ConcurrencyLimit int
-	KeepFailed       bool
+	Name                string
+	Runtimes            []string
+	RuntimeRequirements map[string]string
+	PreparationReview   []string
+	RustTargetPaths     []string
+	Command             string
+	Steps               []config.StepConfig
+	Prepare             []string
+	Services            []string
+	Changes             string
+	Timeout             string
+	Docker              bool
+	Network             string
+	ConcurrencyGroup    string
+	ConcurrencyLimit    int
+	KeepFailed          bool
 }
 
 type detectedService struct {
@@ -106,7 +109,7 @@ func basicDetectedProjectTemplate(cwd, projectID, image, profile string, include
 	}
 	makeMap := scanRepoMake(cwd)
 	for _, candidate := range []struct{ target, check, changes string }{
-		{"check", "ci", ""}, {"check-ci", "ci", ""}, {"check-touched", "affected", "working"}, {"web-check", "web", ""},
+		{"check", "ci", ""}, {"check-ci", "ci", ""}, {"test", "test", ""}, {"check-touched", "affected", "working"}, {"web-check", "web", ""},
 	} {
 		if target, ok := makeMapTarget(makeMap, candidate.target); ok {
 			checkName := uniqueCheckName(candidate.check, used)
@@ -116,22 +119,11 @@ func basicDetectedProjectTemplate(cwd, projectID, image, profile string, include
 			signals = append(signals, "Makefile "+candidate.target+" target -> "+command)
 		}
 	}
-	hasProjectChecks := len(checks) > 0
 	unmatchedChecks := make(config.CommandList, 0, len(checks))
 	for _, check := range checks {
 		unmatchedChecks = append(unmatchedChecks, check.Name)
 	}
 	if includeStandardHelpers {
-		if !hasProjectChecks {
-			checkName := uniqueCheckName("ci", used)
-			checks = append(checks, detectedCheck{
-				Name:    checkName,
-				Command: "make check",
-				Timeout: "20m",
-			})
-			affectedRules = appendDetectedAffectedRule(affectedRules, checkName, "**")
-			signals = append(signals, "generic starter -> make check")
-		}
 		shellCheckName := uniqueCheckName("shell-syntax", used)
 		opsCheckName := uniqueCheckName("ops-config", used)
 		checks = append(checks,
@@ -163,6 +155,12 @@ func basicDetectedProjectTemplate(cwd, projectID, image, profile string, include
 	if len(checks) == 0 {
 		return "", false
 	}
+	for i := range checks {
+		checks[i] = setupPrepareDetectedCheck(cwd, checks[i])
+		for _, requirement := range setupDependencyReviewRequirements(cwd, []string{checks[i].Command}) {
+			signals = append(signals, "Preparation review required: "+requirement)
+		}
+	}
 
 	return renderDetectedProjectTemplate(projectID, image, profile, checks, affectedRules, signals, unmatchedChecks), true
 }
@@ -178,9 +176,14 @@ func appendDetectedAffectedRule(rules []config.AffectedRule, check string, paths
 }
 
 func makeMapTarget(makeMap repoMakeMap, target string) (repoMakeTarget, bool) {
-	for _, candidate := range makeMap.Targets {
-		if candidate.Name == target {
-			return candidate, true
+	// Root defaults must not select a bundled dependency or another component.
+	// Preserve Make's normal file precedence while retaining the exact file in
+	// the generated command. Nested entrypoints remain explicit import choices.
+	for _, file := range []string{"GNUmakefile", "makefile", "Makefile"} {
+		for _, candidate := range makeMap.Targets {
+			if candidate.Path == file && candidate.Name == target && !candidate.Conditional {
+				return candidate, true
+			}
 		}
 	}
 	return repoMakeTarget{}, false
@@ -188,8 +191,9 @@ func makeMapTarget(makeMap repoMakeMap, target string) (repoMakeTarget, bool) {
 
 func makeTargetCommand(target repoMakeTarget) string {
 	dir := makeDirForPath(target.Path)
+	command := "make -f " + shellQuoteArg(filepath.Base(target.Path)) + " -- " + shellQuoteArg(target.Name)
 	if dir == "" {
-		return "make " + shellQuoteArg(target.Name)
+		return command
 	}
-	return "make -C " + shellQuoteArg(dir) + " " + shellQuoteArg(target.Name)
+	return "make -C " + shellQuoteArg(dir) + " -f " + shellQuoteArg(filepath.Base(target.Path)) + " -- " + shellQuoteArg(target.Name)
 }

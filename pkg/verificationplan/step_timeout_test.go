@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -81,5 +82,48 @@ func TestStepDeadlinePreservesStdin(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	if err != nil || string(out) != "step input" {
 		t.Fatalf("stdin was not preserved: output=%q err=%v", out, err)
+	}
+}
+
+func TestStructuredStepsPreservePreparedRuntimeAndDependencyEnvironment(t *testing.T) {
+	for _, timeout := range []int{0, 10} {
+		t.Run(strconv.Itoa(timeout), func(t *testing.T) {
+			root := t.TempDir()
+			selected := filepath.Join(root, "prepared-bin")
+			if err := os.Mkdir(selected, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"yarn", "python"} {
+				if err := os.WriteFile(filepath.Join(selected, name), []byte("#!/bin/sh\nprintf 'prepared-"+name+"\\n'\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			defaults := filepath.Join(root, "image-default-bin")
+			if err := os.Mkdir(defaults, 0700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"yarn", "python"} {
+				if err := os.WriteFile(filepath.Join(defaults, name), []byte("#!/bin/sh\nprintf 'image-default-"+name+"\\n'\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// The producer's readyci-rust.sh prepends immutable image binaries.
+			// A private login profile recreates that exact ordering behavior
+			// without changing this machine's global image or user profile.
+			if err := os.WriteFile(filepath.Join(root, ".bash_profile"), []byte("export PATH="+ShellQuoteArg(defaults)+":$PATH\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			command, err := CommandForRunSpec(RunSpec{PrepareCommands: []string{"export VIRTUAL_ENV=" + ShellQuoteArg(selected), "export PATH=" + ShellQuoteArg(selected) + ":$PATH"}, Steps: []preflightapi.RunStepSpec{{Name: "tests", Command: "yarn --version && python --version && test \"$VIRTUAL_ENV\" = " + ShellQuoteArg(selected), TimeoutSeconds: timeout}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			run := exec.Command("/bin/bash", "-lc", command)
+			run.Dir = root
+			run.Env = append(os.Environ(), "HOME="+root)
+			output, err := run.CombinedOutput()
+			if err != nil || !strings.Contains(string(output), "prepared-yarn") || !strings.Contains(string(output), "prepared-python") {
+				t.Fatalf("nested step reset prepared runtime/dependency PATH: %v %s", err, output)
+			}
+		})
 	}
 }

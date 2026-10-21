@@ -106,6 +106,11 @@ func localFailureAnalysis(kind string, confidence float64, fallbackSummary, summ
 }
 
 func localPreferredEvidenceText(kind string, evidence []preflightapi.RunFailureEvidence) string {
+	if kind == preflightapi.ClassificationTestFailed {
+		if summary, _ := diagnosiscommon.PytestFailureSummary(evidence); summary != "" {
+			return summary
+		}
+	}
 	for _, item := range evidence {
 		text := strings.TrimSpace(item.Text)
 		if text == "" || localLowSignalEvidenceText(text) {
@@ -145,10 +150,13 @@ func localFirstEvidenceText(evidence []preflightapi.RunFailureEvidence) string {
 
 func localLowSignalEvidenceText(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
-	if diagnosiscommon.DefiniteTestSuccessLine(text) {
+	if diagnosiscommon.DefiniteTestNonFailureLine(text) {
 		return true
 	}
 	if localAnalysisTextLooksTestFailure(text, lower) {
+		return false
+	}
+	if diagnosiscommon.PythonWarningDiagnostic(text) {
 		return false
 	}
 	return strings.Contains(lower, "npm warn deprecated") ||
@@ -203,13 +211,13 @@ func localPendingRunStatus(status string) bool {
 }
 
 func localRunEventSearchText(events []preflightapi.RunEvent) string {
-	return diagnosiscommon.EventSearchText(events)
+	return diagnosiscommon.FilterTestNonFailureLines(diagnosiscommon.EventSearchText(events))
 }
 
 func localEvidenceFromEvents(events []preflightapi.RunEvent, limit int) []preflightapi.RunFailureEvidence {
 	var evidence []preflightapi.RunFailureEvidence
-	seq := 0
-	for _, event := range events {
+	var ranker runLogsFailureEvidenceRanker
+	for eventIndex, event := range events {
 		if event.Type != preflightapi.EventStdout && event.Type != preflightapi.EventStderr {
 			continue
 		}
@@ -227,22 +235,48 @@ func localEvidenceFromEvents(events []preflightapi.RunEvent, limit int) []prefli
 			if localLowSignalEvidenceText(line) || (path == "" && !localEvidenceLineLooksUseful(line)) {
 				continue
 			}
-			seq++
 			evidence = append(evidence, preflightapi.RunFailureEvidence{
 				EventID: event.ID,
 				Stream:  stream,
-				Seq:     seq,
+				Seq:     diagnosiscommon.EventSequence(event, eventIndex),
 				Line:    index + 1,
 				Event:   event.Type,
 				Path:    path,
 				Text:    textlimit.PrefixUTF8WithinBytes(line, 500),
 			})
 			if limit > 0 && len(evidence) >= limit {
-				return evidence
+				if len(evidence) > limit {
+					// Retain strong failures on either side of long warning
+					// sections, using the same ranking as the log summary.
+					evidence = selectRunLogsFailureEvidenceWithRanker(evidence, limit, &ranker)
+					ranker.retain(evidence)
+				}
 			}
 		}
 	}
 	return evidence
+}
+
+// A retained warning can be refined for display only when actual output has a
+// named failed test. Native classification, status, exit and action stay intact.
+func refinedObservedTestFailureSummary(kind, retained string, analysis preflightapi.RunFailureAnalysis) (string, bool) {
+	if kind != preflightapi.ClassificationTestFailed || !diagnosiscommon.PythonWarningDiagnostic(retained) {
+		return "", false
+	}
+	summary, _ := diagnosiscommon.PytestFailureSummary(analysis.Evidence)
+	return summary, summary != ""
+}
+
+// Repository test diagnostics must not be borrowed from sidecars or preparation
+// commands. Empty phase is retained for older command-output records.
+func repositoryTestOutputEvents(events []preflightapi.RunEvent) []preflightapi.RunEvent {
+	var selected []preflightapi.RunEvent
+	for _, event := range events {
+		if _, log := diagnosiscommon.EventStream(event); log && event.Service == "" && (event.Phase == "" || event.Phase == "command") {
+			selected = append(selected, event)
+		}
+	}
+	return selected
 }
 
 func localEvidenceLineLooksUseful(line string) bool {
@@ -251,6 +285,9 @@ func localEvidenceLineLooksUseful(line string) bool {
 		return true
 	}
 	if strings.HasPrefix(lower, "fail ") || strings.HasPrefix(lower, "--- fail") {
+		return true
+	}
+	if strings.Contains(lower, " differs from ") {
 		return true
 	}
 	if strings.Contains(lower, "missing go.sum entry") ||
@@ -354,6 +391,8 @@ func localDefaultSummary(kind string) string {
 		return "A dependency download failed."
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "A dependency is missing from the run environment."
+	case preflightapi.ClassificationEnvironmentSetupFailed:
+		return "The run environment does not meet the command's prerequisites."
 	case preflightapi.ClassificationTimeout:
 		return "The run timed out."
 	case preflightapi.ClassificationCancelled:

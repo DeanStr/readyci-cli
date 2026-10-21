@@ -9,12 +9,14 @@ import (
 )
 
 type commandPhases struct {
-	Env     map[string]string
-	Prepare []string
-	Command string
-	Steps   []preflightapi.RunStepSpec
-	Post    []string
-	Always  []string
+	CacheDependencyCheck     string
+	CacheRuntimeRequirements map[string]string
+	Env                      map[string]string
+	Prepare                  []string
+	Command                  string
+	Steps                    []preflightapi.RunStepSpec
+	Post                     []string
+	Always                   []string
 }
 
 // CommandForRunSpec assembles the single shell command a run executes,
@@ -23,13 +25,19 @@ func CommandForRunSpec(options RunSpec) (string, error) {
 	if strings.TrimSpace(options.Command) != "" && len(options.Steps) > 0 {
 		return strings.TrimSpace(options.Command), nil
 	}
+	cacheRequirements := options.CacheRuntimeRequirements
+	if cacheRequirements == nil {
+		cacheRequirements = options.RuntimeRequirements
+	}
 	return buildCommand(commandPhases{
-		Env:     options.Env,
-		Prepare: options.PrepareCommands,
-		Command: options.Command,
-		Steps:   options.Steps,
-		Post:    options.PostCommands,
-		Always:  options.AlwaysCommands,
+		CacheRuntimeRequirements: cacheRequirements,
+		CacheDependencyCheck:     options.CacheDependencyCheck,
+		Env:                      options.Env,
+		Prepare:                  options.PrepareCommands,
+		Command:                  options.Command,
+		Steps:                    options.Steps,
+		Post:                     options.PostCommands,
+		Always:                   options.AlwaysCommands,
 	}, options.CachePaths, options.CacheKeyFiles, options.KeepFailed)
 }
 
@@ -73,7 +81,7 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 	phases.Post = trimCommandList(phases.Post)
 	phases.Always = trimCommandList(phases.Always)
 	envScript := matrixCommandPrefix(phases.Env)
-	cacheScript, err := cachePathSetupScript(cachePaths, cacheKeyFiles)
+	cacheScript, err := cachePathSetupScript(cachePaths, cacheKeyFiles, phases.CacheRuntimeRequirements, phases.CacheDependencyCheck)
 	if err != nil {
 		return "", err
 	}

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +28,11 @@ func normalizedVerificationSourceBuildOptions(options syncbundlebuild.BuildOptio
 		return syncbundlebuild.BuildOptions{}, cliConfigError(err.Error(), err)
 	}
 	options.ChangeMode = changeMode
-	return options, nil
+	options.ReviewedFixtures, err = syncbundle.NormalizeReviewedFixtures(options.ReviewedFixtures)
+	if err != nil {
+		return syncbundlebuild.BuildOptions{}, cliConfigError("sync.reviewed_fixtures: "+err.Error(), err)
+	}
+	return canonicalBuildOptions(options), nil
 }
 
 func registeredPolicyBuildOptions(
@@ -44,16 +49,19 @@ func registeredPolicyBuildOptions(
 	useProjectIgnore := false
 	includeUntracked := binding.IncludeUntracked
 	return syncbundlebuild.BuildOptions{
-		ChangeMode:             fallback.ChangeMode,
-		ExcludePatterns:        append([]string(nil), binding.ExcludePatterns...),
-		DefaultExcludePatterns: append([]string(nil), binding.DefaultExcludePatterns...),
-		IncludeUntracked:       &includeUntracked,
-		UseProjectIgnore:       &useProjectIgnore,
-		SourcePolicyDigest:     binding.Digest,
+		ChangeMode:                      fallback.ChangeMode,
+		ExcludePatterns:                 append([]string(nil), binding.ExcludePatterns...),
+		DefaultExcludePatterns:          append([]string(nil), binding.DefaultExcludePatterns...),
+		DefaultUntrackedExcludePatterns: append([]string(nil), binding.DefaultUntrackedExcludePatterns...),
+		ReviewedFixtures:                append([]syncbundle.ReviewedFixture(nil), binding.ReviewedFixtures...),
+		IncludeUntracked:                &includeUntracked,
+		UseProjectIgnore:                &useProjectIgnore,
+		SourcePolicyDigest:              binding.Digest,
 	}, nil
 }
 
 func verificationSourceRecipe(options syncbundlebuild.BuildOptions) *preflightapi.VerificationSourceRecipe {
+	options = canonicalBuildOptions(options)
 	includeUntracked := true
 	if options.IncludeUntracked != nil {
 		includeUntracked = *options.IncludeUntracked
@@ -63,11 +71,13 @@ func verificationSourceRecipe(options syncbundlebuild.BuildOptions) *preflightap
 		useProjectIgnore = *options.UseProjectIgnore
 	}
 	return &preflightapi.VerificationSourceRecipe{
-		ExcludePatterns:        append([]string{}, options.ExcludePatterns...),
-		DefaultExcludePatterns: append([]string{}, options.DefaultExcludePatterns...),
-		IncludeUntracked:       includeUntracked,
-		UseProjectIgnore:       useProjectIgnore,
-		SourcePolicyDigest:     strings.TrimSpace(options.SourcePolicyDigest),
+		ExcludePatterns:                 append([]string{}, options.ExcludePatterns...),
+		DefaultExcludePatterns:          append([]string{}, options.DefaultExcludePatterns...),
+		DefaultUntrackedExcludePatterns: append([]string{}, options.DefaultUntrackedExcludePatterns...),
+		ReviewedFixtures:                append([]syncbundle.ReviewedFixture{}, options.ReviewedFixtures...),
+		IncludeUntracked:                includeUntracked,
+		UseProjectIgnore:                useProjectIgnore,
+		SourcePolicyDigest:              strings.TrimSpace(options.SourcePolicyDigest),
 	}
 }
 
@@ -78,12 +88,14 @@ func verificationSourceBuildOptions(recipe preflightapi.VerificationRecipe) (syn
 	includeUntracked := recipe.Source.IncludeUntracked
 	useProjectIgnore := recipe.Source.UseProjectIgnore
 	return syncbundlebuild.BuildOptions{
-		ChangeMode:             recipe.ChangeMode,
-		ExcludePatterns:        append([]string(nil), recipe.Source.ExcludePatterns...),
-		DefaultExcludePatterns: append([]string(nil), recipe.Source.DefaultExcludePatterns...),
-		IncludeUntracked:       &includeUntracked,
-		UseProjectIgnore:       &useProjectIgnore,
-		SourcePolicyDigest:     recipe.Source.SourcePolicyDigest,
+		ChangeMode:                      recipe.ChangeMode,
+		ExcludePatterns:                 append([]string(nil), recipe.Source.ExcludePatterns...),
+		DefaultExcludePatterns:          append([]string{}, recipe.Source.DefaultExcludePatterns...),
+		DefaultUntrackedExcludePatterns: append([]string{}, recipe.Source.DefaultUntrackedExcludePatterns...),
+		ReviewedFixtures:                append([]syncbundle.ReviewedFixture(nil), recipe.Source.ReviewedFixtures...),
+		IncludeUntracked:                &includeUntracked,
+		UseProjectIgnore:                &useProjectIgnore,
+		SourcePolicyDigest:              recipe.Source.SourcePolicyDigest,
 	}, nil
 }
 
@@ -141,7 +153,7 @@ func compatibleAffectedSessionBuildOptions(plans []affectedCheckPlan, fallback s
 		}
 		if verificationBuildOptionsKey(current) != firstKey {
 			return syncbundlebuild.BuildOptions{}, fmt.Errorf(
-				"affected checks %q and %q require different sync.exclude or include_untracked settings; one sealed verification session must use one exact workspace",
+				"affected checks %q and %q require different sync.exclude, reviewed_fixtures, or include_untracked settings; one sealed verification session must use one exact workspace; use a shared top-level sync policy for combined checks, or run each named check separately",
 				plans[0].Plan.Name, selected.Plan.Name,
 			)
 		}
@@ -174,33 +186,70 @@ func canonicalVerificationBuildOptions(options remoteRunOptions, changeMode stri
 		includeUntracked = false
 	}
 	return canonicalBuildOptions(syncbundlebuild.BuildOptions{
-		ChangeMode:       changeMode,
-		ExcludePatterns:  options.SyncExclude,
+		ChangeMode:      changeMode,
+		ExcludePatterns: options.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.SyncReviewedFixtures...),
 		IncludeUntracked: &includeUntracked,
 	})
 }
 
 func canonicalBuildOptions(options syncbundlebuild.BuildOptions) syncbundlebuild.BuildOptions {
-	excludes := make([]string, 0, len(options.ExcludePatterns))
-	seen := map[string]bool{}
-	for _, pattern := range options.ExcludePatterns {
-		pattern = strings.TrimSpace(pattern)
-		if pattern != "" && !seen[pattern] {
-			seen[pattern] = true
-			excludes = append(excludes, pattern)
+	if strings.TrimSpace(options.SourcePolicyDigest) == "" {
+		if options.DefaultExcludePatterns == nil {
+			options.DefaultExcludePatterns = syncbundle.DefaultSourceExcludePatterns()
+		}
+		if options.DefaultUntrackedExcludePatterns == nil {
+			options.DefaultUntrackedExcludePatterns = syncbundle.DefaultUntrackedExcludePatterns()
 		}
 	}
-	sort.Strings(excludes)
-	options.ExcludePatterns = excludes
+	options.ExcludePatterns = canonicalSourcePatterns(options.ExcludePatterns)
+	options.DefaultExcludePatterns = canonicalSourcePatterns(options.DefaultExcludePatterns)
+	options.DefaultUntrackedExcludePatterns = canonicalSourcePatterns(options.DefaultUntrackedExcludePatterns)
+	options.ReviewedFixtures = append([]syncbundle.ReviewedFixture(nil), options.ReviewedFixtures...)
+	sort.Slice(options.ReviewedFixtures, func(i, j int) bool {
+		left, right := options.ReviewedFixtures[i], options.ReviewedFixtures[j]
+		if left.Path != right.Path {
+			return left.Path < right.Path
+		}
+		return left.SHA256 < right.SHA256
+	})
 	return options
 }
 
+func canonicalSourcePatterns(patterns []string) []string {
+	seen := make(map[string]bool, len(patterns))
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern != "" && !seen[pattern] {
+			seen[pattern] = true
+			normalized = append(normalized, pattern)
+		}
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
 func verificationBuildOptionsKey(options syncbundlebuild.BuildOptions) string {
+	options = canonicalBuildOptions(options)
 	includeUntracked := true
 	if options.IncludeUntracked != nil {
 		includeUntracked = *options.IncludeUntracked
 	}
-	return fmt.Sprintf("%s\x00%t\x00%s", options.ChangeMode, includeUntracked, strings.Join(options.ExcludePatterns, "\x00"))
+	useProjectIgnore := options.UseProjectIgnore == nil || *options.UseProjectIgnore
+	// JSON keeps arbitrary legal pattern bytes from colliding with separators.
+	encoded, _ := json.Marshal(struct {
+		ChangeMode                      string
+		IncludeUntracked                bool
+		UseProjectIgnore                bool
+		SourcePolicyDigest              string
+		ExcludePatterns                 []string
+		DefaultExcludePatterns          []string
+		DefaultUntrackedExcludePatterns []string
+		ReviewedFixtures                []syncbundle.ReviewedFixture
+	}{options.ChangeMode, includeUntracked, useProjectIgnore, options.SourcePolicyDigest,
+		options.ExcludePatterns, options.DefaultExcludePatterns, options.DefaultUntrackedExcludePatterns,
+		options.ReviewedFixtures})
+	return string(encoded)
 }
 
 func validateVerificationSourceUploadRequirements(created preflightapi.CreateVerificationSessionResponse, probeDirectInvariants bool) (bool, error) {
@@ -345,6 +394,9 @@ func uploadVerificationSessionSource(ctx context.Context, client *api.Client, cr
 			Classification: preflightapi.ClassificationPlatformInternalError,
 			Message:        "verification source completion returned an invalid session receipt",
 		}
+	}
+	if timings != nil {
+		timings.SourceCompletion = uploaded.SourceCompletionTimings
 	}
 	emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressUploadCompleted, RunName: "session source", RunID: created.Session.SessionID})
 	return uploaded, nil

@@ -180,13 +180,13 @@ func TestWorkflowImportUsesEffectiveRunDefaults(t *testing.T) {
 	}{
 		{name: "job overrides workflow", jobDefaults: "    defaults:\n      run:\n        shell: bash\n        working-directory: cli\n"},
 		{name: "step overrides workflow", stepDefaults: "        shell: bash\n        working-directory: cli\n"},
-		{name: "step overrides job", jobDefaults: "    defaults:\n      run:\n        shell: sh\n        working-directory: ${{ vars.JOB_DIR }}\n", stepDefaults: "        shell: bash\n        working-directory: cli\n"},
+		{name: "step overrides job", jobDefaults: "    defaults:\n      run:\n        shell: sh\n        working-directory: job-directory\n", stepDefaults: "        shell: bash\n        working-directory: cli\n"},
 		{name: "effective custom shell", stepDefaults: "        working-directory: cli\n", unsupported: true},
-		{name: "effective dynamic directory", stepDefaults: "        shell: bash\n", unsupported: true},
+		{name: "effective dynamic directory", jobDefaults: "    defaults:\n      run:\n        working-directory: ${{ vars.JOB_DIR }}\n", stepDefaults: "        shell: bash\n", unsupported: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := t.TempDir()
-			workflow := "defaults:\n  run:\n    shell: pwsh\n    working-directory: ${{ vars.DEFAULT_DIR }}\njobs:\n  test:\n    runs-on: ubuntu-latest\n" + tc.jobDefaults + "    steps:\n      - run: cat probe.txt\n" + tc.stepDefaults
+			workflow := "defaults:\n  run:\n    shell: pwsh\n    working-directory: workflow-directory\njobs:\n  test:\n    runs-on: ubuntu-latest\n" + tc.jobDefaults + "    steps:\n      - run: cat probe.txt\n" + tc.stepDefaults
 			writeFileForRepoMapTest(t, filepath.Join(repo, ".github", "workflows", "test.yml"), workflow)
 			writeFileForRepoMapTest(t, filepath.Join(repo, "cli", "probe.txt"), "selected")
 			candidates := setupImportCandidates(repo, "github-actions")

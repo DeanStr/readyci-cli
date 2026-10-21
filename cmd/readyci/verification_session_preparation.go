@@ -8,6 +8,7 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type verificationSessionRemoteContext struct {
@@ -132,14 +133,14 @@ type preparedVerificationSession struct {
 }
 
 func prepareVerificationSession(ctx context.Context, options verificationSessionOptions, intent string) (preparedVerificationSession, error) {
-	if err := validateExplicitDependencyWarmSecretRequest(options.CheckName, intent, options.RequestSecrets); err != nil {
-		return preparedVerificationSession{}, cliConfigError(err.Error(), err)
-	}
 	loaded, err := loadProjectConfigOrInfer(".")
 	if err != nil {
 		return preparedVerificationSession{}, cliConfigError(err.Error(), err)
 	}
 	cfg := loaded.Config
+	if err := validateExplicitDependencyWarmSecretRequest(cfg, options.CheckName, intent, options.RequestSecrets); err != nil {
+		return preparedVerificationSession{}, cliConfigError(err.Error(), err)
+	}
 	projectID := strings.TrimSpace(options.ProjectID)
 	if projectID == "" {
 		projectID = cfg.ProjectID
@@ -150,6 +151,7 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 	}
 	resolve := agentResolveOptionsForIntent(intent, checkResolveOptions{
 		APIURL: options.APIURL, ProjectID: projectID, Changes: options.Changes,
+		SkipWarm:   options.SkipWarm,
 		RetryCount: options.RetryCount, RetryProvided: options.RetryProvided,
 	})
 	prepared := preparedVerificationSession{ProjectID: projectID, CoverageMode: "check"}
@@ -170,7 +172,7 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 		includeUntracked := report.Sync.IncludeUntracked
 		sessionPlans := append(append(make([]affectedCheckPlan, 0, len(warmSelected)+len(selected)), warmSelected...), selected...)
 		prepared.BuildOptions, err = compatibleAffectedSessionBuildOptions(sessionPlans, syncbundlebuild.BuildOptions{
-			ChangeMode: report.ChangeMode, ExcludePatterns: append([]string(nil), report.Sync.ExcludePatterns...), IncludeUntracked: &includeUntracked,
+			ChangeMode: report.ChangeMode, ExcludePatterns: append([]string(nil), report.Sync.ExcludePatterns...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), report.Sync.ReviewedFixtures...), IncludeUntracked: &includeUntracked,
 		})
 		if err != nil {
 			return preparedVerificationSession{}, err
@@ -194,9 +196,9 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 	}
 	applyAgentRemoteRunOptionsForIntent(intent, options.RequestSecrets, &plan.Options)
 	prepared.BuildOptions = syncbundlebuild.BuildOptions{
-		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: append([]string(nil), plan.Options.SyncExclude...), IncludeUntracked: plan.Options.IncludeUntracked,
+		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: append([]string(nil), plan.Options.SyncExclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...), IncludeUntracked: plan.Options.IncludeUntracked,
 	}
-	if explicitDependencyWarmRequested(options.CheckName, intent) {
+	if explicitDependencyWarmRequested(cfg, options.CheckName, intent) {
 		targets, targetErr := dependencyWarmTargetsForExplicitCheck(ctx, ".", cfg, loaded.Path, resolve, plan)
 		if targetErr != nil {
 			return preparedVerificationSession{}, targetErr

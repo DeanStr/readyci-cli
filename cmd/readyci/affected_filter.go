@@ -70,8 +70,8 @@ func (cache *affectedPathFilterCache) includes(checkName string, file string) (b
 	if !ok {
 		var err error
 		filter, err = syncbundlebuild.NewPathFilter(cache.ctx, cache.cwd, syncbundlebuild.BuildOptions{
-			ChangeMode:       cache.changeMode,
-			ExcludePatterns:  append([]string(nil), syncConfig.Exclude...),
+			ChangeMode:      cache.changeMode,
+			ExcludePatterns: append([]string(nil), syncConfig.Exclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
 			IncludeUntracked: syncConfig.IncludeUntracked,
 		})
 		if err != nil {

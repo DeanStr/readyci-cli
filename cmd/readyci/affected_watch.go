@@ -91,7 +91,7 @@ func affectedWorkspaceFingerprint(ctx context.Context, cwd string, cfg config.Pr
 	for _, key := range keys {
 		syncConfig := syncConfigs[key]
 		fingerprint, err := workspaceFingerprint(ctx, workspaceFingerprintOptions{
-			ExcludePatterns:  append([]string(nil), syncConfig.Exclude...),
+			ExcludePatterns: append([]string(nil), syncConfig.Exclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
 			IncludeUntracked: syncConfig.IncludeUntracked,
 			ChangeMode:       changeMode,
 		})

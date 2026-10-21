@@ -34,7 +34,7 @@ func planIndexPaths(ctx context.Context, root string, paths []string, matcher ig
 		if err != nil {
 			return nil, err
 		}
-		if matcher.ignored(rel) {
+		if matcher.ignoredTracked(rel) {
 			continue
 		}
 		if syncbundle.IsGitControlPath(rel) {

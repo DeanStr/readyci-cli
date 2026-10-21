@@ -1,0 +1,50 @@
+{
+  "schema": "readyci.matched-job-native-proof.v1",
+  "repository": "cli/cli",
+  "commit": "fa92838bef95fe4a29c1587693885d5e9bdb6cf1",
+  "complete_capture_sha256": "2b1086915a1a1bab57a68741be2b5f00c3bc796074f210c5f4a686c233693aa1",
+  "paired_preparation_sha256": "59770257c3f955a60447717b0ca6ee0dfda598e9fba8a72b87fb607131638bcf",
+  "sealed_command_sha256": "65217d295c85f95ec83ac3fdedab3ba35e84d348fd0c81c3d878030504ef97c7",
+  "proof_limit": "Step labels identify command output, not independent per-step exit receipts. Dependency download was silent in both lanes; automatic final build was silent with retained cache. Both exact full fail-fast sealed three-step commands exited successfully after race-enabled integration-tagged test output. No aggregate test-case count or equal cache warmth is claimed.",
+  "lanes": [
+    {
+      "lane": "manual",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:95eb572a3af68100f6304957231496874ab38e67cd859b7a251571f7334ccde2",
+      "execution_digest": "sha256:b097ddc2d5212675e498241bf093e00db44162d29978463ff6499bcb85ed0e7a",
+      "workspace_digest": "sha256:3af0b9bfe5a70a991af3f15ec1ad38db5bb649b5c27f358902a71256516d5fab",
+      "sealed_plan_digest": "sha256:36cdfe1dc64cace551157a0fa0bdf26f62034df0375696b22b05b46ab4a19b22",
+      "sealed_command_sha256": "65217d295c85f95ec83ac3fdedab3ba35e84d348fd0c81c3d878030504ef97c7",
+      "complete_log_sha256": "36e344ad1c6b9e41dc0571e6f29ce86eb4882e1c0e192b8a89cae2e0ceffa485",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-2",
+        "step-3"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "All packages selected by go test -race -tags=integration ./... completed successfully; no aggregate test-case count claimed."
+    },
+    {
+      "lane": "automatic",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:88211e03d147cc6aaa0875194a75d57549e2b3276c1b27b614e8158b784a92e6",
+      "execution_digest": "sha256:7eb8ae6cdc1267f066b1dd24b414482866957db23cedba3b550aff0227f35cd8",
+      "workspace_digest": "sha256:9353947563d1fd9598f7eff3387ec30aca8edb3193edc13d5be89b5126262085",
+      "sealed_plan_digest": "sha256:d5baad1d77c0049aa90ac8534164923d45aca0ba66e17b9b10b4b0afb8ff9d29",
+      "sealed_command_sha256": "65217d295c85f95ec83ac3fdedab3ba35e84d348fd0c81c3d878030504ef97c7",
+      "complete_log_sha256": "84382968a601f2929616869031db187d8a2cbf41135241302d3ce823ac3cb7f1",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-2"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "All packages selected by go test -race -tags=integration ./... completed successfully; no aggregate test-case count claimed."
+    }
+  ]
+}

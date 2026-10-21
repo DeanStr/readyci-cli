@@ -19,6 +19,7 @@ func buildRemoteRunRequest(options remoteRunOptions, bundle syncbundlebuild.Buil
 	cacheLaneSizeBytes := cacheLaneSizeForMode(cacheMode, options.CacheLaneSizeBytes)
 	networkMode := defaultString(strings.TrimSpace(options.NetworkMode), preflightapi.DefaultNetworkMode)
 	request := preflightapi.CreateRunRequest{
+		RuntimeRequirements:   preflightapi.CloneRuntimeRequirements(options.RuntimeRequirements),
 		ProjectID:             projectID,
 		Region:                createRunRequestRegion(options.Region),
 		IdempotencyKey:        idempotencyKey,

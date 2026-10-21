@@ -242,6 +242,15 @@ type PrivacyExportPolicy struct {
 	ActivatedAt time.Time `json:"activated_at"`
 }
 
+type PrivacyExportPolicyProposal struct {
+	ProposalID string    `json:"proposal_id"`
+	TeamID     string    `json:"team_id"`
+	ProjectID  string    `json:"project_id"`
+	Digest     string    `json:"digest"`
+	CreatedAt  time.Time `json:"created_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
 type PrivacyExportVerificationCurrentness struct {
 	SessionID              string    `json:"session_id"`
 	TeamID                 string    `json:"team_id"`
@@ -291,6 +300,7 @@ type AdminPrivacyExport struct {
 	PolicyAcceptances []PrivacyExportPolicyAcceptance        `json:"policy_acceptances"`
 	RunGroups         []PrivacyExportRunGroup                `json:"run_groups"`
 	Policies          []PrivacyExportPolicy                  `json:"verification_policies"`
+	PolicyProposals   []PrivacyExportPolicyProposal          `json:"policy_proposals"`
 	Currentness       []PrivacyExportVerificationCurrentness `json:"verification_currentness"`
 	AuditEvents       []PrivacyExportAuditEvent              `json:"audit_events"`
 	SecretDeletions   []PrivacyExportProjectSecretDeletion   `json:"project_secret_deletions"`

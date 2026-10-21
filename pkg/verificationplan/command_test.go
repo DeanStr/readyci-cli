@@ -60,7 +60,7 @@ func TestCachePathSetupExpandsHomeRelativePath(t *testing.T) {
 	home := t.TempDir()
 	cache := t.TempDir()
 	cachePath := "~/.cache/readyci-test"
-	script, err := cachePathSetupScript([]string{cachePath}, nil)
+	script, err := cachePathSetupScript([]string{cachePath}, nil, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestCacheKeyComputationDoesNotRequireAwk(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workdir, "Cargo.lock"), []byte("lock"), 0o644); err != nil {
 		t.Fatalf("write lockfile: %v", err)
 	}
-	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"})
+	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"}, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestCacheKeyComputationDoesNotRequireAwk(t *testing.T) {
 }
 
 func TestCacheKeyComputationIgnoresWorkspacePath(t *testing.T) {
-	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"})
+	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"}, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestCacheKeyComputationPropagatesFinalHashFailure(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workdir, "Cargo.lock"), []byte("lock"), 0o644); err != nil {
 		t.Fatalf("write lockfile: %v", err)
 	}
-	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"})
+	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"}, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestCachePathSetupPrunesStaleKeyGenerations(t *testing.T) {
 		t.Fatalf("write old generation: %v", err)
 	}
 
-	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"})
+	script, err := cachePathSetupScript([]string{"target"}, []string{"Cargo.lock"}, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestCachePathSetupPrunesFailedRunSnapshots(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 
-	script, err := cachePathSetupScript([]string{"target"}, nil)
+	script, err := cachePathSetupScript([]string{"target"}, nil, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestCachePathSetupReportsPathAndFilesystemUsageOnFailure(t *testing.T) {
 		t.Fatalf("write blocking cache file: %v", err)
 	}
 
-	script, err := cachePathSetupScript([]string{"target"}, nil)
+	script, err := cachePathSetupScript([]string{"target"}, nil, nil, "")
 	if err != nil {
 		t.Fatalf("cache path setup script: %v", err)
 	}

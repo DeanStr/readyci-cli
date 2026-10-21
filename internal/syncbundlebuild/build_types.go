@@ -23,10 +23,17 @@ type BuildOptions struct {
 	// false so candidate-controlled .readyciignore bytes cannot narrow the
 	// source view used for an authoritative plan.
 	UseProjectIgnore *bool
-	// DefaultExcludePatterns is set by an independently registered source
-	// binding. Ordinary bundles use the builder defaults; authoritative bundles
-	// use and record this exact trusted list instead of hidden client behavior.
+	// DefaultExcludePatterns is an exact source-recipe filter. Nil ordinary
+	// options use builder defaults; non-nil options preserve the recorded filter.
+	// Registered bundles use the independently authorized exact list, including
+	// an empty list, instead of hidden client behavior.
 	DefaultExcludePatterns []string
+	// DefaultUntrackedExcludePatterns removes generated output only when a path
+	// is not supplied by Git. Registered policies bind this exact list too.
+	DefaultUntrackedExcludePatterns []string
+	// ReviewedFixtures permits only exact, regular Git-tracked fixture bytes to
+	// bypass the default confidentiality filter; explicit exclusions still win.
+	ReviewedFixtures []syncbundle.ReviewedFixture
 	// SourcePolicyDigest binds the canonical sync filter used by the builder to
 	// an independently registered policy revision.
 	SourcePolicyDigest string

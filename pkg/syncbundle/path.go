@@ -45,14 +45,21 @@ func validateRelativePath(value string) (string, error) {
 	return ValidateRelativePath(value)
 }
 
-func ValidateSymlinkTarget(value string) error {
+// ValidateSymlinkTargetSyntax checks the representation of a relative symlink
+// target. Containment depends on the complete entry namespace, including any
+// symlink hops before a parent component; ValidateManifest performs that check.
+func ValidateSymlinkTargetSyntax(value string) error {
+	// Linux symlink contents must fit in one page, including their terminator.
+	if len(value) > 4095 {
+		return fmt.Errorf("symlink target exceeds 4095 bytes supported by the runner")
+	}
 	if containsControlCharacter(value) {
 		return fmt.Errorf("symlink target %q contains control character", value)
 	}
-	target := strings.TrimSpace(value)
-	if target == "" {
+	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("symlink target is empty")
 	}
+	target := value
 	if strings.Contains(target, "\\") {
 		return fmt.Errorf("symlink target %q contains backslash", value)
 	}
@@ -60,16 +67,7 @@ func ValidateSymlinkTarget(value string) error {
 	if path.IsAbs(slashTarget) || filepath.IsAbs(target) || hasWindowsVolumePrefix(slashTarget) {
 		return fmt.Errorf("symlink target %q must be workspace-relative", value)
 	}
-	for _, part := range strings.Split(slashTarget, "/") {
-		if part == ".." {
-			return fmt.Errorf("symlink target %q must not contain ..", value)
-		}
-	}
 	return nil
-}
-
-func validateSymlinkTarget(value string) error {
-	return ValidateSymlinkTarget(value)
 }
 
 func IsGitControlPath(rel string) bool {

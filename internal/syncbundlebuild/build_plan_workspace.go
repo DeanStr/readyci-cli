@@ -44,8 +44,8 @@ func entryFromInfo(rel string, parent *os.Root, name string, info os.FileInfo, i
 		if err != nil {
 			return plannedEntry{}, false, err
 		}
-		if err := syncbundle.ValidateSymlinkTarget(linkname); err != nil {
-			return plannedEntry{}, false, fmt.Errorf("symlink %q has invalid target: %w", rel, err)
+		if err := syncbundle.ValidateSymlinkTargetSyntax(linkname); err != nil {
+			return plannedEntry{}, false, fmt.Errorf("%w: symlink %q has invalid target: %w", ErrUnsupportedRepository, rel, err)
 		}
 		entry.Type = syncbundle.EntryTypeSymlink
 		entry.Linkname = linkname

@@ -72,7 +72,67 @@
     "want_classification": "test_failed",
     "want_agent_action": "fix_code",
     "want_primary_file": "tests/test_cli.py",
-    "want_summary_contains": "tests/test_cli.py:547",
+    "want_summary_contains": "FAILED tests/test_cli.py::test_load_dotenv - AssertionError",
     "want_summary_not_contains": "FAILURES"
+  },
+  {
+    "name": "browser CDN download failure after lint dependency listing",
+    "run_id": "run_browser_download_fixture",
+    "lab_report": "cohort-regression",
+    "status": "failed",
+    "command": "pnpm install\npnpm exec playwright install chromium\npnpm test",
+    "exit_code": 1,
+    "events": [
+      {
+        "type": "stdout",
+        "phase": "command",
+        "data": "+ @eslint/js 10.0.1\n+ eslint 10.0.0\n"
+      },
+      {
+        "type": "stdout",
+        "phase": "command",
+        "data": "Downloading Chrome for Testing 151.0.7922.34 (playwright chromium v1234) from https://cdn.playwright.dev/builds/cft/151.0.7922.34/linux64/chrome-linux64.zip\n"
+      },
+      {
+        "type": "stderr",
+        "phase": "command",
+        "data": "Error: getaddrinfo ENOTFOUND cdn.playwright.dev\n"
+      },
+      {
+        "type": "stdout",
+        "phase": "command",
+        "data": "Failed to install browsers\nError: Failed to download Chrome for Testing 151.0.7922.34 (playwright chromium v1234), caused by\nError: Download failure, code=1\n"
+      }
+    ],
+    "want_classification": "dependency_download_failed",
+    "want_agent_action": "retry",
+    "want_primary_file": "",
+    "want_summary_contains": "cdn.playwright.dev",
+    "want_summary_not_contains": "eslint"
+  },
+  {
+    "name": "pytest failures outrank incidental deprecation warning",
+    "run_id": "run_pytest_warning_fixture",
+    "lab_report": "cohort-regression",
+    "status": "failed",
+    "command": "python -m pytest tests",
+    "exit_code": 2,
+    "events": [
+      {
+        "type": "stdout",
+        "phase": "command",
+        "data": "E           requests.exceptions.ConnectionError: Failed to establish a new connection: [Errno 111] Connection refused\n"
+      },
+      {
+        "type": "stdout",
+        "phase": "command",
+        "data": "/workspace/src/requests/auth.py:45: DeprecationWarning: Non-string usernames will no longer be supported in Requests 3.0.0.\nFAILED tests/test_requests.py::TestTimeout::test_connect_timeout[timeout0] - ...\nFAILED tests/test_requests.py::TestTimeout::test_connect_timeout[timeout1] - ...\n= 4 failed, 615 passed, 15 skipped, 1 xfailed, 18 warnings in 78.48s (0:01:18) =\n"
+      }
+    ],
+    "want_classification": "test_failed",
+    "want_agent_action": "fix_code",
+    "want_primary_file": "tests/test_requests.py",
+    "want_summary_contains": "FAILED tests/test_requests.py::TestTimeout::test_connect_timeout[timeout0]",
+    "want_summary_not_contains": "DeprecationWarning"
   }
 ]

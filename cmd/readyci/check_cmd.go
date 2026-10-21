@@ -1,13 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
@@ -220,7 +220,7 @@ func warmCommand(args []string) error {
 		DryRun:     *dryRun,
 		JSONOutput: false,
 	}
-	checks, err := warmCheckNames(cfg, strings.TrimSpace(*checkName), strings.TrimSpace(*warmProfile))
+	checks, err := resolveWarmCheckNames(context.Background(), cfg, path, baseResolve, strings.TrimSpace(*checkName), strings.TrimSpace(*warmProfile))
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}
@@ -233,42 +233,19 @@ func executeWarmCheck(name string, cfg config.ProjectConfig, path string, base c
 
 func executeWarmChecks(names []string, cfg config.ProjectConfig, path string, base checkResolveOptions, options checkExecutionOptions, skipConfirm bool) error {
 	options.SelectionMode = "warm"
-	warmResolve, err := warmDependencyResolveOptions(base, cfg)
+	prepared, err := prepareWarmChecks(context.Background(), names, cfg, path, base, skipConfirm)
 	if err != nil {
-		return cliConfigError(err.Error(), err)
-	}
-	var warm, checks []checkRunPlan
-	for _, name := range names {
-		preparation, err := resolveCheckRunPlan(name, cfg, warmResolve)
-		if err != nil {
-			return err
-		}
-		warm = append(warm, preparation)
-		if !skipConfirm {
-			confirm, err := resolveCheckRunPlan(name, cfg, base)
-			if err != nil {
-				return err
-			}
-			checks = append(checks, confirm)
-		}
+		return err
 	}
 	if options.DryRun {
-		if _, err := explicitDependencyWarmSessionBuildOptions(warm, checks, syncbundlebuild.BuildOptions{ChangeMode: base.Changes}); err != nil {
-			return err
-		}
-		for index, preparation := range warm {
-			if err := executeCheckPlan(preparation, cfg, path, options); err != nil {
+		for _, plan := range append(prepared.WarmPlans, prepared.Plans...) {
+			if err := executeCheckPlan(plan, cfg, path, options); err != nil {
 				return err
-			}
-			if !skipConfirm {
-				if err := executeCheckPlan(checks[index], cfg, path, options); err != nil {
-					return err
-				}
 			}
 		}
 		return nil
 	}
-	return executeSessionPlans(checks, warm, options.APIToken, options.JSONOutput, verificationPlan{Mode: "warm"})
+	return executeSessionPlans(prepared.Plans, prepared.WarmPlans, options.APIToken, options.JSONOutput, verificationPlan{Mode: "warm"})
 }
 
 func warmCheckNames(cfg config.ProjectConfig, checkName string, profile string) ([]string, error) {
@@ -277,10 +254,16 @@ func warmCheckNames(cfg config.ProjectConfig, checkName string, profile string) 
 	}
 	profile = strings.TrimSpace(profile)
 	if profile == "dependencies" {
-		if _, ok := cfg.Checks["dependencies"]; !ok {
-			return nil, fmt.Errorf("warm profile %q requires a configured dependencies check", profile)
+		var names []string
+		for _, name := range sortedCheckNames(cfg.Checks) {
+			if config.IsDependencyCheck(cfg, name) {
+				names = append(names, name)
+			}
 		}
-		return []string{"dependencies"}, nil
+		if len(names) == 0 {
+			return nil, fmt.Errorf("warm profile %q requires a configured dependencies check or dependency_check reference", profile)
+		}
+		return names, nil
 	}
 	var names []string
 	for _, name := range sortedCheckNames(cfg.Checks) {

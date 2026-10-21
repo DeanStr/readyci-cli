@@ -57,6 +57,7 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeSync, "include_untracked", "sync.include_untracked", "Include untracked workspace files in source bundles.", "true"),
 		field(ScopeSync, "respect_gitignore", "sync.respect_gitignore", "Respect .gitignore when building source bundles.", "true"),
 		field(ScopeSync, "exclude", "sync.exclude", "Additional source bundle exclude globs.", ""),
+		field(ScopeSync, "reviewed_fixtures", "sync.reviewed_fixtures", "Exact regular Git-tracked fixture paths and reviewed SHA-256 hashes permitted through default confidentiality exclusions.", ""),
 
 		field(ScopeCache, "mode", "cache.mode", "Cache mode for this scope.", "cache-only"),
 		field(ScopeCache, "size", "cache.size", "Requested persistent cache lane size, such as 10GiB or 30GB.", ""),
@@ -102,7 +103,9 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeServiceHealth, "interval", "services.<name>.health.interval", "Health-check polling interval.", ""),
 
 		field(ScopeCheck, "command", "checks.<name>.command", "Shell command for a check.", ""),
+		field(ScopeCheck, "dependency_check", "checks.<name>.dependency_check", "Named dependency installer run without secrets before this check, using network.warm_mode and the same sealed workspace and cache lane.", "dependencies when defined"),
 		field(ScopeCheck, "steps", "checks.<name>.steps", "Ordered step definitions for a check.", ""),
+		field(ScopeCheck, "runtime_requirements", "checks.<name>.runtime_requirements", "Runtime version constraints and supported pnpm integrity pins enforced by the service and runner.", ""),
 		field(ScopeCheck, "prepare", "checks.<name>.prepare", "Commands run before the main check command.", ""),
 		field(ScopeCheck, "post", "checks.<name>.post", "Commands run after the main check command.", ""),
 		field(ScopeCheck, "always", "checks.<name>.always", "Commands run even when earlier phases fail.", ""),
@@ -124,7 +127,7 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeCheck, "network_mode", "checks.<name>.network_mode", "Check-level network mode.", ""),
 		field(ScopeCheck, "network_allowlist", "checks.<name>.network_allowlist", "Check-level network allowlist.", ""),
 		field(ScopeCheck, "docker", "checks.<name>.docker", "Enable Docker for this check.", ""),
-		field(ScopeCheck, "browser", "checks.<name>.browser", "Install browser runtime dependencies before this check.", ""),
+		field(ScopeCheck, "browser", "checks.<name>.browser", "Install browser binaries before this check; operating-system libraries must be provided by the runner image.", ""),
 		field(ScopeCheck, "services", "checks.<name>.services", "Named services attached to this check.", ""),
 		field(ScopeCheck, "worker_selector", "checks.<name>.worker_selector", "Worker labels required by this check.", ""),
 		field(ScopeCheck, "keep_failed", "checks.<name>.keep_failed", "Retain failed workspaces/artifacts for inspection.", "false"),

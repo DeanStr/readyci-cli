@@ -15,35 +15,41 @@ import (
 // graph identity a planner assigns later, so that resolving a check produces the
 // same specification for the CLI and for service-side planning.
 type RunSpec struct {
-	ProjectID          string
-	Region             string
-	Command            string
-	CommandAlias       string
-	Steps              []preflightapi.RunStepSpec
-	Env                map[string]string
-	ConcurrencyGroup   string
-	ConcurrencyLimit   int
-	PrepareCommands    []string
-	PostCommands       []string
-	AlwaysCommands     []string
-	Image              string
-	RunnerSize         string
-	TimeoutSeconds     int
-	CacheMode          string
-	CacheLaneSizeBytes int64
-	ArtifactPaths      []string
-	NetworkMode        string
-	NetworkAllowlist   []string
-	Docker             bool
-	Services           []preflightapi.RunServiceSpec
-	WorkerSelector     map[string]string
-	SecretsRequested   *bool
-	ChangeMode         string
-	SyncExclude        []string
-	IncludeUntracked   *bool
-	CachePaths         []string
-	CacheKeyFiles      []string
-	KeepFailed         bool
+	// Planner-owned cache identity includes preparation-only SDKs even when a
+	// run omits preparation. It is rendered into the command, never a run API field.
+	CacheDependencyCheck     string            `json:"-"`
+	CacheRuntimeRequirements map[string]string `json:"-"`
+	RuntimeRequirements      map[string]string
+	ProjectID                string
+	Region                   string
+	Command                  string
+	CommandAlias             string
+	Steps                    []preflightapi.RunStepSpec
+	Env                      map[string]string
+	ConcurrencyGroup         string
+	ConcurrencyLimit         int
+	PrepareCommands          []string
+	PostCommands             []string
+	AlwaysCommands           []string
+	Image                    string
+	RunnerSize               string
+	TimeoutSeconds           int
+	CacheMode                string
+	CacheLaneSizeBytes       int64
+	ArtifactPaths            []string
+	NetworkMode              string
+	NetworkAllowlist         []string
+	Docker                   bool
+	Services                 []preflightapi.RunServiceSpec
+	WorkerSelector           map[string]string
+	SecretsRequested         *bool
+	ChangeMode               string
+	SyncExclude              []string
+	SyncReviewedFixtures     []syncbundle.ReviewedFixture
+	IncludeUntracked         *bool
+	CachePaths               []string
+	CacheKeyFiles            []string
+	KeepFailed               bool
 }
 
 // ResolveOptions are the caller-supplied overrides applied while resolving a
@@ -81,14 +87,17 @@ type CheckPlan struct {
 	// alias, which is the ordinary case.
 	LogicalChildID   string
 	LogicalChildName string
-	Retries          int
-	Matrix           config.MatrixConfig
-	Variants         []Variant
-	Services         []string
-	ServiceSpecs     []preflightapi.RunServiceSpec
-	When             config.WhenConfig
-	RegionDefaulted  bool
-	DiagnosticRegion string
+	// DependencyWarmTargets routes synthesized preparation to its consumers.
+	// It is compiled into sealed success dependencies, never accepted from a run.
+	DependencyWarmTargets []string
+	Retries               int
+	Matrix                config.MatrixConfig
+	Variants              []Variant
+	Services              []string
+	ServiceSpecs          []preflightapi.RunServiceSpec
+	When                  config.WhenConfig
+	RegionDefaulted       bool
+	DiagnosticRegion      string
 }
 
 type resolvedCheckIdentity struct {
@@ -152,6 +161,10 @@ func ResolveCheck(name string, cfg config.ProjectConfig, options ResolveOptions)
 	artifactPaths = append(artifactPaths, check.ArtifactPaths...)
 	artifactPaths = append(artifactPaths, check.Outputs.Reviewable...)
 	syncConfig := EffectiveSyncConfig(cfg.Sync, check.Sync)
+	syncConfig.ReviewedFixtures, err = syncbundle.NormalizeReviewedFixtures(syncConfig.ReviewedFixtures)
+	if err != nil {
+		return CheckPlan{}, fmt.Errorf("check %q sync.reviewed_fixtures: %w", name, err)
+	}
 	retries := EffectiveCheckRetries(cfg.Retries, check, -1)
 	if options.RetryProvided {
 		retries = EffectiveCheckRetries(cfg.Retries, check, options.RetryCount)
@@ -172,6 +185,36 @@ func ResolveCheck(name string, cfg config.ProjectConfig, options ResolveOptions)
 	if err != nil {
 		return CheckPlan{}, err
 	}
+	runtimeRequirements, err := preflightapi.NormalizeRuntimeRequirements(check.RuntimeRequirements)
+	if err != nil {
+		return CheckPlan{}, fmt.Errorf("check %q runtime_requirements: %w", name, err)
+	}
+	var cacheRuntimeRequirements map[string]string
+	dependencyCheck, err := config.DependencyCheckFor(cfg, name)
+	if err != nil {
+		return CheckPlan{}, err
+	}
+	if check.DependencyCheck != "" && strings.TrimSpace(cache.mode) == "ephemeral" {
+		return CheckPlan{}, fmt.Errorf("check %q dependency_check requires a persistent cache lane", name)
+	}
+	if warm, exists := cfg.Checks[dependencyCheck]; exists && strings.TrimSpace(cache.mode) != "ephemeral" && len(cache.paths) > 0 {
+		cacheRuntimeRequirements, err = mergeDependencyWarmRequirements(warm.RuntimeRequirements, runtimeRequirements)
+		if err != nil {
+			return CheckPlan{}, fmt.Errorf("check %q dependency preparation runtimes: %w", name, err)
+		}
+		// Only declared consumer runtimes execute again. The cache identity
+		// additionally retains SDKs used exclusively during preparation.
+		for runtime := range runtimeRequirements {
+			runtimeRequirements[runtime] = cacheRuntimeRequirements[runtime]
+		}
+	}
+	cacheDependencyCheck := dependencyCheck
+	if config.IsDependencyCheck(cfg, name) {
+		cacheDependencyCheck = name
+	}
+	if cacheDependencyCheck == config.DefaultDependencyCheck {
+		cacheDependencyCheck = ""
+	}
 	prepareCommands := append([]string(nil), check.Prepare...)
 	prepareCommands = append(prepareCommands, browserPrepare...)
 	return CheckPlan{
@@ -185,33 +228,37 @@ func ResolveCheck(name string, cfg config.ProjectConfig, options ResolveOptions)
 		RegionDefaulted:  identity.regionDefaulted,
 		DiagnosticRegion: preflightapi.NormalizeRegion(identity.region),
 		Run: RunSpec{
-			ProjectID:          identity.projectID,
-			Region:             identity.region,
-			Command:            check.Command,
-			CommandAlias:       name,
-			Steps:              CloneRunSteps(steps),
-			ConcurrencyGroup:   resources.concurrencyGroup,
-			ConcurrencyLimit:   resources.concurrencyLimit,
-			PrepareCommands:    prepareCommands,
-			PostCommands:       append([]string(nil), check.Post...),
-			AlwaysCommands:     append([]string(nil), check.Always...),
-			Image:              defaultString(check.Image, cfg.Image),
-			RunnerSize:         resources.runnerSize,
-			TimeoutSeconds:     resources.timeoutSeconds,
-			CacheMode:          cache.mode,
-			CacheLaneSizeBytes: cache.laneSizeBytes,
-			ArtifactPaths:      artifactPaths,
-			NetworkMode:        network.mode,
-			NetworkAllowlist:   network.allowlist,
-			Docker:             effectiveDocker,
-			Services:           serviceSpecs,
-			WorkerSelector:     copyStringMap(workerSelector),
-			ChangeMode:         identity.changes,
-			SyncExclude:        append([]string(nil), syncConfig.Exclude...),
-			IncludeUntracked:   syncConfig.IncludeUntracked,
-			CachePaths:         cache.paths,
-			CacheKeyFiles:      cache.keyFiles,
-			KeepFailed:         check.KeepFailed || options.KeepFailed,
+			CacheRuntimeRequirements: cacheRuntimeRequirements,
+			CacheDependencyCheck:     cacheDependencyCheck,
+			RuntimeRequirements:      runtimeRequirements,
+			ProjectID:                identity.projectID,
+			Region:                   identity.region,
+			Command:                  check.Command,
+			CommandAlias:             name,
+			Steps:                    CloneRunSteps(steps),
+			ConcurrencyGroup:         resources.concurrencyGroup,
+			ConcurrencyLimit:         resources.concurrencyLimit,
+			PrepareCommands:          prepareCommands,
+			PostCommands:             append([]string(nil), check.Post...),
+			AlwaysCommands:           append([]string(nil), check.Always...),
+			Image:                    defaultString(check.Image, cfg.Image),
+			RunnerSize:               resources.runnerSize,
+			TimeoutSeconds:           resources.timeoutSeconds,
+			CacheMode:                cache.mode,
+			CacheLaneSizeBytes:       cache.laneSizeBytes,
+			ArtifactPaths:            artifactPaths,
+			NetworkMode:              network.mode,
+			NetworkAllowlist:         network.allowlist,
+			Docker:                   effectiveDocker,
+			Services:                 serviceSpecs,
+			WorkerSelector:           copyStringMap(workerSelector),
+			ChangeMode:               identity.changes,
+			SyncExclude:              append([]string(nil), syncConfig.Exclude...),
+			SyncReviewedFixtures:     append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
+			IncludeUntracked:         syncConfig.IncludeUntracked,
+			CachePaths:               cache.paths,
+			CacheKeyFiles:            cache.keyFiles,
+			KeepFailed:               check.KeepFailed || options.KeepFailed,
 		},
 	}, nil
 }
@@ -412,6 +459,7 @@ func EffectiveSyncConfig(projectSync, checkSync config.SyncConfig) config.SyncCo
 		IncludeUntracked: projectSync.IncludeUntracked,
 		RespectGitignore: projectSync.RespectGitignore,
 		Exclude:          append([]string(nil), projectSync.Exclude...),
+		ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), projectSync.ReviewedFixtures...),
 	}
 	if checkSync.IncludeUntracked != nil {
 		effective.IncludeUntracked = checkSync.IncludeUntracked
@@ -420,6 +468,7 @@ func EffectiveSyncConfig(projectSync, checkSync config.SyncConfig) config.SyncCo
 		effective.RespectGitignore = checkSync.RespectGitignore
 	}
 	effective.Exclude = append(effective.Exclude, checkSync.Exclude...)
+	effective.ReviewedFixtures = append(effective.ReviewedFixtures, checkSync.ReviewedFixtures...)
 	return effective
 }
 
@@ -498,7 +547,9 @@ func browserPrepareCommands(checkName string, browser string) ([]string, error) 
 	}
 	switch browser {
 	case "chromium", "firefox", "webkit":
-		return []string{"if command -v pnpm >/dev/null 2>&1; then pnpm exec playwright install --with-deps " + browser + "; else npx playwright install --with-deps " + browser + "; fi"}, nil
+		// Operating-system packages belong in the runner image. A normal check
+		// must not implicitly invoke apt or require root through --with-deps.
+		return []string{"if command -v pnpm >/dev/null 2>&1; then pnpm exec playwright install " + browser + "; else npx playwright install " + browser + "; fi"}, nil
 	default:
 		return nil, fmt.Errorf("check %q: browser must be chromium, firefox, or webkit", checkName)
 	}

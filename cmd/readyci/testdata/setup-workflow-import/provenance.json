@@ -1,0 +1,18 @@
+[
+  {
+    "repository": "cli/cli",
+    "commit": "fa92838bef95fe4a29c1587693885d5e9bdb6cf1",
+    "source_path": ".github/workflows/go.yml",
+    "source_url": "https://raw.githubusercontent.com/cli/cli/fa92838bef95fe4a29c1587693885d5e9bdb6cf1/.github/workflows/go.yml",
+    "sha256": "62af6adcecc4a334df5ec4abf19b1b673745a0d3fd1b91d5f75cb8ae5041db2c",
+    "fixture_path": "cli--cli/workflow.yml"
+  },
+  {
+    "repository": "sveltejs/svelte",
+    "commit": "40bb08482f4857d91221638dec544a532bc35389",
+    "source_path": ".github/workflows/ci.yml",
+    "source_url": "https://raw.githubusercontent.com/sveltejs/svelte/40bb08482f4857d91221638dec544a532bc35389/.github/workflows/ci.yml",
+    "sha256": "1050576fa00f49c4987b8227e2c48272a4aa54e296434f7777107452f8d37488",
+    "fixture_path": "sveltejs--svelte/workflow.yml"
+  }
+]

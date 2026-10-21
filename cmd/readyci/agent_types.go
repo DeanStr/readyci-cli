@@ -24,7 +24,7 @@ var agentTokenPresets = map[string][]string{
 	"verify-with-cache-purge": {"runs:create", "runs:read", "cache:read", "cache:purge", "projects:read", "account:read"},
 	"verify-with-feedback":    {"runs:create", "runs:read", "cache:read", "projects:read", "account:read", "feedback:write"},
 	"verify-with-secrets":     {"runs:create", "runs:create_with_secrets", "runs:read", "cache:read", "projects:read", "account:read"},
-	"project-maintainer":      {"runs:create", "runs:read", "cache:read", "cache:purge", "projects:read", "projects:write", "policies:read", "secrets:write", "account:read"},
+	"project-maintainer":      {"runs:create", "runs:read", "cache:read", "cache:purge", "projects:read", "projects:write", "policies:read", "policies:propose", "secrets:write", "account:read"},
 }
 
 type agentCheckRecommendation struct {

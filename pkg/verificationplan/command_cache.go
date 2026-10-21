@@ -3,13 +3,16 @@ package verificationplan
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-func cachePathSetupScript(cachePaths, cacheKeyFiles []string) (string, error) {
+func cachePathSetupScript(cachePaths, cacheKeyFiles []string, requirements map[string]string, dependencyCheck string) (string, error) {
 	paths, err := NormalizeCachePaths(cachePaths)
 	if err != nil {
 		return "", err
@@ -20,6 +23,24 @@ func cachePathSetupScript(cachePaths, cacheKeyFiles []string) (string, error) {
 	}
 	if len(paths) == 0 {
 		return "", nil
+	}
+	requirements, err = preflightapi.NormalizeRuntimeRequirements(requirements)
+	if err != nil {
+		return "", err
+	}
+	// Incompatible runtime groups can reuse one physical lane. Put their
+	// dependency files in different bases, so lockfile-generation pruning in
+	// one group cannot delete another group's prepared dependencies either.
+	runtimeNamespace := ""
+	if len(requirements) > 0 {
+		encoded, _ := json.Marshal(requirements)
+		digest := sha256.Sum256(encoded)
+		runtimeNamespace = "runtime-" + hex.EncodeToString(digest[:12]) + "-"
+	}
+
+	if dependencyCheck != "" {
+		digest := sha256.Sum256([]byte(dependencyCheck))
+		runtimeNamespace = "dependency-" + hex.EncodeToString(digest[:12]) + "-" + runtimeNamespace
 	}
 
 	var script strings.Builder
@@ -156,7 +177,7 @@ __preflight_setup_cache_paths() {
 `)
 	for _, cachePath := range paths {
 		script.WriteString("  __preflight_link_cache_path ")
-		script.WriteString(ShellQuoteArg(cachePathKey(cachePath)))
+		script.WriteString(ShellQuoteArg(runtimeNamespace + cachePathKey(cachePath)))
 		script.WriteByte(' ')
 		script.WriteString(ShellQuoteArg(cachePath))
 		script.WriteString(" || return $?\n")

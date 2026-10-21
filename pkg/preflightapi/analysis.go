@@ -28,6 +28,7 @@ const (
 	ClassificationNetworkNotAllowed        = "network_not_allowed"
 	ClassificationDependencyDownloadFailed = "dependency_download_failed"
 	ClassificationDependencySetupFailed    = "dependency_setup_failed"
+	ClassificationEnvironmentSetupFailed   = "environment_setup_failed"
 	ClassificationServiceSetupFailed       = "service_setup_failed"
 	ClassificationTimeout                  = "timeout"
 	ClassificationCancelled                = "cancelled"

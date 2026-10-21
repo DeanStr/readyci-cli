@@ -202,13 +202,14 @@ func loginCommand(args []string) error {
 	fs.SetOutput(os.Stderr)
 	apiURL := fs.String("api-url", envDefault("READYCI_API_URL", defaultAPIURL()), "Ready CI API URL")
 	ssoSlug := fs.String("sso", "", "enterprise SSO connection slug")
+	device := fs.Bool("device", false, "approve login from a browser on another machine")
 	noBrowser := fs.Bool("no-browser", false, "print the login URL instead of opening a browser")
 	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time to wait for browser login")
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci login [--api-url URL] [--sso SLUG] [--no-browser] [--timeout DURATION]", nil)
+		return cliConfigError("usage: readyci login [--api-url URL] [--sso SLUG] [--no-browser|--device] [--timeout DURATION]", nil)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
@@ -216,6 +217,12 @@ func loginCommand(args []string) error {
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 
+	if *device {
+		if *ssoSlug != "" || *noBrowser {
+			return cliConfigError("--device cannot be combined with --sso or --no-browser; use your organization browser session to approve", nil)
+		}
+		return deviceLogin(ctx, normalizeAPIURL(*apiURL))
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err

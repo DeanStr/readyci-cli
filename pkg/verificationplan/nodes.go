@@ -90,7 +90,7 @@ func appendUniqueString(values []string, value string) []string {
 
 // NodesForPlans compiles resolved checks into the sealed verification graph:
 // warm phase first, then verify, with each plan depending on the one before it
-// and every check requiring warm-phase success.
+// and each check requiring its matching preparation to succeed.
 //
 // A check declaring `when.status: success` depends on every earlier node having
 // succeeded, not merely the one immediately before it. Sequential execution
@@ -106,6 +106,8 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 	groupUsed := map[string]bool{}
 	dependencies := []string(nil)
 	warmDependencies := []string(nil)
+	warmTargets := map[string][]string{}
+	warmRuntimeRequirements := map[string]map[string]string{}
 	completed := []string(nil)
 	type phasedPlan struct {
 		plan  CheckPlan
@@ -138,9 +140,43 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 		// Verify-matrix siblings are independent. Warm variants instead form a
 		// success chain so each extends the same worker-local cache.
 		priorNodes := append([]string(nil), completed...)
+		selectedWarmDependencies := warmDependencies
+		if item.phase == preflightapi.VerificationNodePhaseWarm && plan.DependencyWarmTargets != nil {
+			// Each runtime group prepares its own filesystem. Matrix variants
+			// within this plan still extend that filesystem in sequence below.
+			selectedWarmDependencies = nil
+		} else {
+			// An ordinary warm check extends its dependency preparation just
+			// as an offline consumer does. Its confirmation will bind to this
+			// extended cache below rather than skipping back to the installer.
+			if selected, ok := warmTargets[plan.Name]; ok {
+				selectedWarmDependencies = selected
+			}
+		}
 		currentIDs := make([]string, 0, len(variants))
 		for _, variant := range variants {
 			options, identity := applyVariantToRunSpec(plan, variant)
+			if requirements, prepared := warmRuntimeRequirements[plan.Name]; prepared && (item.phase == preflightapi.VerificationNodePhaseVerify || plan.DependencyWarmTargets == nil) {
+				// The same compatible constraints must select the runtime for
+				// preparation and consumption on the bound worker. Otherwise a
+				// broader consumer range can select another installed major and
+				// load native dependencies prepared by an incompatible runtime.
+				selected := map[string]string{}
+				for runtime, required := range options.RuntimeRequirements {
+					if !preflightapi.RuntimeRequirementImplies(requirements[runtime], required) {
+						return nil, nil, fmt.Errorf("dependency preparation for check %q does not satisfy runtime %s %s", plan.Name, runtime, required)
+					}
+					selected[runtime] = requirements[runtime]
+				}
+				// Keep the group's exact normalized representation as well: it
+				// identifies the shared cache namespace even when a consumer used
+				// a differently spelled but equivalent range in configuration.
+				options.CacheRuntimeRequirements = preflightapi.CloneRuntimeRequirements(requirements)
+				// Preparing a dependency may need an SDK that its consumer never
+				// executes. Keep those SDKs in cache identity without forcing an
+				// offline consumer to provision them again.
+				options.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(selected)
+			}
 			command, err := CommandForRunSpec(options)
 			if err != nil {
 				return nil, nil, err
@@ -154,7 +190,7 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 			cacheMode := defaultString(options.CacheMode, "cache-only")
 			condition := preflightapi.VerificationNodeConditionAlways
 			dependsOn := append([]string(nil), dependencies...)
-			successDependsOn := append([]string(nil), warmDependencies...)
+			successDependsOn := append([]string(nil), selectedWarmDependencies...)
 			if item.phase == preflightapi.VerificationNodePhaseWarm {
 				dependsOn = append(dependsOn, currentIDs...)
 				successDependsOn = append(successDependsOn, currentIDs...)
@@ -176,7 +212,7 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				SuccessDependsOn: successDependsOn,
 				Retry:            preflightapi.VerificationRetryPolicy{MaxAttempts: plan.Retries + 1, RetryableClassifications: []string{preflightapi.ClassificationTransportFailure, preflightapi.ClassificationWorkerUnavailable, preflightapi.ClassificationWorkerInternalError, preflightapi.ClassificationPlatformInternalError}},
 				Run: preflightapi.CreateRunRequest{
-					ProjectID: options.ProjectID, Region: runRequestRegion(options.Region), Image: defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage), Command: createCommand, CommandAlias: identity.CommandAlias, Steps: createSteps,
+					RuntimeRequirements: preflightapi.CloneRuntimeRequirements(options.RuntimeRequirements), ProjectID: options.ProjectID, Region: runRequestRegion(options.Region), Image: defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage), Command: createCommand, CommandAlias: identity.CommandAlias, Steps: createSteps,
 					ConcurrencyGroup: options.ConcurrencyGroup, ConcurrencyLimit: options.ConcurrencyLimit, RunnerSize: defaultString(options.RunnerSize, preflightapi.DefaultRunnerSize), TimeoutSeconds: defaultInt(options.TimeoutSeconds, DefaultRunTimeoutSeconds), CacheMode: cacheMode, CacheLaneSizeBytes: CacheLaneSizeForMode(cacheMode, options.CacheLaneSizeBytes), ArtifactPaths: artifactPaths,
 					NetworkMode: defaultString(strings.TrimSpace(options.NetworkMode), preflightapi.DefaultNetworkMode), NetworkAllowlist: append([]string(nil), options.NetworkAllowlist...), Docker: options.Docker, Services: CloneRunServices(options.Services), WorkerSelector: copyStringMap(options.WorkerSelector), BundleBaselineKey: bundle.BaselineKey, SecretsRequested: options.SecretsRequested,
 					Client: client.Client, Git: preflightapi.GitInfo{Materialization: "minimal_git", Repository: client.Repository},
@@ -187,7 +223,19 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 		dependencies = currentIDs
 		completed = append(completed, currentIDs...)
 		if item.phase == preflightapi.VerificationNodePhaseWarm {
-			warmDependencies = append(warmDependencies, currentIDs...)
+			if plan.DependencyWarmTargets == nil {
+				warmDependencies = append(warmDependencies, currentIDs...)
+				warmTargets[plan.Name] = append([]string(nil), currentIDs...)
+			} else {
+				for _, target := range plan.DependencyWarmTargets {
+					warmTargets[target] = append(warmTargets[target], currentIDs...)
+					requirements, err := mergeDependencyWarmRequirements(warmRuntimeRequirements[target], plan.Run.RuntimeRequirements)
+					if err != nil {
+						return nil, nil, fmt.Errorf("bind check %q to dependency preparation runtimes: %w", target, err)
+					}
+					warmRuntimeRequirements[target] = requirements
+				}
+			}
 		}
 	}
 	return nodes, matrixGroups, nil

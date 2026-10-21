@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+	"mvdan.cc/sh/v3/syntax"
 )
 
 func detectedNodeScript(cwd string) (string, bool) {
@@ -16,7 +17,58 @@ func detectedNodeScript(cwd string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return preferredNodeScript(pkg.Scripts)
+	// An existing test entrypoint has stronger scope evidence than a generic
+	// check/build script, which commonly only typechecks or compiles a project.
+	for _, name := range []string{"test", "test:ci", "test:unit"} {
+		command := strings.TrimSpace(pkg.Scripts[name])
+		if command != "" && !nodeScriptIsPlaceholder(command) {
+			return name, true
+		}
+	}
+	if setupCommandRunsTests(pkg.Scripts["check"]) {
+		return "check", true
+	}
+	return "", false
+}
+
+// Reject scripts that only print a message or return a fixed status, regardless
+// of their wording. Keep opaque custom harnesses and dynamic commands: their
+// test scope cannot be established by looking for a known runner name alone.
+func nodeScriptIsPlaceholder(command string) bool {
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil {
+		return false
+	}
+	placeholder := true
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch node.(type) {
+		case *syntax.TestClause, *syntax.ArithmCmd:
+			// Shell assertions may themselves be the test suite.
+			placeholder = false
+			return false
+		}
+		call, ok := node.(*syntax.CallExpr)
+		if !ok {
+			return placeholder
+		}
+		args := executableShellArgs(shellWordsFromSyntax(call.Args))
+		for _, arg := range args {
+			if arg.Dynamic {
+				placeholder = false
+				return false
+			}
+		}
+		if len(args) == 0 {
+			return true
+		}
+		switch args[0].Text {
+		case "echo", "printf", ":", "true", "false", "exit", "cd":
+		default:
+			placeholder = false
+		}
+		return placeholder
+	})
+	return placeholder
 }
 
 func nodeCheckCommand(cwd, scriptName string) string {

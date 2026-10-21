@@ -94,7 +94,7 @@ func createAndWatchVerificationSession(options verificationSessionOptions) (sess
 		return preflightapi.VerificationSession{}, err
 	}
 	if options.Purpose != preflightapi.ExecutionPurpose {
-		sourcePolicy, err := client.ProjectVerificationSourcePolicy(ctx, projectID, buildOptions.ChangeMode)
+		sourcePolicy, err := client.ProjectVerificationSourcePolicy(ctx, projectID, buildOptions.ChangeMode, options.CheckName)
 		if err != nil {
 			return preflightapi.VerificationSession{}, fmt.Errorf("read registered verification source policy: %w", err)
 		}

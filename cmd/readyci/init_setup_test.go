@@ -26,8 +26,7 @@ func TestSetupConfigGenerationWritesRemoteCITemplate(t *testing.T) {
 	configText := string(data)
 	for _, want := range []string{
 		`project_id: "airline-project"`,
-		"command: make check",
-		"timeout: 20m",
+		"checks: {}",
 		`# image: "ubuntu-24.04-ci-docker"`,
 	} {
 		if !strings.Contains(configText, want) {
@@ -125,12 +124,12 @@ func TestDetectedTemplateUsesMakeRuleTargetsNotAssignments(t *testing.T) {
 	if strings.Contains(template, "command: \"make check\"") {
 		t.Fatalf("detected template treated variable assignment as target:\n%s", template)
 	}
-	if !strings.Contains(template, "command: \"make check-ci\"") {
+	if !strings.Contains(template, "command: \"make -f Makefile -- check-ci\"") {
 		t.Fatalf("detected template missing check-ci target:\n%s", template)
 	}
 }
 
-func TestDetectedTemplatePreservesNestedMakeTargetDirectory(t *testing.T) {
+func TestDetectedTemplateLeavesNestedMakeTargetForExplicitSelection(t *testing.T) {
 	repo := chdirCLITestRepo(t, "nested-make-detect")
 	if err := os.MkdirAll(filepath.Join(repo, "sub"), 0o755); err != nil {
 		t.Fatalf("mkdir sub: %v", err)
@@ -140,8 +139,8 @@ func TestDetectedTemplatePreservesNestedMakeTargetDirectory(t *testing.T) {
 	}
 
 	template := detectedProjectTemplateWithProfile(repo, "nested-make-detect", "", "remote-ci")
-	if !strings.Contains(template, `command: "make -C sub check"`) {
-		t.Fatalf("detected template did not preserve nested Makefile target directory:\n%s", template)
+	if strings.Contains(template, `make -C sub`) {
+		t.Fatalf("detected template selected a component without explicit selection:\n%s", template)
 	}
 	if strings.Contains(template, `command: "make check"`) {
 		t.Fatalf("detected template emitted root make command for nested target:\n%s", template)
@@ -318,14 +317,14 @@ func TestSetupReportDoesNotWriteConfigByDefault(t *testing.T) {
 	if !containsString(report.Next, "readyci setup --api-url https://api.readyci.test --project airline") {
 		t.Fatalf("setup next commands = %+v, want guided setup command", report.Next)
 	}
-	if !containsString(report.Next, "readyci setup --print") {
+	if !containsString(report.Next, "readyci setup --print --detect=false") {
 		t.Fatalf("setup next commands = %+v, want inspect-only init command", report.Next)
 	}
 	if !containsString(report.Next, "export READYCI_API_URL=https://api.readyci.test READYCI_API_TOKEN='<token>'") {
 		t.Fatalf("setup next commands = %+v, want quoted token placeholder", report.Next)
 	}
-	if !containsString(report.Next, "readyci run --api-url https://api.readyci.test --project airline 'go test ./...'") {
-		t.Fatalf("setup next commands = %+v, want self-contained run command", report.Next)
+	if strings.Contains(strings.Join(report.Next, "\n"), "go test ./...") {
+		t.Fatalf("setup invented a run command without repository evidence: %+v", report.Next)
 	}
 	if !containsString(report.Next, "readyci runs latest --api-url https://api.readyci.test --project airline") {
 		t.Fatalf("setup next commands = %+v, want self-contained latest command", report.Next)
@@ -345,7 +344,6 @@ func TestSetupReportPreservesHostedAPIOverrideInNextCommands(t *testing.T) {
 	for _, want := range []string{
 		"readyci setup --api-url https://api.readyci.com --project airline",
 		"export READYCI_API_URL=https://api.readyci.com READYCI_API_TOKEN='<token>'",
-		"readyci run --api-url https://api.readyci.com --project airline 'go test ./...'",
 		"readyci runs latest --api-url https://api.readyci.com --project airline",
 	} {
 		if !containsString(report.Next, want) {
@@ -455,7 +453,7 @@ func TestSetupWriteConfigAndHelpersHonorsDetectFalse(t *testing.T) {
 	if _, ok := cfg.Checks["go"]; ok {
 		t.Fatalf("generated checks = %v, did not honor detect=false", sortedCheckNames(cfg.Checks))
 	}
-	for _, want := range []string{"ci", "shell-syntax", "ops-config"} {
+	for _, want := range []string{"shell-syntax", "ops-config"} {
 		if _, ok := cfg.Checks[want]; !ok {
 			t.Fatalf("generated checks = %v, missing %s", sortedCheckNames(cfg.Checks), want)
 		}
@@ -468,30 +466,21 @@ func TestSetupWriteConfigAndHelpersHonorsDetectFalse(t *testing.T) {
 	}
 }
 
-func TestSetupWriteConfigAndHelpersKeepsStarterCheckWithoutProjectSignals(t *testing.T) {
+func TestSetupWriteConfigAndHelpersRejectsMissingProjectTests(t *testing.T) {
 	t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
 	chdirCLITestRepo(t, "")
 
-	report, err := buildSetupReport(setupOptions{
+	_, err := buildSetupReport(setupOptions{
 		ProjectID:    "airline",
 		WriteConfig:  true,
 		WriteHelpers: true,
 		Detect:       true,
 	})
-	if err != nil {
-		t.Fatalf("build setup report: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "configuration required") {
+		t.Fatalf("helpers replaced missing repository tests: %v", err)
 	}
-	cfg, _, err := config.LoadProjectConfig(".")
-	if err != nil {
-		t.Fatalf("load generated config: %v", err)
-	}
-	if report.Check != "ci" {
-		t.Fatalf("setup selected check = %q, want ci", report.Check)
-	}
-	for _, want := range []string{"ci", "shell-syntax", "ops-config"} {
-		if _, ok := cfg.Checks[want]; !ok {
-			t.Fatalf("generated checks = %v, missing %s", sortedCheckNames(cfg.Checks), want)
-		}
+	if _, err := os.Stat(".readyci.yml"); !os.IsNotExist(err) {
+		t.Fatalf("unsupported detection wrote a configuration: %v", err)
 	}
 }
 
@@ -952,6 +941,9 @@ func TestSetupWritesMakefileAndHelpers(t *testing.T) {
 func TestSetupWriteConfigAndHelpersWiresHelperChecks(t *testing.T) {
 	t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
 	chdirCLITestRepo(t, "")
+	if err := os.WriteFile("go.mod", []byte("module example.test/fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll("scripts", 0o755); err != nil {
 		t.Fatalf("mkdir scripts: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,8 +17,7 @@ var ErrNotGitRepository = errors.New("not a git repository")
 var ErrUnsupportedRepository = errors.New("unsupported repository content")
 
 func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error) {
-	cmdArgs := append([]string{"-C", root}, args...)
-	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
+	cmd := gitReadCommand(ctx, root, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -30,9 +30,17 @@ func gitOutput(ctx context.Context, root string, args ...string) ([]byte, error)
 }
 
 func gitOutputAllowFailure(ctx context.Context, root string, args ...string) ([]byte, error) {
-	cmdArgs := append([]string{"-C", root}, args...)
-	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
+	cmd := gitReadCommand(ctx, root, args...)
 	return cmd.Output()
+}
+
+// Source inspection never runs repository hooks or implicitly downloads
+// missing objects from a partial clone, including inside recursive submodules.
+func gitReadCommand(ctx context.Context, root string, args ...string) *exec.Cmd {
+	cmdArgs := append([]string{"-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.allow=never", "-C", root}, args...)
+	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
+	cmd.Env = append(os.Environ(), "GIT_NO_LAZY_FETCH=1", "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_NO_REPLACE_OBJECTS=1")
+	return cmd
 }
 
 func gitObjects(ctx context.Context, root string, objectIDs []string, consume func(string, int64, io.Reader) error) error {
@@ -48,7 +56,7 @@ func gitObjects(ctx context.Context, root string, objectIDs []string, consume fu
 		seen[objectID] = struct{}{}
 		uniqueIDs = append(uniqueIDs, objectID)
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", root, "cat-file", "--batch")
+	cmd := gitReadCommand(ctx, root, "cat-file", "--batch")
 	cmd.Stdin = strings.NewReader(strings.Join(uniqueIDs, "\n") + "\n")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

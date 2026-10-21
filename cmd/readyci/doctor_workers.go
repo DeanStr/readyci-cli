@@ -14,15 +14,18 @@ import (
 )
 
 type workerCapabilityReport struct {
-	Claimable                 bool     `json:"claimable"`
-	UploadCapable             bool     `json:"upload_capable"`
-	FreshWorkerCount          int      `json:"fresh_worker_count,omitempty"`
-	MatchingWorkerCount       int      `json:"matching_worker_count,omitempty"`
-	MatchingUploadWorkerCount int      `json:"matching_upload_worker_count,omitempty"`
-	MatchingWorkers           []string `json:"matching_workers,omitempty"`
-	MatchingUploadWorkers     []string `json:"matching_upload_workers,omitempty"`
-	Reasons                   []string `json:"reasons,omitempty"`
-	UploadReasons             []string `json:"upload_reasons,omitempty"`
+	RuntimePreparation        []preflightapi.RuntimeArchive        `json:"runtime_preparation,omitempty"`
+	ScratchSizeBytes          int64                                `json:"scratch_size_bytes,omitempty"`
+	Claimable                 bool                                 `json:"claimable"`
+	UploadCapable             bool                                 `json:"upload_capable"`
+	FreshWorkerCount          int                                  `json:"fresh_worker_count,omitempty"`
+	MatchingWorkerCount       int                                  `json:"matching_worker_count,omitempty"`
+	MatchingUploadWorkerCount int                                  `json:"matching_upload_worker_count,omitempty"`
+	MatchingWorkers           []string                             `json:"matching_workers,omitempty"`
+	MatchingUploadWorkers     []string                             `json:"matching_upload_workers,omitempty"`
+	Reasons                   []string                             `json:"reasons,omitempty"`
+	UploadReasons             []string                             `json:"upload_reasons,omitempty"`
+	Policy                    *preflightapi.WorkerCapabilityPolicy `json:"policy,omitempty"`
 }
 
 func checkWorkerCapability(plan checkRunPlan, workers []preflightapi.AdminWorkerSummary) workerCapabilityReport {
@@ -60,16 +63,27 @@ func publicWorkerCapability(ctx context.Context, apiURL, token string, plan chec
 	if strings.TrimSpace(token) == "" {
 		return workerCapabilityReport{}, errors.New("no API token found")
 	}
+	region := checkPlanDiagnosticRegion(plan)
+	if plan.RegionDefaulted && checkPlanDiagnosticRegion(plan) == preflightapi.NormalizeRegion("") {
+		// Let the server apply the same project home region used at admission.
+		region = ""
+	}
 	spec := preflightapi.RunSpec{
-		ProjectID:      plan.Options.ProjectID,
-		Command:        plan.Options.Command,
-		Region:         checkPlanDiagnosticRegion(plan),
-		Image:          plan.Options.Image,
-		RunnerSize:     plan.Options.RunnerSize,
-		NetworkMode:    plan.Options.NetworkMode,
-		Docker:         plan.Options.Docker,
-		Services:       cloneRunServices(plan.Options.Services),
-		WorkerSelector: copyStringMap(plan.Options.WorkerSelector),
+		RuntimeRequirements: preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements),
+		ProjectID:           plan.Options.ProjectID,
+		Command:             plan.Options.Command,
+		Region:              region,
+		Image:               plan.Options.Image,
+		RunnerSize:          plan.Options.RunnerSize,
+		TimeoutSeconds:      plan.Options.TimeoutSeconds,
+		CacheMode:           plan.Options.CacheMode,
+		CacheLaneSizeBytes:  plan.Options.CacheLaneSizeBytes,
+		NetworkMode:         plan.Options.NetworkMode,
+		NetworkAllowlist:    append([]string(nil), plan.Options.NetworkAllowlist...),
+		Docker:              plan.Options.Docker,
+		Services:            cloneRunServices(plan.Options.Services),
+		WorkerSelector:      copyStringMap(plan.Options.WorkerSelector),
+		SecretsRequested:    plan.Options.SecretsRequested,
 	}
 	resp, err := api.NewClient(apiURL, api.WithToken(token)).WorkerCapability(ctx, preflightapi.WorkerCapabilityCheckRequest{Spec: spec})
 	if err != nil {
@@ -77,17 +91,22 @@ func publicWorkerCapability(ctx context.Context, apiURL, token string, plan chec
 	}
 	return workerCapabilityReport{
 		Claimable:                 resp.Claimable,
+		ScratchSizeBytes:          resp.ScratchSizeBytes,
+		RuntimePreparation:        append([]preflightapi.RuntimeArchive(nil), resp.RuntimePreparation...),
 		UploadCapable:             resp.UploadCapable,
 		FreshWorkerCount:          resp.FreshWorkerCount,
 		MatchingWorkerCount:       resp.MatchingWorkerCount,
 		MatchingUploadWorkerCount: resp.MatchingUploadWorkerCount,
 		Reasons:                   append([]string(nil), resp.Reasons...),
 		UploadReasons:             append([]string(nil), resp.UploadReasons...),
+		Policy:                    resp.Policy,
 	}, nil
 }
 
 func workerClaimCapabilityReasons(plan checkRunPlan, worker preflightapi.AdminWorkerSummary, now time.Time) []string {
 	var reasons []string
+	runtimeImage := defaultString(plan.Options.Image, preflightapi.DefaultImage)
+	reasons = append(reasons, preflightapi.RuntimePreparationMismatchReasons(preflightapi.RunSpec{RuntimeRequirements: plan.Options.RuntimeRequirements, NetworkMode: plan.Options.NetworkMode, NetworkAllowlist: plan.Options.NetworkAllowlist}, worker.RuntimeInventory[runtimeImage], worker.RuntimeProviders[runtimeImage])...)
 	if worker.Draining {
 		reasons = append(reasons, "worker is draining")
 	}

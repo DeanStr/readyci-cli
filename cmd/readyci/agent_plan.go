@@ -8,6 +8,7 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 func agentPlanCommand(args []string) error {
@@ -46,15 +47,15 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 	if err := validateAgentSecretRequestForIntent(intent, requestSecrets); err != nil {
 		return agentPlanReport{}, cliConfigError(err.Error(), err)
 	}
-	if err := validateExplicitDependencyWarmSecretRequest(checkName, intent, requestSecrets); err != nil {
-		return agentPlanReport{}, cliConfigError(err.Error(), err)
-	}
 	changes = agentIntentDefaultChanges(intent, changes)
 	loaded, err := loadProjectConfigOrInfer(".")
 	if err != nil {
 		return agentPlanReport{}, err
 	}
 	cfg := loaded.Config
+	if err := validateExplicitDependencyWarmSecretRequest(cfg, checkName, intent, requestSecrets); err != nil {
+		return agentPlanReport{}, cliConfigError(err.Error(), err)
+	}
 	path := loaded.Path
 	if shouldUseAffectedRules(cfg, checkName) && !agentIntentRequestsBroadVerification(intent, goal) {
 		report, err := buildAgentAffectedPlanReport(apiURL, projectID, changes, goal, intent, requestSecrets, cfg, path, loaded.Inferred, loaded.Signals)
@@ -76,7 +77,7 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 	if err != nil {
 		return agentPlanReport{}, err
 	}
-	if explicitDependencyWarmRequested(checkName, intent) {
+	if explicitDependencyWarmRequested(cfg, checkName, intent) {
 		ctx, stop := signalContext()
 		defer stop()
 		targets, err := dependencyWarmTargetsForExplicitCheck(ctx, ".", cfg, path, resolveOptions, plan)
@@ -88,8 +89,8 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 			return agentPlanReport{}, err
 		}
 		if _, err := explicitDependencyWarmSessionBuildOptions(warmPlans, targets, syncbundlebuild.BuildOptions{
-			ChangeMode:       plan.Options.ChangeMode,
-			ExcludePatterns:  append([]string(nil), plan.Options.SyncExclude...),
+			ChangeMode:      plan.Options.ChangeMode,
+			ExcludePatterns: append([]string(nil), plan.Options.SyncExclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...),
 			IncludeUntracked: plan.Options.IncludeUntracked,
 		}); err != nil {
 			return agentPlanReport{}, err
@@ -108,7 +109,7 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		return agentPlanReport{}, err
 	}
 	if _, err := compatibleAffectedSessionBuildOptions(append(warmPlans, affectedCheckPlan{Plan: plan}), syncbundlebuild.BuildOptions{
-		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: plan.Options.SyncExclude, IncludeUntracked: plan.Options.IncludeUntracked,
+		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: plan.Options.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...), IncludeUntracked: plan.Options.IncludeUntracked,
 	}); err != nil {
 		return agentPlanReport{}, err
 	}
@@ -187,7 +188,7 @@ func explicitDependencyWarmAgentPlanReport(
 		Mode:          "check",
 		Intent:        intent,
 		Goal:          strings.TrimSpace(goal),
-		Check:         dependencyWarmCheckName,
+		Check:         first.Name,
 		Reason:        recommendation.Reason,
 		Command:       first.Options.Command,
 		ProjectID:     first.Options.ProjectID,

@@ -19,6 +19,7 @@ func TestClassificationPolicy(t *testing.T) {
 		{preflightapi.ClassificationBuildFailed, false, preflightapi.AgentActionFixCode},
 		{preflightapi.ClassificationTypecheckFailed, false, preflightapi.AgentActionFixCode},
 		{preflightapi.ClassificationDependencySetupFailed, false, preflightapi.AgentActionFixCode},
+		{preflightapi.ClassificationEnvironmentSetupFailed, false, preflightapi.AgentActionReportSetup},
 		{preflightapi.ClassificationAuthMissing, false, preflightapi.AgentActionAskForCredentials},
 		{preflightapi.ClassificationAuthForbidden, false, preflightapi.AgentActionAskForCredentials},
 		{preflightapi.ClassificationPolicyDenied, false, preflightapi.AgentActionReportSetup},
@@ -128,6 +129,8 @@ func TestDefiniteTestSuccessLine(t *testing.T) {
 		"--- PASS: TestFailureRecovery (0.00s)",
 		"test result: ok. 42 passed; 0 failed",
 		"tests/test_failure.py::test_error_message PASSED [ 25%]",
+		"ok  github.com/example/project/timeouts 3.786s coverage: 42.0% of statements",
+		"ok\tgithub.com/example/project/error\t(cached)",
 	} {
 		if !DefiniteTestSuccessLine(line) {
 			t.Errorf("DefiniteTestSuccessLine(%q) = false", line)
@@ -147,5 +150,33 @@ func TestDefiniteTestSuccessLine(t *testing.T) {
 	}
 	if DefiniteTestFailureText(`assert.Equal(t, "test result: failed", output)`) {
 		t.Fatal("assertion text was classified as a test-runner summary")
+	}
+}
+
+func TestDefiniteTestNonFailureLine(t *testing.T) {
+	for _, line := range []string{
+		"✓  421 [mobile-chrome] › tests/e2e/check.spec.ts:43:3 › error recovery (2.7s)",
+		"-  546 [mobile-chrome] › tests/e2e/check.spec.ts:860:3 › failure inspection",
+		"\x1b[2m-  546 [chromium]\x1b[0m › tests/e2e/check.spec.ts:860:3 › failure inspection",
+		"--- PASS: TestFailureRecovery (0.00s)",
+	} {
+		if !DefiniteTestNonFailureLine(line) {
+			t.Errorf("DefiniteTestNonFailureLine(%q) = false", line)
+		}
+	}
+	for _, line := range []string{
+		"✘  421 [mobile-chrome] › tests/e2e/check.spec.ts:43:3 › error recovery (2.7s)",
+		"- tests/config.yaml:12:3: invalid target",
+		"- 546 [tool] tests/config.yaml:12:3: invalid target",
+		"- 546 [tool] › tests/config.yaml:12:3: invalid target",
+		"✓ setup completed but later failed",
+	} {
+		if DefiniteTestNonFailureLine(line) {
+			t.Errorf("DefiniteTestNonFailureLine(%q) = true", line)
+		}
+	}
+	input := "- 546 [chromium] › tests/check.spec.ts:12:3 › expected error\nactual version differs from required version\n"
+	if got := FilterTestNonFailureLines(input); got != "\nactual version differs from required version\n" {
+		t.Fatalf("FilterTestNonFailureLines() = %q", got)
 	}
 }

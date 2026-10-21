@@ -80,7 +80,7 @@ func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) 
 		if summary == "" {
 			summary = strings.TrimSpace(result.FailureReason)
 		}
-		return preflightapi.RunFailureAnalysis{
+		analysis := preflightapi.RunFailureAnalysis{
 			Classification: strings.TrimSpace(result.Classification),
 			Confidence:     0.9,
 			Retryable:      result.Retryable,
@@ -88,6 +88,19 @@ func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) 
 			Summary:        summary,
 			PrimaryFile:    strings.TrimSpace(result.PrimaryFile),
 		}
+		if result.Classification == preflightapi.ClassificationTestFailed {
+			events := result.Events
+			if len(events) == 0 {
+				events = result.AnalysisEvents
+			}
+			events = repositoryTestOutputEvents(events)
+			exitCode := runFailureExitCode(result, result.Status)
+			observed := localAnalyzeRunFailureWithNetworkMode(result.Status, command, exitCode, events, result.FailureReason, result.NetworkMode)
+			if refined, ok := refinedObservedTestFailureSummary(analysis.Classification, summary, observed); ok {
+				analysis.Summary, analysis.PrimaryFile = refined, observed.PrimaryFile
+			}
+		}
+		return analysis
 	}
 	status := defaultString(result.Status, runFailureStatusFromError(err))
 	events := result.Events
@@ -133,6 +146,8 @@ func runFailureDiagnosisHint(classification string) string {
 		return "retry once; if it repeats, inspect dependency sources and use readyci warm --check dependencies with an explicit network allowlist"
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "install declared test or development dependencies, or update the Ready CI check command to include the project dependency group"
+	case preflightapi.ClassificationEnvironmentSetupFailed:
+		return "check exact runtimes, required executables, platform, and filesystem support; for storage errors inspect bytes and inodes on the failed path's filesystem before rerunning"
 	case preflightapi.ClassificationWorkerInternalError:
 		return "retry once; if it repeats, inspect worker logs because the command appears to have been terminated outside normal test output"
 	case preflightapi.ClassificationTimeout:

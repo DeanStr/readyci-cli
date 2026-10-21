@@ -360,7 +360,7 @@ func agentContractExplainReport() agentExplainReport {
 			Classification: preflightapi.ClassificationTestFailed,
 			AgentAction:    preflightapi.AgentActionFixCode,
 			Summary:        "React test failed in web/src/App.test.tsx.",
-			RootCause:      "The command reached the test runner and at least one test failed.",
+			RootCause:      "The test command failed; inspect the evidence to distinguish assertions from build or environment failures.",
 			PrimaryFile:    "web/src/App.test.tsx",
 			TargetFiles: []agentRepairTarget{{
 				Path:   "web/src/App.test.tsx",

@@ -10,8 +10,6 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/verificationplan"
 )
 
-const dependencyWarmCheckName = "dependencies"
-
 func dependencyWarmPreview(cwd string, plans []affectedCheckPlan, cfg config.ProjectConfig, resolve checkResolveOptions) ([]string, error) {
 	if resolve.SkipWarm {
 		return []string{"Automatic dependency preparation skipped (--skip-warm); tests retain their configured network policy"}, nil
@@ -32,52 +30,31 @@ func dependencyWarmPlansForAffected(_ string, plans []affectedCheckPlan, cfg con
 	if resolveOptions.SkipWarm {
 		return nil, nil
 	}
-	const warmCheck = dependencyWarmCheckName
-	if _, ok := cfg.Checks[warmCheck]; !ok {
-		return nil, nil
-	}
 	targets := make([]checkRunPlan, 0, len(plans))
 	for _, selected := range plans {
-		if strings.TrimSpace(selected.Plan.Name) == warmCheck {
-			continue
-		}
 		targets = append(targets, selected.Plan)
 	}
-	hasPersistentTarget := false
-	for _, target := range checkPlansForPlanning(targets) {
-		mode, err := verificationplan.NormalizeCacheMode(target.Run.CacheMode)
-		if err != nil {
-			return nil, fmt.Errorf("resolve dependency warm target %q cache mode: %w", target.Name, err)
-		}
-		if mode == "" || mode == "cache-only" {
-			hasPersistentTarget = true
-			break
-		}
+	resolved, err := verificationplan.DependencyWarmPlansForChecks(cfg, checkPlansForPlanning(targets), resolveOptionsForPlanning(resolveOptions))
+	if err != nil {
+		return nil, cliConfigError(err.Error(), err)
 	}
-	if !hasPersistentTarget {
+	if len(resolved) == 0 {
 		return nil, nil
 	}
 	warmResolve, err := warmDependencyResolveOptions(resolveOptions, cfg)
 	if err != nil {
-		return nil, err
+		return nil, cliConfigError(err.Error(), err)
 	}
 	warmResolve.Open = false
-	plan, err := resolveCheckRunPlan(warmCheck, cfg, warmResolve)
-	if err != nil {
-		return nil, err
-	}
-	plan.Options.CommandAlias = defaultString(plan.Options.CommandAlias, warmCheck)
-	resolvedWarmPlans, err := verificationplan.DependencyWarmPlansForTargets(
-		checkPlansForPlanning([]checkRunPlan{plan})[0],
-		checkPlansForPlanning(targets),
-	)
-	if err != nil {
-		return nil, err
-	}
-	warmRunPlans := specializedDependencyWarmRunPlans(plan, resolvedWarmPlans)
-	warmPlans := make([]affectedCheckPlan, 0, len(warmRunPlans))
-	for _, warmRunPlan := range warmRunPlans {
-		warmPlans = append(warmPlans, affectedCheckPlan{Plan: warmRunPlan})
+	var warmPlans []affectedCheckPlan
+	for _, warm := range resolved {
+		template, err := resolveCheckRunPlan(warm.Name, cfg, warmResolve)
+		if err != nil {
+			return nil, err
+		}
+		for _, plan := range specializedDependencyWarmRunPlans(template, []verificationplan.CheckPlan{warm}) {
+			warmPlans = append(warmPlans, affectedCheckPlan{Plan: plan})
+		}
 	}
 	return warmPlans, nil
 }
@@ -97,7 +74,9 @@ func dependencyWarmTargetsForExplicitCheck(
 		}
 		targets := make([]checkRunPlan, 0, len(selected))
 		for _, item := range selected {
-			if strings.TrimSpace(item.Plan.Name) != dependencyWarmCheckName {
+			if dependency, err := config.DependencyCheckFor(cfg, item.Plan.Name); err != nil {
+				return nil, cliConfigError(err.Error(), err)
+			} else if dependency == dependencyPlan.Name {
 				targets = append(targets, item.Plan)
 			}
 		}
@@ -105,7 +84,7 @@ func dependencyWarmTargetsForExplicitCheck(
 			return []checkRunPlan{dependencyPlan}, nil
 		}
 		if len(targets) == 0 {
-			err := fmt.Errorf("explicit dependency warm check %q has no affected consumer checks to warm", dependencyWarmCheckName)
+			err := fmt.Errorf("explicit dependency warm check %q has no affected consumer checks to warm", dependencyPlan.Name)
 			return nil, cliConfigError(err.Error(), err)
 		}
 		return targets, nil
@@ -117,7 +96,11 @@ func dependencyWarmTargetsForExplicitCheck(
 	// has a useful standalone warm lane, so retain the named check as its target.
 	targets := make([]checkRunPlan, 0, len(cfg.Checks))
 	for _, name := range verificationplan.SortedCheckNames(cfg.Checks) {
-		if name == dependencyWarmCheckName {
+		dependency, err := config.DependencyCheckFor(cfg, name)
+		if err != nil {
+			return nil, cliConfigError(err.Error(), err)
+		}
+		if dependency != dependencyPlan.Name {
 			continue
 		}
 		plan, err := resolveCheckRunPlan(name, cfg, resolveOptions)
@@ -126,15 +109,18 @@ func dependencyWarmTargetsForExplicitCheck(
 		}
 		targets = append(targets, plan)
 	}
-	if len(targets) == 0 {
+	if len(targets) == 0 && len(cfg.Checks) == 1 {
 		targets = append(targets, dependencyPlan)
+	}
+	if len(targets) == 0 {
+		return nil, cliConfigError(fmt.Sprintf("explicit dependency warm check %q has no consumer checks to warm", dependencyPlan.Name), nil)
 	}
 	return targets, nil
 }
 
 func dependencyWarmPlansForExplicitCheck(plan checkRunPlan, targets []checkRunPlan, cfg config.ProjectConfig, resolveOptions checkResolveOptions) ([]checkRunPlan, error) {
-	const warmCheck = dependencyWarmCheckName
-	if strings.TrimSpace(plan.Name) != warmCheck {
+	warmCheck := plan.Name
+	if !config.IsDependencyCheck(cfg, warmCheck) {
 		return nil, nil
 	}
 	warmResolve, err := warmDependencyResolveOptions(resolveOptions, cfg)
@@ -165,13 +151,13 @@ func dependencyWarmPlansForExplicitCheck(plan checkRunPlan, targets []checkRunPl
 	return plans, nil
 }
 
-func explicitDependencyWarmRequested(checkName, intent string) bool {
-	return strings.TrimSpace(checkName) == dependencyWarmCheckName && intent != agentIntentSecurity
+func explicitDependencyWarmRequested(cfg config.ProjectConfig, checkName, intent string) bool {
+	return config.IsDependencyCheck(cfg, strings.TrimSpace(checkName)) && intent != agentIntentSecurity
 }
 
-func validateExplicitDependencyWarmSecretRequest(checkName, intent string, requestSecrets bool) error {
-	if requestSecrets && explicitDependencyWarmRequested(checkName, intent) {
-		return fmt.Errorf("--request-secrets cannot be combined with the no-secrets dependency warm check %q", dependencyWarmCheckName)
+func validateExplicitDependencyWarmSecretRequest(cfg config.ProjectConfig, checkName, intent string, requestSecrets bool) error {
+	if requestSecrets && explicitDependencyWarmRequested(cfg, checkName, intent) {
+		return fmt.Errorf("--request-secrets cannot be combined with the no-secrets dependency warm check %q", checkName)
 	}
 	return nil
 }
@@ -180,6 +166,9 @@ func specializedDependencyWarmRunPlans(template checkRunPlan, resolvedPlans []ve
 	plans := make([]checkRunPlan, 0, len(resolvedPlans))
 	for _, resolved := range resolvedPlans {
 		plan := template
+		plan.DependencyWarmTargets = append([]string(nil), resolved.DependencyWarmTargets...)
+		plan.Options.CacheDependencyCheck = resolved.Run.CacheDependencyCheck
+		plan.Options.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(resolved.Run.RuntimeRequirements)
 		plan.Options.CacheMode = resolved.Run.CacheMode
 		plan.Options.CacheLaneSizeBytes = resolved.Run.CacheLaneSizeBytes
 		plan.Options.CacheKeyFiles = append([]string(nil), resolved.Run.CacheKeyFiles...)

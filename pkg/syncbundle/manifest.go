@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	FormatVersion   = 2
+	FormatVersion   = 3
 	BundleMediaType = "application/vnd.readyci.bundle+gzip"
 
 	MaxCompressedBundleBytes = 400 << 20
@@ -34,6 +34,7 @@ type Manifest struct {
 	Version    int         `json:"version"`
 	CreatedAt  time.Time   `json:"created_at"`
 	Git        GitMetadata `json:"git"`
+	Submodules []Submodule `json:"submodules,omitempty"`
 	ChangeMode string      `json:"change_mode,omitempty"`
 	// SourcePolicy records the independently registered policy whose sync
 	// filter was used to construct this workspace. It is absent for ordinary
@@ -41,10 +42,13 @@ type Manifest struct {
 	// binding against its own active policy revision before trusting the
 	// bundle's changed-file view.
 	SourcePolicy *SourcePolicyBinding `json:"source_policy,omitempty"`
+	// ReviewedFixtures grants narrowly reviewed, content-bound exceptions to the
+	// default confidentiality filter. Explicit exclusions still take precedence.
+	ReviewedFixtures []ReviewedFixture `json:"reviewed_fixtures,omitempty"`
 	// SnapshotDigest identifies the fully materialized workspace after baseline,
 	// workspace overlay, deletions, ignore rules, and change-mode selection have
-	// been applied. It is deliberately independent of archive compression and
-	// manifest timestamps.
+	// been applied, together with submodule pins and reviewed fixture bindings.
+	// It is independent of archive compression and manifest timestamps.
 	SnapshotDigest string   `json:"snapshot_digest"`
 	BaselineKey    string   `json:"baseline_key,omitempty"`
 	BaselineRef    bool     `json:"baseline_ref,omitempty"`
@@ -55,11 +59,13 @@ type Manifest struct {
 }
 
 type SourcePolicyBinding struct {
-	Digest                 string   `json:"digest"`
-	ExcludePatterns        []string `json:"exclude_patterns"`
-	DefaultExcludePatterns []string `json:"default_exclude_patterns"`
-	IncludeUntracked       bool     `json:"include_untracked"`
-	ProjectIgnoreUsed      bool     `json:"project_ignore_used"`
+	Digest                          string            `json:"digest"`
+	ExcludePatterns                 []string          `json:"exclude_patterns"`
+	DefaultExcludePatterns          []string          `json:"default_exclude_patterns"`
+	DefaultUntrackedExcludePatterns []string          `json:"default_untracked_exclude_patterns"`
+	ReviewedFixtures                []ReviewedFixture `json:"reviewed_fixtures"`
+	IncludeUntracked                bool              `json:"include_untracked"`
+	ProjectIgnoreUsed               bool              `json:"project_ignore_used"`
 }
 
 func NormalizeBaselineKey(value string) (string, error) {

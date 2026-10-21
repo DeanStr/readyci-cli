@@ -6,12 +6,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeanStr/readyci-cli/pkg/diagnosiscommon"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func buildRunLogsFailureSummaryReport(detail preflightapi.RunDetail, events []preflightapi.RunEvent, truncated bool) runLogsFailureSummaryReport {
 	summary := detail.Summary
-	analysis := localAnalyzeRunFailureWithNetworkMode(summary.Status, detail.Spec.Command, summary.ExitCode, events, summary.FailureSummary, detail.Spec.NetworkMode)
+	analysisEvents := events
+	if summary.Classification == preflightapi.ClassificationTestFailed && diagnosiscommon.PythonWarningDiagnostic(summary.FailureSummary) {
+		analysisEvents = repositoryTestOutputEvents(events)
+	}
+	analysis := localAnalyzeRunFailureWithNetworkMode(summary.Status, detail.Spec.Command, summary.ExitCode, analysisEvents, summary.FailureSummary, detail.Spec.NetworkMode)
 	classification := analysis.Classification
 	if summary.Classification != "" {
 		classification = summary.Classification
@@ -22,6 +27,9 @@ func buildRunLogsFailureSummaryReport(detail preflightapi.RunDetail, events []pr
 	}
 	if failureSummary == "" && runLogsClassificationIsFailure(analysis.Classification) {
 		failureSummary = strings.TrimSpace(analysis.Summary)
+	}
+	if refined, ok := refinedObservedTestFailureSummary(classification, failureSummary, analysis); ok {
+		failureSummary = refined
 	}
 	var evidence []preflightapi.RunFailureEvidence
 	if runLogsClassificationIsFailure(classification) || runLogsClassificationIsFailure(analysis.Classification) {
@@ -63,21 +71,87 @@ func runLogsClassificationIsFailure(classification string) bool {
 }
 
 func selectRunLogsFailureEvidence(evidence []preflightapi.RunFailureEvidence, limit int) []preflightapi.RunFailureEvidence {
+	return selectRunLogsFailureEvidenceWithRanker(evidence, limit, &runLogsFailureEvidenceRanker{})
+}
+
+type runLogsFailureEvidenceRankKey struct {
+	text string
+	path string
+}
+
+type runLogsFailureEvidenceRank struct {
+	keep  bool
+	score int
+}
+
+type runLogsFailureEvidenceRanker struct {
+	ranks map[runLogsFailureEvidenceRankKey]runLogsFailureEvidenceRank
+	score func(preflightapi.RunFailureEvidence) int
+}
+
+func runLogsFailureEvidenceKey(item preflightapi.RunFailureEvidence) runLogsFailureEvidenceRankKey {
+	return runLogsFailureEvidenceRankKey{text: strings.TrimSpace(item.Text), path: item.Path}
+}
+
+func (ranker *runLogsFailureEvidenceRanker) rank(item preflightapi.RunFailureEvidence) runLogsFailureEvidenceRank {
+	key := runLogsFailureEvidenceKey(item)
+	if rank, ok := ranker.ranks[key]; ok {
+		return rank
+	}
+	if ranker.ranks == nil {
+		ranker.ranks = make(map[runLogsFailureEvidenceRankKey]runLogsFailureEvidenceRank)
+	}
+	rank := runLogsFailureEvidenceRank{keep: key.text != "" && !lowSignalRunLogsFailureEvidence(key.text)}
+	if rank.keep {
+		score := ranker.score
+		if score == nil {
+			score = runLogsFailureEvidenceScore
+		}
+		rank.score = score(item)
+	}
+	ranker.ranks[key] = rank
+	return rank
+}
+
+func (ranker *runLogsFailureEvidenceRanker) retain(evidence []preflightapi.RunFailureEvidence) {
+	// Keep only the collector's bounded retained candidates, not metadata
+	// for every line of an unbounded repository log.
+	ranks := make(map[runLogsFailureEvidenceRankKey]runLogsFailureEvidenceRank, len(evidence))
+	for _, item := range evidence {
+		key := runLogsFailureEvidenceKey(item)
+		if rank, ok := ranker.ranks[key]; ok {
+			ranks[key] = rank
+		}
+	}
+	ranker.ranks = ranks
+}
+
+func selectRunLogsFailureEvidenceWithRanker(evidence []preflightapi.RunFailureEvidence, limit int, ranker *runLogsFailureEvidenceRanker) []preflightapi.RunFailureEvidence {
 	if limit <= 0 {
 		limit = len(evidence)
 	}
-	candidates := make([]preflightapi.RunFailureEvidence, 0, len(evidence))
+	type rankedEvidence struct {
+		item  preflightapi.RunFailureEvidence
+		score int
+	}
+	candidates := make([]rankedEvidence, 0, len(evidence))
 	for _, item := range evidence {
-		text := strings.TrimSpace(item.Text)
-		if text == "" || lowSignalRunLogsFailureEvidence(text) {
+		rank := ranker.rank(item)
+		if !rank.keep {
 			continue
 		}
-		candidates = append(candidates, item)
+		candidates = append(candidates, rankedEvidence{item: item, score: rank.score})
 	}
+	// Text/path and their rank are immutable. Never repeat diagnostic
+	// regular expressions from the stable-sort comparator.
 	sort.SliceStable(candidates, func(i, j int) bool {
-		return runLogsFailureEvidenceScore(candidates[i]) > runLogsFailureEvidenceScore(candidates[j])
+		return candidates[i].score > candidates[j].score
 	})
-	selected := dedupeRunLogsFailureEvidence(candidates, limit)
+	ordered := make([]preflightapi.RunFailureEvidence, len(candidates))
+	for index, candidate := range candidates {
+		ordered[index] = candidate.item
+	}
+	selected := dedupeRunLogsFailureEvidence(ordered, limit)
 	if len(selected) > 0 {
 		return selected
 	}
@@ -90,8 +164,14 @@ func runLogsFailureEvidenceScore(item preflightapi.RunFailureEvidence) int {
 	switch {
 	case strings.Contains(lower, "modulenotfounderror") || strings.Contains(lower, "no module named"):
 		return 100
+	case strings.HasPrefix(lower, "--- fail:"):
+		return 98
 	case localDiagnosisPytestFailedPattern.MatchString(text) || localDiagnosisAssertionPattern.MatchString(lower):
 		return 95
+	case diagnosiscommon.PythonExceptionDiagnostic(text):
+		return 94
+	case diagnosiscommon.PythonWarningDiagnostic(text):
+		return 5
 	case runLogsProjectRelativePath(item.Path):
 		return 90
 	case localAnalysisTextLooksTypecheckFailure(text, lower):

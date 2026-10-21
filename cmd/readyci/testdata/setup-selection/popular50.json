@@ -1,0 +1,53 @@
+[
+  {
+    "repository": "fastapi/fastapi",
+    "commit": "3070b5105fe02c4afdba5e3aea6c2cf2e3796c7f",
+    "files": {
+      "pyproject.toml": "[build-system]\nrequires = [\"pdm-backend\"]\nbuild-backend = \"pdm.backend\"\n\n[project]\nname = \"fastapi\"\ndynamic = [\"version\"]\ndescription = \"FastAPI framework, high performance, easy to learn, fast to code, ready for production\"\nreadme = \"README.md\"\nlicense = \"MIT\"\nlicense-files = [\"LICENSE\"]\nrequires-python = \">=3.10\"\n"
+    },
+    "previous_command": "make check",
+    "expected_check": "",
+    "source_paths": [
+      "pyproject.toml"
+    ]
+  },
+  {
+    "repository": "golang/go",
+    "commit": "dfc6f7db9bd75868ffb5cbc9501a2f4899122d2f",
+    "files": {
+      "src/make.bash": "#!/usr/bin/env bash\n# Copyright 2009 The Go Authors. All rights reserved.\n# Use of this source code is governed by a BSD-style\n# license that can be found in the LICENSE file.\n\n# See golang.org/s/go15bootstrap for an overview of the build process.\n"
+    },
+    "previous_command": "make check",
+    "expected_check": "",
+    "source_paths": [
+      "src/make.bash"
+    ]
+  },
+  {
+    "repository": "dotnet/runtime",
+    "commit": "3f6df375404f08acaf9162206aa59174d6b5fefb",
+    "files": {
+      "src/native/external/zstd/Makefile": "check:\n\t$(Q)$(MAKE) -C $(TESTDIR) $@\n\n.PHONY: automated_benchmarking\nautomated_benchmarking:\n\t$(MAKE) -C $(TESTDIR) $@\n"
+    },
+    "previous_command": "make -C src/native/external/zstd check",
+    "expected_check": "",
+    "source_paths": [
+      "src/native/external/zstd/Makefile"
+    ],
+    "source_lines": "90"
+  },
+  {
+    "repository": "sveltejs/svelte",
+    "commit": "40bb08482f4857d91221638dec544a532bc35389",
+    "files": {
+      "package.json": "{\n  \"name\": \"svelte-monorepo\",\n  \"version\": \"0.0.1\",\n  \"description\": \"monorepo for svelte and friends\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"license\": \"MIT\",\n  \"packageManager\": \"pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800\",\n  \"engines\": {\n    \"pnpm\": \">=9.0.0\"\n  },\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git+https://github.com/sveltejs/svelte.git\"\n  },\n  \"scripts\": {\n    \"build\": \"pnpm -r --filter=./packages/* build\",\n    \"check\": \"cd packages/svelte && pnpm build && cd ../../ && pnpm -r check\",\n    \"lint\": \"eslint && prettier --check .\",\n    \"format\": \"prettier --write .\",\n    \"test\": \"vitest run\",\n    \"profile:compiler\": \"node ./benchmarking/profile-compiler.js\",\n    \"changeset:version\": \"changeset version && pnpm -r generate:version && git add --all\",\n    \"changeset:publish\": \"changeset publish\",\n    \"bench\": \"NODE_ENV=production node --allow-natives-syntax ./benchmarking/run.js\",\n    \"bench:compare\": \"NODE_ENV=production node --allow-natives-syntax ./benchmarking/compare/index.js\",\n    \"bench:debug\": \"NODE_ENV=production node --allow-natives-syntax --inspect-brk ./benchmarking/run.js\"\n  },\n  \"devDependencies\": {\n    \"@changesets/changelog-github\": \"1.0.0-next.6\",\n    \"@changesets/cli\": \"^2.29.8\",\n    \"@eslint/js\": \"^10.0.0\",\n    \"@sveltejs/eslint-config\": \"^9.0.0\",\n    \"@types/node\": \"^20.11.5\",\n    \"@types/picomatch\": \"^4.0.2\",\n    \"@vitest/coverage-v8\": \"^4.1.7\",\n    \"eslint\": \"^10.0.0\",\n    \"eslint-plugin-lube\": \"^0.5.1\",\n    \"eslint-plugin-svelte\": \"^3.15.0\",\n    \"jsdom\": \"25.0.1\",\n    \"playwright\": \"^1.62.0\",\n    \"prettier\": \"^3.2.4\",\n    \"prettier-plugin-svelte\": \"^3.4.0\",\n    \"svelte\": \"workspace:^\",\n    \"typescript\": \"^5.5.4\",\n    \"typescript-eslint\": \"^8.56.0\",\n    \"v8-natives\": \"^1.2.5\",\n    \"vitest\": \"^4.1.7\"\n  }\n}\n",
+      "pnpm-lock.yaml": "lockfileVersion: 9.0\n"
+    },
+    "previous_command": "pnpm install --frozen-lockfile && pnpm check",
+    "expected_check": "node",
+    "expected_command": "pnpm install --frozen-lockfile && pnpm test",
+    "source_paths": [
+      "package.json"
+    ]
+  }
+]

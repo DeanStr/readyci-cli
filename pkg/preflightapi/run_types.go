@@ -19,6 +19,7 @@ type GitInfo struct {
 }
 
 type CreateRunRequest struct {
+	RuntimeRequirements   map[string]string `json:"runtime_requirements,omitempty"`
 	ProjectID             string            `json:"project_id"`
 	Region                string            `json:"region,omitempty"`
 	IdempotencyKey        string            `json:"idempotency_key,omitempty"`
@@ -331,39 +332,40 @@ type CancelRunGroupResponse struct {
 }
 
 type RunSpec struct {
-	RunID              string            `json:"run_id"`
-	TeamID             string            `json:"team_id,omitempty"`
-	RunGroupID         string            `json:"run_group_id,omitempty"`
-	RunGroupKey        string            `json:"run_group_key,omitempty"`
-	RunGroupKind       string            `json:"run_group_kind,omitempty"`
-	RunGroupName       string            `json:"run_group_name,omitempty"`
-	LogicalChildID     string            `json:"logical_child_id,omitempty"`
-	LogicalChildName   string            `json:"logical_child_name,omitempty"`
-	MatrixVariant      string            `json:"matrix_variant,omitempty"`
-	Attempt            int               `json:"attempt,omitempty"`
-	ProjectID          string            `json:"project_id"`
-	Region             string            `json:"region"`
-	IdempotencyKey     string            `json:"idempotency_key,omitempty"`
-	Image              string            `json:"image"`
-	Command            string            `json:"command"`
-	CommandAlias       string            `json:"command_alias,omitempty"`
-	Steps              []RunStepSpec     `json:"steps,omitempty"`
-	ConcurrencyGroup   string            `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit   int               `json:"concurrency_limit,omitempty"`
-	RunnerSize         string            `json:"runner_size"`
-	TimeoutSeconds     int               `json:"timeout_seconds"`
-	CacheMode          string            `json:"cache_mode"`
-	ArtifactPaths      []string          `json:"artifact_paths,omitempty"`
-	NetworkMode        string            `json:"network_mode"`
-	NetworkAllowlist   []string          `json:"network_allowlist,omitempty"`
-	Docker             bool              `json:"docker"`
-	Services           []RunServiceSpec  `json:"services,omitempty"`
-	WorkerSelector     map[string]string `json:"worker_selector,omitempty"`
-	ChangeMode         string            `json:"change_mode,omitempty"`
-	SnapshotDigest     string            `json:"snapshot_digest,omitempty"`
-	ChangedFilesDigest string            `json:"changed_files_digest,omitempty"`
-	BundleBaselineKey  string            `json:"bundle_baseline_key,omitempty"`
-	SecretsRequested   *bool             `json:"secrets_requested,omitempty"`
+	RuntimeRequirements map[string]string `json:"runtime_requirements,omitempty"`
+	RunID               string            `json:"run_id"`
+	TeamID              string            `json:"team_id,omitempty"`
+	RunGroupID          string            `json:"run_group_id,omitempty"`
+	RunGroupKey         string            `json:"run_group_key,omitempty"`
+	RunGroupKind        string            `json:"run_group_kind,omitempty"`
+	RunGroupName        string            `json:"run_group_name,omitempty"`
+	LogicalChildID      string            `json:"logical_child_id,omitempty"`
+	LogicalChildName    string            `json:"logical_child_name,omitempty"`
+	MatrixVariant       string            `json:"matrix_variant,omitempty"`
+	Attempt             int               `json:"attempt,omitempty"`
+	ProjectID           string            `json:"project_id"`
+	Region              string            `json:"region"`
+	IdempotencyKey      string            `json:"idempotency_key,omitempty"`
+	Image               string            `json:"image"`
+	Command             string            `json:"command"`
+	CommandAlias        string            `json:"command_alias,omitempty"`
+	Steps               []RunStepSpec     `json:"steps,omitempty"`
+	ConcurrencyGroup    string            `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit    int               `json:"concurrency_limit,omitempty"`
+	RunnerSize          string            `json:"runner_size"`
+	TimeoutSeconds      int               `json:"timeout_seconds"`
+	CacheMode           string            `json:"cache_mode"`
+	ArtifactPaths       []string          `json:"artifact_paths,omitempty"`
+	NetworkMode         string            `json:"network_mode"`
+	NetworkAllowlist    []string          `json:"network_allowlist,omitempty"`
+	Docker              bool              `json:"docker"`
+	Services            []RunServiceSpec  `json:"services,omitempty"`
+	WorkerSelector      map[string]string `json:"worker_selector,omitempty"`
+	ChangeMode          string            `json:"change_mode,omitempty"`
+	SnapshotDigest      string            `json:"snapshot_digest,omitempty"`
+	ChangedFilesDigest  string            `json:"changed_files_digest,omitempty"`
+	BundleBaselineKey   string            `json:"bundle_baseline_key,omitempty"`
+	SecretsRequested    *bool             `json:"secrets_requested,omitempty"`
 	// SecretRevisionDigest identifies the exact server-selected project-secret
 	// revision set without exposing secret names or values. It is populated by
 	// the control plane when a worker claim is finalized, never by run creation.

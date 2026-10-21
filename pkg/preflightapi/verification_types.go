@@ -185,12 +185,14 @@ type VerificationRecipe struct {
 // recompute whether a completed session still describes the caller's current
 // workspace. It is untrusted input and never grants source-policy authority.
 type VerificationSourceRecipe struct {
-	UploadBaselineSessionID string   `json:"upload_baseline_session_id,omitempty"`
-	ExcludePatterns         []string `json:"exclude_patterns"`
-	DefaultExcludePatterns  []string `json:"default_exclude_patterns"`
-	IncludeUntracked        bool     `json:"include_untracked"`
-	UseProjectIgnore        bool     `json:"use_project_ignore"`
-	SourcePolicyDigest      string   `json:"source_policy_digest,omitempty"`
+	UploadBaselineSessionID         string                       `json:"upload_baseline_session_id,omitempty"`
+	ExcludePatterns                 []string                     `json:"exclude_patterns"`
+	DefaultExcludePatterns          []string                     `json:"default_exclude_patterns"`
+	DefaultUntrackedExcludePatterns []string                     `json:"default_untracked_exclude_patterns"`
+	ReviewedFixtures                []syncbundle.ReviewedFixture `json:"reviewed_fixtures"`
+	IncludeUntracked                bool                         `json:"include_untracked"`
+	UseProjectIgnore                bool                         `json:"use_project_ignore"`
+	SourcePolicyDigest              string                       `json:"source_policy_digest,omitempty"`
 }
 
 type CreateVerificationSessionRequest struct {
@@ -370,6 +372,8 @@ type VerificationSession struct {
 	// Warnings reflect currently retained diagnostic reports. They never change
 	// the execution verdict, classification, or immutable result digest.
 	Warnings []DiagnosticWarning `json:"warnings,omitempty"`
+	// SourceCompletionTimings is request-local diagnostics, excluded from the result digest.
+	SourceCompletionTimings *PhaseTimings `json:"source_completion_timings,omitempty"`
 }
 
 // VerificationSnapshotRetry is a service-derived recovery projection. It does
@@ -486,13 +490,25 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 	}
 	req.Recipe.Source.ExcludePatterns = normalizedStrings(req.Recipe.Source.ExcludePatterns)
 	req.Recipe.Source.DefaultExcludePatterns = normalizedStrings(req.Recipe.Source.DefaultExcludePatterns)
+	req.Recipe.Source.DefaultUntrackedExcludePatterns = normalizedStrings(req.Recipe.Source.DefaultUntrackedExcludePatterns)
+	req.Recipe.Source.ReviewedFixtures, err = syncbundle.NormalizeReviewedFixtures(req.Recipe.Source.ReviewedFixtures)
+	if err != nil {
+		return req, fmt.Errorf("recipe reviewed fixtures: %w", err)
+	}
+	if req.Recipe.Source.ReviewedFixtures == nil {
+		req.Recipe.Source.ReviewedFixtures = []syncbundle.ReviewedFixture{}
+	}
 	if id := req.Recipe.Source.UploadBaselineSessionID; id != "" {
 		if req.Recipe.Purpose != ExecutionPurpose || len(id) > 160 || strings.ContainsAny(id, "/\\") || containsVerificationControl(id) {
 			return req, fmt.Errorf("invalid source upload baseline session")
 		}
 	}
 	req.Recipe.Source.SourcePolicyDigest = strings.TrimSpace(req.Recipe.Source.SourcePolicyDigest)
-	for _, pattern := range append(append([]string(nil), req.Recipe.Source.ExcludePatterns...), req.Recipe.Source.DefaultExcludePatterns...) {
+	patterns := append(append(append([]string(nil), req.Recipe.Source.ExcludePatterns...), req.Recipe.Source.DefaultExcludePatterns...), req.Recipe.Source.DefaultUntrackedExcludePatterns...)
+	if err := syncbundle.ValidateExcludePatterns(patterns); err != nil {
+		return req, fmt.Errorf("recipe source patterns: %w", err)
+	}
+	for _, pattern := range patterns {
 		if containsVerificationControl(pattern) {
 			return req, fmt.Errorf("recipe source pattern contains control characters")
 		}
@@ -610,6 +626,10 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 	}
 	if plan.Nodes == nil {
 		plan.Nodes = []VerificationNodePlan{}
+	} else {
+		nodes := make([]VerificationNodePlan, len(plan.Nodes))
+		copy(nodes, plan.Nodes)
+		plan.Nodes = nodes
 	}
 	if plan.Authority == "" {
 		plan.Authority = VerificationPlanAuthorityClientProposed
@@ -681,6 +701,11 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 		node.DependsOn = normalizedStrings(node.DependsOn)
 		node.SuccessDependsOn = normalizedStrings(node.SuccessDependsOn)
 		node.DependsOn = normalizedStrings(append(node.DependsOn, node.SuccessDependsOn...))
+		var err error
+		node.Run.RuntimeRequirements, err = NormalizeRuntimeRequirements(node.Run.RuntimeRequirements)
+		if err != nil {
+			return fmt.Errorf("verification node %q runtime_requirements: %w", node.ID, err)
+		}
 		node.Run.ProjectID = projectID
 		node.Run.RunGroupKey = ""
 		node.Run.RunGroupKind = ""

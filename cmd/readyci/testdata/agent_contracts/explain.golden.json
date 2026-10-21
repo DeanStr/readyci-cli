@@ -18,7 +18,7 @@
     "classification": "test_failed",
     "agent_action": "fix_code",
     "summary": "React test failed in web/src/App.test.tsx.",
-    "root_cause": "The command reached the test runner and at least one test failed.",
+    "root_cause": "The test command failed; inspect the evidence to distinguish assertions from build or environment failures.",
     "primary_file": "web/src/App.test.tsx",
     "target_files": [
       {

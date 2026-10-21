@@ -95,7 +95,7 @@ func stagedIndexPaths(ctx context.Context, root string, matcher ignoreMatcher) (
 		if err != nil {
 			return nil, err
 		}
-		if matcher.ignored(rel) {
+		if matcher.ignoredTracked(rel) {
 			continue
 		}
 		if syncbundle.IsGitControlPath(rel) {

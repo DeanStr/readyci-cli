@@ -41,12 +41,9 @@ artifacts:
     - coverage/**
     - test-results/**
 
-checks:
-  ci:
-    command: make check
-    sync:
-      include_untracked: true
-    timeout: 20m
+# Add the repository's documented test command before running a check.
+# Use setup --preview --json to inspect existing CI and Make entrypoints.
+checks: {}
 
 network:
   mode: %s
@@ -87,10 +84,6 @@ artifacts:
 affected:
   rules:
     - paths:
-        - "**"
-      checks:
-        - "ci"
-    - paths:
         - "**/*.sh"
         - "scripts/git-hooks/**"
       checks:
@@ -109,11 +102,6 @@ affected:
         - "ops-config"
 
 checks:
-  ci:
-    command: make check
-    sync:
-      include_untracked: true
-    timeout: 20m
   shell-syntax:
     command: scripts/readyci-check-shell-syntax.sh
     sync:

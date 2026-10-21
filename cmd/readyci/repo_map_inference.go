@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func scanRepoCargo(ctx context.Context, cwd string) *repoCargoMap {
@@ -184,6 +185,9 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 			Evidence:           []string{target.Path + ":" + fmt.Sprint(target.Line)},
 			Requirements:       []string{"Review the Make target's toolchain, dependency, service, and network requirements."},
 		})
+		if target.Conditional {
+			out[len(out)-1].Unsupported = []string{"Make target is defined conditionally; configure its required variables explicitly"}
+		}
 	}
 	for _, ref := range report.CheckReferences {
 		if ref.Source != "make" || ref.Check == "" {
@@ -199,6 +203,9 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 		})
 	}
 	for _, workflow := range report.GitHubActions.Workflows {
+		if len(workflow.Problems) > 0 {
+			out = append(out, repoImportCandidate{ID: "github-actions:" + workflow.Path + ":uninspectable", Source: "github-actions", Name: "uninspectable workflow test scope", ScopeUnknown: true, Evidence: []string{workflow.Path}, Unsupported: append([]string(nil), workflow.Problems...)})
+		}
 		for _, job := range workflow.Jobs {
 			if len(job.Commands) == 0 && len(job.Unsupported) == 0 {
 				continue
@@ -207,26 +214,43 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 				continue
 			}
 			var directories []string
+			testEntrypoint := false
 			for _, step := range job.RunSteps {
 				directories = appendUniqueString(directories, step.WorkingDirectory)
+				testEntrypoint = testEntrypoint || setupCommandRunsTests(step.Command)
 			}
+			unsupported := append([]string(nil), job.Unsupported...)
+			unsupported = append(unsupported, setupWorkflowMakeRequirements(report.Make, job.RunSteps)...)
 			out = append(out, repoImportCandidate{
-				ID:                 "github-actions:" + workflow.Path + ":" + job.Name,
-				Source:             "github-actions",
-				Name:               job.Name,
-				Command:            joinImportedSteps(job.RunSteps),
-				Runtimes:           append([]string(nil), job.Runtimes...),
-				WorkingDirectories: directories,
-				Reason:             "GitHub Actions job runs existing verification command(s).",
-				Confidence:         0.74,
-				Evidence:           []string{workflow.Path},
-				Requirements:       append([]string{"Select a runner image with the required toolchains; provider runner images are not imported."}, job.Requirements...),
-				Unsupported:        append([]string(nil), job.Unsupported...),
+				ID:                   defaultString(job.ID, "github-actions:"+workflow.Path+":"+job.Name),
+				ParentJobID:          job.ParentJobID,
+				ScopeUnknown:         job.ScopeUnknown,
+				Matrix:               job.Matrix,
+				RunSteps:             append([]repoWorkflowRunStep(nil), job.RunSteps...),
+				Timeout:              job.Timeout,
+				Source:               "github-actions",
+				Name:                 job.Name,
+				Command:              joinImportedSteps(job.RunSteps),
+				Runtimes:             append([]string(nil), job.Runtimes...),
+				RuntimeRequirements:  job.RuntimeRequirements,
+				RuntimePins:          copyStringMap(job.RuntimePins),
+				RuntimeResolutions:   preflightapi.CloneRuntimeResolutions(job.RuntimeResolutions),
+				WorkingDirectories:   directories,
+				Reason:               "GitHub Actions job runs existing verification command(s).",
+				Confidence:           0.74,
+				Evidence:             []string{workflow.Path},
+				Requirements:         append([]string{"Select a runner image with the required toolchains; provider runner images are not imported."}, job.Requirements...),
+				Unsupported:          uniqueStrings(unsupported),
+				AutomaticUnsupported: append([]string(nil), job.AutomaticUnsupported...),
+				TestEntrypoint:       testEntrypoint,
 			})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Source == out[j].Source {
+			if out[i].Name == out[j].Name {
+				return out[i].ID < out[j].ID
+			}
 			return out[i].Name < out[j].Name
 		}
 		return out[i].Source < out[j].Source
@@ -237,6 +261,9 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 func isLikelyVerificationWorkflowJob(workflow repoWorkflowMap, job repoWorkflowJob) bool {
 	if isOperationalWorkflowJob(workflow, job) {
 		return false
+	}
+	if job.ScopeUnknown {
+		return true
 	}
 	if isLikelyVerificationWorkflowName(workflow.Path) || isLikelyVerificationWorkflowName(job.Name) {
 		return true

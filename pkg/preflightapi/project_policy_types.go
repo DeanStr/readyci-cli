@@ -60,7 +60,54 @@ type ProjectVerificationPolicyPreview struct {
 }
 
 type ActivateProjectVerificationPolicyRequest struct {
-	ConfigYAML           string `json:"config_yaml"`
+	ProposalID           string `json:"proposal_id,omitempty"`
+	ConfigYAML           string `json:"config_yaml,omitempty"`
 	PreviewDigest        string `json:"preview_digest"`
 	ExpectedActiveDigest string `json:"expected_active_digest,omitempty"`
+}
+
+// PolicyChange describes a complete changed YAML field. Missing values are null;
+// empty strings are real values. Paths are segments so keys containing dots remain unambiguous.
+type PolicyChange struct {
+	Path   []string `json:"path"`
+	Before *string  `json:"before"`
+	After  *string  `json:"after"`
+}
+
+type ProjectVerificationPolicyProposal struct {
+	ProjectVerificationPolicyPreview
+	ProposalID  string                   `json:"proposal_id"`
+	Changes     []PolicyChange           `json:"changes"`
+	CreatedAt   time.Time                `json:"created_at"`
+	ExpiresAt   time.Time                `json:"expires_at"`
+	ReviewURL   string                   `json:"review_url,omitempty"`
+	SubmittedBy *PolicyProposalSubmitter `json:"submitted_by,omitempty"`
+	ApprovedAt  *time.Time               `json:"approved_at,omitempty"`
+}
+
+// Submitter attribution is resolved from trusted identities, never request YAML.
+type PolicyProposalSubmitter struct {
+	UserID    string `json:"user_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email,omitempty"`
+	TokenID   string `json:"token_id,omitempty"`
+	TokenName string `json:"token_name,omitempty"`
+}
+
+// The inbox omits configuration bytes and field values to keep listing bounded.
+type ProjectVerificationPolicyProposalSummary struct {
+	ProjectID   string                   `json:"project_id"`
+	ProposalID  string                   `json:"proposal_id"`
+	Digest      string                   `json:"digest"`
+	ChangeCount int                      `json:"change_count"`
+	CheckCount  int                      `json:"check_count"`
+	CreatedAt   time.Time                `json:"created_at"`
+	ExpiresAt   time.Time                `json:"expires_at"`
+	SubmittedBy *PolicyProposalSubmitter `json:"submitted_by,omitempty"`
+	ReviewURL   string                   `json:"review_url,omitempty"`
+}
+
+type ProjectVerificationPolicyProposalList struct {
+	ProjectID string                                     `json:"project_id"`
+	Proposals []ProjectVerificationPolicyProposalSummary `json:"proposals"`
 }

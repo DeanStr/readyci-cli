@@ -21,8 +21,8 @@ func writePlannedBundle(writer io.Writer, planned plannedBundle, omitBaseline bo
 	return manifest, nil
 }
 
-func baselineContentKey(entries []plannedEntry) (string, error) {
-	return syncbundle.BaselineContentKey(plannedArchiveEntries(entries))
+func baselineContentKey(entries []plannedEntry, binding syncbundle.ContentBinding) (string, error) {
+	return syncbundle.BaselineContentKey(plannedArchiveEntries(entries), binding)
 }
 
 func plannedArchiveEntries(entries []plannedEntry) []syncbundle.ArchiveEntry {

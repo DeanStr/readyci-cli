@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,9 +30,10 @@ type ProjectConfig struct {
 }
 
 type SyncConfig struct {
-	IncludeUntracked *bool    `yaml:"include_untracked"`
-	RespectGitignore *bool    `yaml:"respect_gitignore"`
-	Exclude          []string `yaml:"exclude"`
+	IncludeUntracked *bool                        `yaml:"include_untracked"`
+	RespectGitignore *bool                        `yaml:"respect_gitignore"`
+	Exclude          []string                     `yaml:"exclude"`
+	ReviewedFixtures []syncbundle.ReviewedFixture `yaml:"reviewed_fixtures"`
 }
 
 type CacheConfig struct {
@@ -165,6 +167,8 @@ type ServiceHealthConfig struct {
 }
 
 type CheckConfig struct {
+	DependencyCheck     string             `yaml:"dependency_check"`
+	RuntimeRequirements map[string]string  `yaml:"runtime_requirements"`
 	Command             string             `yaml:"command"`
 	Steps               []StepConfig       `yaml:"steps"`
 	Prepare             CommandList        `yaml:"prepare"`

@@ -1,0 +1,118 @@
+package preflightapi
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"time"
+)
+
+const RuntimeResolutionPolicySetupNodeLTSImport = "setup_node_lts_import_v1"
+
+// RuntimeResolution is setup-import provenance for a reviewed moving declaration.
+// It is never configuration or execution input; the saved numeric requirement
+// uses the ordinary server-owned runtime and archive policy.
+type RuntimeResolution struct {
+	Selector      string `json:"selector" yaml:"selector"`
+	Policy        string `json:"policy" yaml:"policy"`
+	Requirement   string `json:"requirement" yaml:"requirement"`
+	CatalogDigest string `json:"catalog_digest" yaml:"catalog_digest"`
+}
+
+type NodeRuntimeAliasRelease struct {
+	Version string `json:"version"`
+	Stable  bool   `json:"stable"`
+	LTS     string `json:"lts,omitempty"`
+}
+
+type NodeRuntimeAliasCatalog struct {
+	Schema            string                    `json:"schema"`
+	Policy            string                    `json:"policy"`
+	SourceURL         string                    `json:"source_url"`
+	SourceSHA256      string                    `json:"source_sha256"`
+	ReviewedActionRef string                    `json:"reviewed_action_ref"`
+	ReviewedAt        time.Time                 `json:"reviewed_at"`
+	ValidBefore       time.Time                 `json:"valid_before"`
+	Releases          []NodeRuntimeAliasRelease `json:"releases"`
+}
+
+// The release-reviewed projection includes reviewed stable series heads from
+// the immutable official manifest. setup-node's pinned implementation resolves
+// lts/* to the newest LTS major, then tries installed versions before downloads.
+// This snapshot expires before the next scheduled LTS transition (2026-10-28).
+// It does not label the image default, or the newest approved archive, as LTS.
+func NodeRuntimeAliasCatalogMetadata() NodeRuntimeAliasCatalog {
+	return nodeRuntimeAliasCatalog20261020()
+}
+
+func nodeRuntimeAliasCatalog20261020() NodeRuntimeAliasCatalog {
+	return NodeRuntimeAliasCatalog{
+		Schema: "readyci.node_runtime_alias_catalog.v1", Policy: RuntimeResolutionPolicySetupNodeLTSImport,
+		SourceURL:         "https://raw.githubusercontent.com/actions/node-versions/c5f220c78c527ccc4bea4bbc2a5d78d2fc035972/versions-manifest.json",
+		SourceSHA256:      "70d6102a80ec4a7e1f0e54673d37981887e17d74fa5e2f0f9a1947f88d86bb1f",
+		ReviewedActionRef: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
+		ReviewedAt:        time.Date(2026, 10, 20, 3, 15, 42, 0, time.UTC), ValidBefore: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
+		Releases: []NodeRuntimeAliasRelease{{Version: "26.12.0", Stable: true}, {Version: "24.22.0", Stable: true, LTS: "Krypton"}, {Version: "22.23.3", Stable: true, LTS: "Jod"}, {Version: "20.20.2", Stable: true, LTS: "Iron"}},
+	}
+}
+
+func NodeRuntimeAliasCatalogDigest() string {
+	return nodeRuntimeAliasCatalogDigest(NodeRuntimeAliasCatalogMetadata())
+}
+
+func nodeRuntimeAliasCatalogDigest(catalog NodeRuntimeAliasCatalog) string {
+	data, _ := json.Marshal(catalog)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func nodeRuntimeAliasRelease(catalog NodeRuntimeAliasCatalog) (string, string, error) {
+	var chosen runtimeVersion
+	var version string
+	for _, release := range catalog.Releases {
+		parsed, err := parseRuntimeVersion(release.Version)
+		if err != nil || parsed.count != 3 || parsed.String() != release.Version {
+			return "", "", fmt.Errorf("reviewed Node alias catalog contains an invalid release")
+		}
+		if release.Stable && release.LTS != "" && (version == "" || compareRuntimeVersions(parsed, chosen) > 0) {
+			chosen, version = parsed, release.Version
+		}
+	}
+	if version == "" {
+		return "", "", fmt.Errorf("reviewed Node alias catalog contains no stable LTS release")
+	}
+	return fmt.Sprint(chosen.parts[0]), version, nil
+}
+
+func canonicalRuntimeAliasFromCatalog(runtime, selector string, catalog NodeRuntimeAliasCatalog) (RuntimeResolution, error) {
+	if runtime != "node" || selector != "lts/*" {
+		return RuntimeResolution{}, fmt.Errorf("unsupported moving runtime selector %s %q; only Node lts/* with default check-latest=false is reviewed", runtime, selector)
+	}
+	requirement, _, err := nodeRuntimeAliasRelease(catalog)
+	if err != nil {
+		return RuntimeResolution{}, err
+	}
+	return RuntimeResolution{Selector: selector, Policy: catalog.Policy, Requirement: requirement, CatalogDigest: nodeRuntimeAliasCatalogDigest(catalog)}, nil
+}
+
+// ResolveRuntimeAlias resolves a moving declaration once, during setup import.
+// Only the numeric requirement is saved in configuration or sent for execution.
+func ResolveRuntimeAlias(runtime, selector string, now time.Time) (RuntimeResolution, error) {
+	catalog := NodeRuntimeAliasCatalogMetadata()
+	if now.Before(catalog.ReviewedAt) || !now.Before(catalog.ValidBefore) {
+		return RuntimeResolution{}, fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the CLI import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), catalog.ReviewedAt.Format(time.RFC3339), catalog.ValidBefore.Format(time.RFC3339))
+	}
+	return canonicalRuntimeAliasFromCatalog(runtime, selector, catalog)
+}
+
+func CloneRuntimeResolutions(values map[string]RuntimeResolution) map[string]RuntimeResolution {
+	if values == nil {
+		return nil
+	}
+	result := make(map[string]RuntimeResolution, len(values))
+	for name, value := range values {
+		result[name] = value
+	}
+	return result
+}

@@ -1,0 +1,56 @@
+version: 1
+project_id: matched-fixture
+sync:
+  include_untracked: false
+  exclude:
+  - .npmrc*
+  - test-results
+  - tmp
+artifacts:
+  paths:
+  - coverage/**
+  - test-results/**
+cache:
+  paths:
+  - ~/.npm
+  - ~/.cache/yarn
+  - ~/.local/share/pnpm/store
+  mode: cache-only
+  size: 10GiB
+checks:
+  tests:
+    steps:
+    - name: step-1
+      command: bash -e -c 'pnpm install --frozen-lockfile'
+      env:
+        CI: 'true'
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    - name: step-2
+      command: bash -e -c 'pnpm playwright install chromium'
+      env:
+        CI: 'true'
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    - name: step-3
+      command: bash -e -c 'pnpm test'
+      env:
+        CI: 'true'
+        PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    runtime_requirements:
+      node: '24'
+      pnpm: 10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800
+    sync:
+      include_untracked: true
+    timeout: 15m
+network:
+  mode: allowlist
+  allowlist:
+  - registry.npmjs.org
+  - registry.yarnpkg.com
+  - nodejs.org
+  - cdn.playwright.dev
+  - playwright.download.prss.microsoft.com
+  - storage.googleapis.com
+image: ubuntu-24.04-ci
+runner_size: standard
+retries: 0
+timeout: 15m

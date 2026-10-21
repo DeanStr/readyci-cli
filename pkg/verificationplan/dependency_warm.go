@@ -19,8 +19,8 @@ type dependencyWarmPlacement struct {
 
 // DependencyWarmPlansForTargets specializes one trusted dependency check for
 // the single persistent cache quota shared by its target checks. Targets on
-// different runner sizes need separate warm nodes because a worker claim can
-// require only one size; targets on the same size still share one warm node. A
+// different runner sizes or incompatible runtime versions need separate warm
+// nodes. Each consumer binds to its own preparation, including its cache lane. A
 // repository with multiple cache quotas or key namespaces must standardize them
 // instead of multiplying warm nodes that only prepare unrelated cache lanes.
 // Every runner-size node mounts the union of target cache paths because cache
@@ -31,6 +31,7 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 	var cacheKeyFiles []string
 	type targetGroup struct {
 		placement dependencyWarmPlacement
+		targets   []CheckPlan
 	}
 	groups := make(map[string]*targetGroup)
 	var cachePaths []string
@@ -44,6 +45,9 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 		}
 		if mode != "cache-only" {
 			continue
+		}
+		if err := ValidateDependencySourceScope(warmPlan, target); err != nil {
+			return nil, err
 		}
 		if err := requireSingleDependencyWarmLane(target, "target"); err != nil {
 			return nil, err
@@ -74,6 +78,7 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 				return nil, err
 			}
 		}
+		group.targets = append(group.targets, target)
 		targetCachePaths, err := NormalizeCachePaths(target.Run.CachePaths)
 		if err != nil {
 			return nil, fmt.Errorf("resolve dependency warm target %q cache paths: %w", target.Name, err)
@@ -119,31 +124,44 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 		if err := placement.mergeWorkerSelector(warmPlan.Name, warmSelector); err != nil {
 			return nil, err
 		}
-		plan := warmPlan
-		plan.Run.CacheMode = "cache-only"
-		plan.Run.CacheLaneSizeBytes = quota
-		plan.Run.CacheKeyFiles = append([]string(nil), cacheKeyFiles...)
-		plan.Run.CachePaths = append([]string(nil), cachePaths...)
-		plan.Run.Region = placement.region
-		plan.Run.Image = placement.image
-		plan.Run.RunnerSize = placement.runnerSize
-		plan.Run.WorkerSelector = copyStringMap(placement.workerSelector)
-		// Docker is an execution mode, not a placement-only constraint. Keep the
-		// trusted warm command native, but bind it to a worker that can later execute
-		// the Docker target with the same image and worker-local cache lane.
-		if placement.requiresDockerCapability && !plan.Run.Docker && len(plan.Run.Services) == 0 {
-			if plan.Run.WorkerSelector == nil {
-				plan.Run.WorkerSelector = map[string]string{}
+		runtimeGroups, err := dependencyWarmRuntimeGroups(warmPlan.Run.RuntimeRequirements, group.targets)
+		if err != nil {
+			return nil, err
+		}
+		for _, runtimeGroup := range runtimeGroups {
+			plan := warmPlan
+			plan.DependencyWarmTargets = append([]string{}, runtimeGroup.targets...)
+			plan.Run.CacheMode = "cache-only"
+			plan.Run.CacheLaneSizeBytes = quota
+			plan.Run.CacheKeyFiles = append([]string(nil), cacheKeyFiles...)
+			plan.Run.CachePaths = append([]string(nil), cachePaths...)
+			plan.Run.Region = placement.region
+			plan.Run.Image = placement.image
+			plan.Run.RunnerSize = placement.runnerSize
+			plan.Run.WorkerSelector = copyStringMap(placement.workerSelector)
+			plan.Run.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(runtimeGroup.requirements)
+
+			// Docker is an execution mode, not a placement-only constraint. Keep the
+			// trusted warm command native, but bind it to a worker that can later execute
+			// the Docker target with the same image and worker-local cache lane.
+			if placement.requiresDockerCapability && !plan.Run.Docker && len(plan.Run.Services) == 0 {
+				if plan.Run.WorkerSelector == nil {
+					plan.Run.WorkerSelector = map[string]string{}
+				}
+				plan.Run.WorkerSelector[preflightapi.DockerCapabilitySystemLabel] = "true"
 			}
-			plan.Run.WorkerSelector[preflightapi.DockerCapabilitySystemLabel] = "true"
+			plan.LogicalChildID = "warm:" + name
+			plan.LogicalChildName = "warm " + name
+			if len(runnerSizes) > 1 {
+				plan.LogicalChildID += ":runner=" + runnerSize
+				plan.LogicalChildName += " [runner=" + runnerSize + "]"
+			}
+			if len(runtimeGroups) > 1 {
+				plan.LogicalChildID += ":runtime=" + runtimeGroup.digest()
+				plan.LogicalChildName += " [" + runtimeGroup.description() + "]"
+			}
+			plans = append(plans, plan)
 		}
-		plan.LogicalChildID = "warm:" + name
-		plan.LogicalChildName = "warm " + name
-		if len(runnerSizes) > 1 {
-			plan.LogicalChildID += ":runner=" + runnerSize
-			plan.LogicalChildName += " [runner=" + runnerSize + "]"
-		}
-		plans = append(plans, plan)
 	}
 	return plans, nil
 }
@@ -176,6 +194,7 @@ func (placement *dependencyWarmPlacement) mergeTarget(name string, target depend
 	if target.runnerSize != placement.runnerSize {
 		return fmt.Errorf("dependency warm targets must use one runner size; %q uses %q, want %q", name, target.runnerSize, placement.runnerSize)
 	}
+
 	placement.requiresDockerCapability = placement.requiresDockerCapability || target.requiresDockerCapability
 	return placement.mergeWorkerSelector(name, target.workerSelector)
 }

@@ -28,20 +28,71 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		return setupReport{}, err
 	}
 	var written []string
+	configGenerated := false
 	var candidates []repoImportCandidate
+	var scopeCandidates []repoImportCandidate
+	importScope := options.ImportScope
 	if options.Detect && (configPath == "" || options.Force) {
-		candidates = setupImportCandidates(".", options.ImportSource)
+		scopeCandidates = setupImportCandidates(".", "", options.RuntimePins)
+		candidates = filterSetupImportCandidates(scopeCandidates, options.ImportSource)
 	}
 	if (options.ImportSource != "" || options.ImportCandidate != "") && configPath != "" && !options.Force {
 		return setupReport{}, cliConfigError("import selection would replace existing configuration; use --force after reviewing it", nil)
+	}
+	if len(options.NetworkAllowlist) > 0 && configPath != "" && !options.Force {
+		return setupReport{}, cliConfigError("--network-allowlist replaces generated configuration; use --force to review regeneration, or readyci check --network-mode allowlist --network-allowlist HOSTS for an existing check", nil)
+	}
+	if len(options.RuntimePins) > 0 && configPath != "" && !options.Force {
+		return setupReport{}, cliConfigError("--runtime selects generated workflow runtimes; use --force to review regeneration of existing configuration", nil)
 	}
 	if options.ImportCandidate != "" && options.ConfigTemplate == nil {
 		candidate, err := selectSetupImport(options, candidates, nil, io.Discard, true)
 		if err != nil {
 			return setupReport{}, err
 		}
-		template := setupImportedTemplate(options, projectID, *candidate)
+		importScope = selectedSetupImportScope(*candidate, scopeCandidates)
+		template := setupImportedTemplateWithScope(".", options, projectID, *candidate, scopeCandidates)
 		options.ConfigTemplate = &template
+	}
+	if options.ConfigTemplate == nil && options.ImportSource == "" && (configPath == "" || options.Force) {
+		if options.Detect {
+			// An unresolved import remains an inventory for guided selection.
+			// Writing still requires a concrete template and rejects ambiguity.
+			if detected, detectionErr := setupDetectedTemplate(".", projectID, options, candidates); detectionErr == nil {
+				options.ConfigTemplate = &detected
+				if imported, _ := automaticSetupImport(candidates); imported != nil {
+					importScope = selectedSetupImportScope(*imported, scopeCandidates)
+				}
+			}
+		} else if len(options.NetworkAllowlist) > 0 {
+			template := remoteCIProjectTemplateWithProfile(projectID, options.Image, options.Profile)
+			options.ConfigTemplate = &template
+		}
+	}
+	// Preview resolves the same concrete configuration as writing it. Keep the
+	// actual file status missing while exposing the selected checks and running
+	// capability checks against the reviewed proposal.
+	if options.ConfigTemplate != nil {
+		template, err := applySetupNetworkPolicy(*options.ConfigTemplate, options)
+		if err != nil {
+			return setupReport{}, err
+		}
+		options.ConfigTemplate = &template
+		proposed, err := config.ParseProjectConfig([]byte(*options.ConfigTemplate), "proposed imported configuration")
+		if err != nil {
+			return setupReport{}, err
+		}
+		if err := validateProjectConfig(proposed); err != nil {
+			return setupReport{}, err
+		}
+		if err := validateSetupRuntimeTemplate(".", *options.ConfigTemplate); err != nil {
+			return setupReport{}, err
+		}
+		if err := validateGuidedSetupCheck(options.CheckName, sortedCheckNames(proposed.Checks)); err != nil {
+			return setupReport{}, err
+		}
+		cfg = proposed
+		configLoadErr = nil
 	}
 	if options.WriteConfig && options.ImportSource != "" && options.ConfigTemplate == nil {
 		return setupReport{}, cliConfigError("--write-config with --import requires --candidate ID", nil)
@@ -53,7 +104,10 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		} else {
 			template = remoteCIProjectTemplateWithProfile(projectID, options.Image, options.Profile)
 			if options.Detect {
-				template = detectedProjectTemplateWithProfileOptions(".", projectID, options.Image, options.Profile, options.WriteHelpers)
+				template, err = setupDetectedTemplate(".", projectID, options, candidates)
+				if err != nil {
+					return setupReport{}, err
+				}
 			} else if options.WriteHelpers {
 				template = remoteCIProjectTemplateWithStandardHelpers(projectID, options.Image, options.Profile)
 			}
@@ -62,10 +116,20 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		if err != nil {
 			return setupReport{}, err
 		}
+		template, err = applySetupNetworkPolicy(template, options)
+		if err != nil {
+			return setupReport{}, err
+		}
+		if options.Detect {
+			if err := validateSetupRuntimeTemplate(".", template); err != nil {
+				return setupReport{}, err
+			}
+		}
 		if err := writeSetupConfig(writePath, template, options.Force); err != nil {
 			return setupReport{}, err
 		}
 		written = append(written, writePath)
+		configGenerated = true
 		cfg, configPath, err = config.LoadProjectConfig(".")
 		configLoadErr = err
 		if err != nil {
@@ -83,6 +147,18 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		Checks:           sortedCheckNames(cfg.Checks),
 		Written:          append([]string(nil), written...),
 		ImportCandidates: candidates,
+		ImportScope:      importScope,
+		RuntimePins:      copyStringMap(options.RuntimePins),
+		scopeCandidates:  scopeCandidates,
+		configGenerated:  configGenerated,
+	}
+	if options.ConfigTemplate != nil {
+		report.ProposedConfig = *options.ConfigTemplate
+		report.SelectionStatus = "selected"
+		report.SelectionReason = "Generated configuration is proposed; review the selected checks and network access."
+		if importScope != nil {
+			report.SelectionReason = importScope.Coverage
+		}
 	}
 
 	var configErr error
@@ -96,6 +172,15 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 	case configPath == "":
 		report.ConfigStatus = "missing"
 		report.Warnings = append(report.Warnings, "no .readyci.yml found")
+		if options.Detect && options.ConfigTemplate == nil {
+			if _, err := setupDetectedTemplate(".", projectID, options, candidates); err != nil {
+				report.SelectionStatus = "configuration_required"
+				report.SelectionReason = err.Error()
+				report.Warnings = append(report.Warnings, err.Error())
+			} else {
+				report.SelectionStatus = "available"
+			}
+		}
 	case configErr != nil:
 		report.ConfigPath = configPath
 		report.ConfigStatus = "invalid"
@@ -109,6 +194,11 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 	}
 	report.warmProfileAvailable = report.ConfigStatus == "ok" && setupWarmProfileAvailable(cfg)
 	report.affectedAuditAvailable = report.ConfigStatus == "ok" && setupAffectedAuditAvailable(cfg)
+	if report.ConfigStatus == "ok" || report.ProposedConfig != "" {
+		if warning := sharedSourceScopeWarning(cfg); warning != "" {
+			report.Warnings = append(report.Warnings, warning)
+		}
+	}
 
 	if options.WriteMakefile {
 		makefilePath := "readyci.mk"
@@ -156,6 +246,7 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 			report.Warnings = append(report.Warnings, "account check failed: "+err.Error())
 		}
 	}
+	reconcileSetupEnvironment(options, cfg, &report)
 	report.Next = setupNextCommands(report)
 	return report, nil
 }
@@ -176,8 +267,12 @@ func setupNextCommands(report setupReport) []string {
 	var commands []string
 	apiFlag := apiURLFlag(report.APIURL)
 	if report.ConfigStatus == "missing" {
-		commands = append(commands, "readyci setup"+apiFlag+" --project "+shellQuoteArg(report.ProjectID))
-		commands = append(commands, "readyci setup --print")
+		if report.ImportScope != nil {
+			commands = append(commands, "readyci setup"+apiFlag+" --project "+shellQuoteArg(report.ProjectID)+" --candidate "+shellQuoteArg(report.ImportScope.Selected.ID)+setupRuntimePinNextFlags(report.RuntimePins)+setupNetworkNextFlags(report.Environment)+" --write-config")
+		} else {
+			commands = append(commands, "readyci setup"+apiFlag+" --project "+shellQuoteArg(report.ProjectID)+setupRuntimePinNextFlags(report.RuntimePins)+setupNetworkNextFlags(report.Environment))
+			commands = append(commands, "readyci setup --print --detect=false")
+		}
 	}
 	if report.AuthStatus != "ok" {
 		commands = append(commands, "readyci login"+apiFlag)
@@ -211,8 +306,6 @@ func setupNextCommands(report setupReport) []string {
 				"readyci check"+apiFlag+" --project "+shellQuoteArg(report.ProjectID)+" --open "+shellQuoteArg(report.Check),
 			)
 		}
-	} else {
-		commands = append(commands, "readyci run"+apiFlag+" --project "+shellQuoteArg(report.ProjectID)+" "+shellQuoteArg("go test ./..."))
 	}
 	commands = append(commands, "readyci runs latest"+apiFlag+" --project "+shellQuoteArg(report.ProjectID))
 	return commands
@@ -267,6 +360,35 @@ func printSetupReport(report setupReport) {
 	if len(report.Checks) > 0 {
 		fmt.Printf("checks: %s\n", strings.Join(report.Checks, ","))
 	}
+	if report.SelectionStatus != "" {
+		fmt.Printf("selection: %s\n", report.SelectionStatus)
+	}
+	if report.ImportScope != nil {
+		fmt.Printf("selected_candidate: %s\n", report.ImportScope.Selected.ID)
+		if matrix := setupImportMatrixDescription(report.ImportScope.Selected.Matrix); matrix != "" {
+			fmt.Printf("selected_matrix: %s\n", matrix)
+		}
+		fmt.Printf("scope: %s\n", report.ImportScope.Coverage)
+		for _, notice := range setupRuntimePinNotices(report.ImportScope.Selected.RuntimeResolutions) {
+			fmt.Printf("runtime_pin: %s\n", notice)
+		}
+		for _, notice := range setupUserRuntimePinNotices(report.ImportScope.Selected.RuntimePins) {
+			fmt.Printf("runtime_pin: %s\n", notice)
+		}
+		for _, omitted := range report.ImportScope.Omitted {
+			fmt.Printf("not_imported: %s\n", omitted.ID)
+			if matrix := setupImportMatrixDescription(omitted.Matrix); matrix != "" {
+				fmt.Printf("  matrix: %s\n", matrix)
+			}
+			for _, blocker := range omitted.Unsupported {
+				fmt.Printf("  blocked: %s\n", blocker)
+			}
+		}
+	}
+	if report.ProposedConfig != "" && report.ConfigStatus == "missing" {
+		fmt.Printf("proposed_configuration:\n%s\n", report.ProposedConfig)
+	}
+	printSetupEnvironment(report.Environment)
 	for _, path := range report.Written {
 		fmt.Printf("wrote: %s\n", path)
 	}
@@ -275,11 +397,17 @@ func printSetupReport(report setupReport) {
 	}
 	for _, candidate := range report.ImportCandidates {
 		fmt.Printf("import_candidate: %s · %s\n", candidate.ID, candidate.Command)
+		if matrix := setupImportMatrixDescription(candidate.Matrix); matrix != "" {
+			fmt.Printf("  matrix: %s\n", matrix)
+		}
 		for _, requirement := range candidate.Requirements {
 			fmt.Printf("  review: %s\n", requirement)
 		}
 		for _, unsupported := range candidate.Unsupported {
 			fmt.Printf("  manual_configuration: %s\n", unsupported)
+		}
+		for _, unsupported := range candidate.AutomaticUnsupported {
+			fmt.Printf("  explicit_selection: %s\n", unsupported)
 		}
 	}
 	fmt.Println("next:")

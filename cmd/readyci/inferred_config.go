@@ -55,7 +55,10 @@ func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []s
 	if err != nil {
 		return config.ProjectConfig{}, nil, err
 	}
-	template := inferredProjectTemplate(root, projectID)
+	template, templateErr := inferredProjectTemplateWithError(root, projectID)
+	if templateErr != nil {
+		return config.ProjectConfig{}, nil, fmt.Errorf("%w: %w", errCouldNotInferSafeCheck, templateErr)
+	}
 	if strings.TrimSpace(template) == "" {
 		return config.ProjectConfig{}, nil, fmt.Errorf("%w; run readyci setup --print to inspect a starter config or readyci plan --recommend --suggest-config for hosted suggestions", errCouldNotInferSafeCheck)
 	}
@@ -74,6 +77,11 @@ func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []s
 }
 
 func inferredProjectTemplate(cwd, projectID string) string {
+	template, _ := inferredProjectTemplateWithError(cwd, projectID)
+	return template
+}
+
+func inferredProjectTemplateWithError(cwd, projectID string) (string, error) {
 	root, err := inferenceRoot(cwd)
 	if err != nil {
 		root = cwd
@@ -88,11 +96,7 @@ func inferredProjectTemplate(cwd, projectID string) string {
 	if projectID == "" {
 		projectID = inferProjectID(root)
 	}
-	template, ok := basicInferredProjectTemplate(root, projectID, "")
-	if !ok {
-		return remoteCIProjectTemplate(projectID, "")
-	}
-	return template
+	return setupDetectedTemplate(root, projectID, setupOptions{Detect: true, Profile: "remote-ci"}, setupImportCandidates(root, ""))
 }
 
 func inferenceRoot(cwd string) (string, error) {

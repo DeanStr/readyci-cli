@@ -1,0 +1,52 @@
+{
+  "schema": "readyci.matched-job-native-proof.v1",
+  "repository": "vuejs/core",
+  "commit": "bf5f0dd877dd3c23ce85c2cbc1dd771567e84c8c",
+  "complete_capture_sha256": "9c21fe5950507d091a8e31f218317d9a6642bca19ac4dab8a512cf5324655ba9",
+  "manual_complete_capture_sha256": "ca97e8540cc92d8109bff9eb06c314196b9ae9857411d926d8e1fa35140117da",
+  "paired_preparation_sha256": "bc1e049bec82d18aee9ee29997eecbba7ce7c3fdd19230caaa6b2de960c0ca8f",
+  "sealed_command_sha256": "a19a0a52ff59bfec6703679d6cf85bfac0452a22a37026a414015cfa782aa6cd",
+  "proof_limit": "Step labels identify command output, not independent per-step exit receipts. Both exact fail-fast two-step commands completed with native exit0. Cache warmth may differ. The automatic collector reported an end-of-queue bookkeeping failure after native success; that wrapper outcome is retained separately and caused no test rerun. Native test totals are console output.",
+  "lanes": [
+    {
+      "lane": "manual",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:81a674b3f541fda36d00ff09bcb0a53e997de2eb9afca59167a8b05b42eb7232",
+      "execution_digest": "sha256:5d828c400edd34092c79116c47560f3c8f68f0ffa160a89d7437b4eccbd11415",
+      "workspace_digest": "sha256:5eb78804eca2e0e7a8f82bdefc384e35cbe592c99c81f7bbe1fdf562d312eb5d",
+      "sealed_plan_digest": "sha256:3e29ff3da13ef980c61592daa22c8172131348516c02111170ad9e6aa88e83c9",
+      "sealed_command_sha256": "a19a0a52ff59bfec6703679d6cf85bfac0452a22a37026a414015cfa782aa6cd",
+      "complete_log_sha256": "659639b854b7743b6c8d771e95ca667016b74ca9f068fe0169c652f379fdef1e",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-1",
+        "step-2"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "Test Files 183 passed | 1 skipped (184); Tests 3900 passed | 6 skipped (3906)"
+    },
+    {
+      "lane": "automatic",
+      "status": "succeeded",
+      "classification": "success",
+      "exit_code": 0,
+      "evidence_attested": true,
+      "evidence_digest": "sha256:7a01e40f3c3d680a296919d84055b30248e1db4aa8ca0e918ce990ec35efb083",
+      "execution_digest": "sha256:b8eb21b75de5200522ca13fd02091e5de945b0cefc4eb0ca2508517093e1b756",
+      "workspace_digest": "sha256:9c7446e655a2eae96eadd8afaf1ca3e8584508c4132f4a41cc6db3bf02621084",
+      "sealed_plan_digest": "sha256:3e29ff3da13ef980c61592daa22c8172131348516c02111170ad9e6aa88e83c9",
+      "sealed_command_sha256": "a19a0a52ff59bfec6703679d6cf85bfac0452a22a37026a414015cfa782aa6cd",
+      "complete_log_sha256": "4beed273d90bd0cbf16c52ba3d91ac1423be9eaaab7bef30d308c00333854510",
+      "logs_truncated": false,
+      "observed_command_output_steps": [
+        "step-1",
+        "step-2"
+      ],
+      "overall_command_exit_code": 0,
+      "reported_test_summary": "Test Files 183 passed | 1 skipped (184); Tests 3900 passed | 6 skipped (3906)"
+    }
+  ]
+}

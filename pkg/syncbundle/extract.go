@@ -111,7 +111,7 @@ func readBundleFilesWithLimits(reader io.Reader, limits bundleReadLimits) (Manif
 		}
 		entriesSeen++
 		if entriesSeen > limits.MaxEntries {
-			return Manifest{}, nil, fmt.Errorf("bundle contains more than %d entries", limits.MaxEntries)
+			return Manifest{}, nil, &AdmissionError{"entries", int64(entriesSeen), int64(limits.MaxEntries)}
 		}
 		name := path.Clean(header.Name)
 		if header.Name != name {
@@ -179,16 +179,22 @@ func readBundleFilesWithLimits(reader io.Reader, limits bundleReadLimits) (Manif
 	if err := validateBaselineKey(manifest, files); err != nil {
 		return Manifest{}, nil, err
 	}
+	var baseline []ArchiveEntry
 	if !manifest.BaselineRef {
-		baseline, err := archiveEntriesFromBundleFiles("baseline", manifest.Baseline, files)
+		baseline, err = archiveEntriesFromBundleFiles("baseline", manifest.Baseline, files)
 		if err != nil {
 			return Manifest{}, nil, err
 		}
-		workspace, err := archiveEntriesFromBundleFiles("workspace", manifest.Workspace, files)
-		if err != nil {
-			return Manifest{}, nil, err
-		}
-		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted)
+	}
+	workspace, err := archiveEntriesFromBundleFiles("workspace", manifest.Workspace, files)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	if err := ValidateReviewedFixtureContents(manifest, baseline, workspace); err != nil {
+		return Manifest{}, nil, err
+	}
+	if !manifest.BaselineRef {
+		digest, err := WorkspaceContentDigest(baseline, workspace, manifest.Deleted, manifest.ContentBinding())
 		if err != nil {
 			return Manifest{}, nil, err
 		}
@@ -236,7 +242,7 @@ func validateBaselineKey(manifest Manifest, files map[string]bundledFile) error 
 	if err != nil {
 		return err
 	}
-	key, err := BaselineContentKey(entries)
+	key, err := BaselineContentKey(entries, manifest.ContentBinding())
 	if err != nil {
 		return err
 	}

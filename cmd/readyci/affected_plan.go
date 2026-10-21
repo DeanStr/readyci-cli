@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -94,6 +93,7 @@ func buildAffectedRulePlans(ctx context.Context, cwd string, cfg config.ProjectC
 			ChangeMode:        changed.ChangeMode,
 			IncludeUntracked:  changed.IncludeUntracked,
 			ExcludePatterns:   append([]string(nil), changed.ExcludePatterns...),
+			ReviewedFixtures:  append([]syncbundle.ReviewedFixture(nil), changed.ReviewedFixtures...),
 			ChangedFilesCount: len(changed.All),
 			UntrackedCount:    len(changed.Untracked),
 			ChangedFiles:      append([]string(nil), changed.All...),
@@ -109,6 +109,7 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 		changeMode       string
 		includeUntracked bool
 		excludePatterns  []string
+		reviewedFixtures []syncbundle.ReviewedFixture
 		changedFiles     []string
 		untrackedFiles   []string
 	}
@@ -118,9 +119,11 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 	unionSeen := make(map[string]bool)
 	untrackedSeen := make(map[string]bool)
 	excludeSeen := make(map[string]bool)
+	fixtureSeen := make(map[syncbundle.ReviewedFixture]bool)
 	var allChanged []string
 	var allUntracked []string
 	var allExcludePatterns []string
+	var allReviewedFixtures []syncbundle.ReviewedFixture
 	var root string
 	includeUntracked := false
 	for _, checkName := range affectedRoutingCheckNames(cfg) {
@@ -134,8 +137,8 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 		current, ok := cache[key]
 		if !ok {
 			changed, err := syncbundlebuild.ChangedFiles(ctx, cwd, syncbundlebuild.BuildOptions{
-				ChangeMode:       changeMode,
-				ExcludePatterns:  append([]string(nil), syncConfig.Exclude...),
+				ChangeMode:      changeMode,
+				ExcludePatterns: append([]string(nil), syncConfig.Exclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
 				IncludeUntracked: syncConfig.IncludeUntracked,
 			})
 			if err != nil {
@@ -146,6 +149,7 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 				changeMode:       changed.ChangeMode,
 				includeUntracked: changed.IncludeUntracked,
 				excludePatterns:  append([]string(nil), changed.ExcludePatterns...),
+				reviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
 				changedFiles:     append([]string(nil), changed.ChangedFiles...),
 				untrackedFiles:   append([]string(nil), changed.UntrackedFiles...),
 			}
@@ -162,6 +166,12 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 			if !excludeSeen[pattern] {
 				excludeSeen[pattern] = true
 				allExcludePatterns = append(allExcludePatterns, pattern)
+			}
+		}
+		for _, fixture := range current.reviewedFixtures {
+			if !fixtureSeen[fixture] {
+				fixtureSeen[fixture] = true
+				allReviewedFixtures = append(allReviewedFixtures, fixture)
 			}
 		}
 		for _, changedFile := range current.changedFiles {
@@ -184,6 +194,7 @@ func collectAffectedChangedFiles(ctx context.Context, cwd string, cfg config.Pro
 		ChangeMode:       changeMode,
 		IncludeUntracked: includeUntracked,
 		ExcludePatterns:  allExcludePatterns,
+		ReviewedFixtures: allReviewedFixtures,
 		All:              allChanged,
 		Untracked:        allUntracked,
 		ByCheck:          byCheck,
@@ -227,9 +238,9 @@ func affectedCheckIncludeUntracked(check config.CheckConfig, changeMode string) 
 }
 
 func affectedSyncConfigKey(syncConfig config.SyncConfig) string {
-	includeUntracked := true
-	if syncConfig.IncludeUntracked != nil {
-		includeUntracked = *syncConfig.IncludeUntracked
-	}
-	return fmt.Sprintf("%t\x00%s", includeUntracked, strings.Join(syncConfig.Exclude, "\x00"))
+	return verificationBuildOptionsKey(syncbundlebuild.BuildOptions{
+		ExcludePatterns:  syncConfig.Exclude,
+		ReviewedFixtures: syncConfig.ReviewedFixtures,
+		IncludeUntracked: syncConfig.IncludeUntracked,
+	})
 }

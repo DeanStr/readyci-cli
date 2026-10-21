@@ -7,15 +7,218 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
+	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestSyncCommandRequiresDryRun(t *testing.T) {
 	if err := syncCommand(nil); err == nil || !strings.Contains(err.Error(), "sync --dry-run") {
 		t.Fatalf("syncCommand without dry-run error = %v, want usage", err)
+	}
+}
+
+func TestDependencyWarmCommandAndRerunPrepareConsumerCacheNamespaces(t *testing.T) {
+	for _, args := range [][]string{{"--profile", "dependencies"}, {"--check", "dependencies", "--skip-confirm"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			chdirCLITestRepo(t, "warm-consumer-namespaces")
+			runGitForCLITest(t, "init")
+			declaration := []byte(`project_id: review
+network:
+  mode: none
+  warm_mode: allowlist
+  warm_allowlist: [registry.npmjs.org]
+cache:
+  paths: [node_modules]
+checks:
+  dependencies:
+    command: echo prepared > node_modules/ready
+  node22:
+    command: test -f node_modules/ready
+    runtime_requirements: {node: "22"}
+  node24:
+    command: test -f node_modules/ready
+    runtime_requirements: {node: "24"}
+`)
+			if err := os.WriteFile(".readyci.yml", declaration, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var requests []preflightapi.CreateVerificationSessionRequest
+			server := captureExecutionRequests(t, &requests)
+			if err := warmCommand(append([]string{"--api-url", server.URL}, args...)); err == nil {
+				t.Fatal("fixture should stop creation")
+			}
+			if len(requests) != 1 {
+				t.Fatalf("warm command created %d sessions", len(requests))
+			}
+			request := requests[0]
+			if len(request.Plan.Nodes) != 2 {
+				t.Fatalf("warm command must prepare both consumer runtimes: %+v", request.Plan.Nodes)
+			}
+			for _, node := range request.Plan.Nodes {
+				if node.Phase != preflightapi.VerificationNodePhaseWarm || node.Run.RuntimeRequirements["node"] == "" {
+					t.Fatalf("dependency command bypassed consumer preparation: %+v", node)
+				}
+			}
+			prepared, err := prepareExecutionRerun(preflightapi.VerificationSession{ProjectID: "review", Recipe: request.Recipe}, server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rerun, _, err := verificationNodesForPlans(prepared.WarmPlans, prepared.Plans, syncbundlebuild.BuildResult{})
+			if err != nil || len(rerun) != 2 {
+				t.Fatalf("rerun lost consumer runtime groups: %+v err=%v", rerun, err)
+			}
+			for i, node := range rerun {
+				if node.Phase != request.Plan.Nodes[i].Phase || !reflect.DeepEqual(node.Run.RuntimeRequirements, request.Plan.Nodes[i].Run.RuntimeRequirements) || node.Run.Command != request.Plan.Nodes[i].Run.Command {
+					t.Fatalf("rerun changed dependency preparation: %+v", node)
+				}
+			}
+			cfg, err := config.ParseProjectConfig(declaration, "warm-consumer")
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodes := append([]preflightapi.VerificationNodePlan{}, request.Plan.Nodes...)
+			for _, name := range []string{"node22", "node24"} {
+				consumer, err := resolveCheckRunPlan(name, cfg, checkResolveOptions{SkipWarm: true, RetryCount: -1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				cold, _, err := verificationNodesForPlans(nil, []checkRunPlan{consumer}, syncbundlebuild.BuildResult{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				nodes = append(nodes, cold...)
+			}
+			cache := t.TempDir()
+			for _, node := range nodes {
+				workspace := t.TempDir()
+				run := exec.Command("bash", "-c", strings.ReplaceAll(node.Run.Command, "/cache", cache))
+				run.Dir = workspace
+				run.Env = append(os.Environ(), "READYCI_CACHE_LANE_ID=same-lane", "READYCI_WORKSPACE_DIR="+workspace)
+				if output, err := run.CombinedOutput(); err != nil {
+					t.Fatalf("%s lost prepared consumer cache: %v %s", node.Name, err, output)
+				}
+			}
+		})
+	}
+}
+
+func TestWarmAllBindsEachConfirmationToItsOwnWarmMatrix(t *testing.T) {
+	chdirCLITestRepo(t, "warm-all-affinity")
+	runGitForCLITest(t, "init")
+	if err := os.WriteFile(".readyci.yml", []byte(`project_id: review
+network: {mode: none, warm_mode: allowlist, warm_allowlist: [registry.npmjs.org]}
+cache: {paths: [node_modules, browser-cache]}
+checks:
+  dependencies:
+    command: prepare-deps
+  browser:
+    command: prepare-or-test-browser
+    runtime_requirements: {node: "22"}
+    matrix:
+      BROWSER: [chromium, firefox]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []preflightapi.CreateVerificationSessionRequest
+	server := captureExecutionRequests(t, &requests)
+	if err := warmCommand([]string{"--api-url", server.URL, "--profile", "all"}); err == nil {
+		t.Fatal("fixture should stop creation")
+	}
+	if len(requests) != 1 || len(requests[0].Plan.Nodes) != 5 {
+		t.Fatalf("mixed warm profile lost its runtime/matrix expansion: %+v", requests)
+	}
+	if requests[0].Plan.Nodes[0].Run.CommandAlias != config.DefaultDependencyCheck {
+		t.Fatal("dependency preparation must precede a consumer whose name sorts before dependencies")
+	}
+	var prepared []string
+	for _, node := range requests[0].Plan.Nodes {
+		if node.Phase == preflightapi.VerificationNodePhaseWarm {
+			if !reflect.DeepEqual(node.SuccessDependsOn, prepared) {
+				t.Fatalf("warm check lost its prepared cache chain: %s depends on %v, want %v", node.ID, node.SuccessDependsOn, prepared)
+			}
+			prepared = append(prepared, node.ID)
+		} else if !reflect.DeepEqual(node.SuccessDependsOn, prepared[1:]) {
+			t.Fatalf("confirmation %s must bind its own completed warm matrix: got %v want %v", node.ID, node.SuccessDependsOn, prepared[1:])
+		}
+	}
+}
+
+func TestWarmAllSpecializesDependenciesForEveryRequestedCheck(t *testing.T) {
+	chdirCLITestRepo(t, "warm-all-affected-subset")
+	runGitForCLITest(t, "init")
+	runGitForCLITest(t, "config", "user.email", "readyci@example.invalid")
+	runGitForCLITest(t, "config", "user.name", "Ready CI")
+	if err := os.WriteFile(".readyci.yml", []byte(`project_id: review
+network: {mode: none, warm_mode: allowlist, warm_allowlist: [registry.npmjs.org]}
+cache: {paths: [node_modules]}
+affected:
+  rules:
+    - paths: [changed.txt]
+      checks: [a, b]
+checks:
+  dependencies:
+    command: prepare-deps
+  a:
+    command: test-a
+    runtime_requirements: {node: "22"}
+  b:
+    command: test-b
+    runtime_requirements: {node: "24"}
+  c:
+    command: test-c
+    runtime_requirements: {node: "24"}
+    cache:
+      paths: [c-cache]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runGitForCLITest(t, "add", ".readyci.yml")
+	runGitForCLITest(t, "commit", "-m", "fixture")
+	if err := os.WriteFile("changed.txt", []byte("select only a and b\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var requests []preflightapi.CreateVerificationSessionRequest
+	server := captureExecutionRequests(t, &requests)
+	if err := warmCommand([]string{"--api-url", server.URL, "--profile", "all"}); err == nil {
+		t.Fatal("fixture should stop creation")
+	}
+	if len(requests) != 1 || len(requests[0].Plan.Nodes) != 8 {
+		t.Fatalf("warm all lost its requested checks or runtime groups: %+v", requests)
+	}
+	byID := map[string]preflightapi.VerificationNodePlan{}
+	for _, node := range requests[0].Plan.Nodes {
+		byID[node.ID] = node
+		if node.Run.CommandAlias == config.DefaultDependencyCheck {
+			continue
+		}
+		if len(node.SuccessDependsOn) != 1 {
+			t.Fatalf("%s needs one prepared filesystem, got independent prerequisites %v", node.ID, node.SuccessDependsOn)
+		}
+		warm := byID[node.SuccessDependsOn[0]]
+		if warm.Phase != preflightapi.VerificationNodePhaseWarm || !reflect.DeepEqual(warm.Run.RuntimeRequirements, node.Run.RuntimeRequirements) {
+			t.Fatalf("%s bound an incompatible preparation: %+v", node.ID, warm)
+		}
+		if node.Phase == preflightapi.VerificationNodePhaseVerify && warm.Run.CommandAlias != node.Run.CommandAlias {
+			t.Fatalf("%s skipped its own ordinary warm check", node.ID)
+		}
+	}
+	requests = nil
+	if err := warmCommand([]string{"--api-url", server.URL, "--profile", "dependencies"}); err == nil {
+		t.Fatal("fixture should stop creation")
+	}
+	if len(requests) != 1 || len(requests[0].Plan.Nodes) != 2 {
+		t.Fatalf("dependency-only warming lost its affected consumer selection: %+v", requests)
+	}
+	for _, node := range requests[0].Plan.Nodes {
+		if node.Phase != preflightapi.VerificationNodePhaseWarm || node.Run.CommandAlias != config.DefaultDependencyCheck || strings.Contains(node.Run.Command, "c-cache") {
+			t.Fatalf("dependency-only warming expanded to an unaffected consumer: %+v", node)
+		}
 	}
 }
 
@@ -148,10 +351,13 @@ checks:
 			t.Fatalf("warm profile selected %q instead of only dependencies:\n%s", unwanted, output)
 		}
 	}
-	for _, want := range []string{"name: dependencies", "network_mode: default", "network_mode: none"} {
+	for _, want := range []string{"name: dependencies", "network_mode: default"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("warm profile output missing %q:\n%s", want, output)
 		}
+	}
+	if strings.Count(output, "check: dry-run") != 1 {
+		t.Fatal("dependency preparation must not repeat the installer as an offline confirmation")
 	}
 }
 

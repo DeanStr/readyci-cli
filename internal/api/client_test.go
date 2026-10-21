@@ -51,6 +51,16 @@ func TestClientEndpointWrappersBuildExpectedRequests(t *testing.T) {
 		bodyParts  []string
 	}{
 		{
+			name: "component source policy",
+			run: func() error {
+				_, err := client.ProjectVerificationSourcePolicy(ctx, "proj dev", "working", "web test")
+				return err
+			},
+			method:     http.MethodGet,
+			path:       "/v1/projects/proj%20dev/verification-policy/source-binding",
+			queryParts: []string{"change_mode=working", "check=web+test"},
+		},
+		{
 			name: "create run",
 			run: func() error {
 				_, err := client.CreateRun(ctx, preflightapi.CreateRunRequest{ProjectID: "proj_dev", Command: "go test ./..."})

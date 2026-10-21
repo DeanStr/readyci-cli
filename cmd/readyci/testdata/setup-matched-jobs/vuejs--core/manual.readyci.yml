@@ -1,0 +1,49 @@
+version: 1
+project_id: matched-fixture
+sync:
+  include_untracked: false
+  exclude:
+  - .npmrc*
+  - test-results
+  - tmp
+artifacts:
+  paths:
+  - coverage/**
+  - test-results/**
+cache:
+  paths:
+  - ~/.npm
+  - ~/.cache/yarn
+  - ~/.local/share/pnpm/store
+  size: 10GiB
+checks:
+  unit-test:
+    steps:
+    - name: step-1
+      command: bash -e -c 'pnpm install'
+      env:
+        CI: 'true'
+        PUPPETEER_SKIP_DOWNLOAD: 'true'
+    - name: step-2
+      command: bash -e -c 'pnpm run test-unit'
+      env:
+        CI: 'true'
+        PUPPETEER_SKIP_DOWNLOAD: 'true'
+    runtime_requirements:
+      node: 24,>=20.0.0
+      pnpm: 12.11.2,12.11.2
+    runtime_resolutions:
+      node:
+        selector: lts/*
+        policy: setup_node_lts_cache_first_v1
+        requirement: '24'
+        catalog_digest: sha256:b44e8b1a537c37b867f32d33211e7a7ceb16255778107ed20657c944f30caca0
+    sync:
+      include_untracked: true
+    timeout: 20m
+network:
+  mode: allowlist
+  allowlist:
+  - registry.npmjs.org
+  - registry.yarnpkg.com
+  - nodejs.org

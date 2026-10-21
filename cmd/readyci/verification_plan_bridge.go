@@ -8,6 +8,7 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 	"github.com/DeanStr/readyci-cli/pkg/verificationplan"
 )
 
@@ -119,7 +120,7 @@ func resolveCheckRunPlan(name string, cfg config.ProjectConfig, options checkRes
 		// renderer never reports invalid input as an internal CLI failure.
 		return checkRunPlan{}, cliConfigError(err.Error(), err)
 	}
-	if err := validateExplicitDependencyWarmSecretRequest(name, agentIntentEditLoop, options.RequestSecrets); err != nil {
+	if err := validateExplicitDependencyWarmSecretRequest(cfg, name, agentIntentEditLoop, options.RequestSecrets); err != nil {
 		return checkRunPlan{}, cliConfigError(err.Error(), err)
 	}
 	resolved.Run.SecretsRequested = boolPtr(options.RequestSecrets)
@@ -142,38 +143,41 @@ func resolveCheckRunPlan(name string, cfg config.ProjectConfig, options checkRes
 
 func remoteRunOptionsFromRunSpec(run verificationplan.RunSpec, options checkResolveOptions) remoteRunOptions {
 	return remoteRunOptions{
-		APIURL:             options.APIURL,
-		Open:               options.Open,
-		DashboardURL:       options.DashboardURL,
-		ProjectID:          run.ProjectID,
-		Region:             run.Region,
-		Command:            run.Command,
-		CommandAlias:       run.CommandAlias,
-		Steps:              run.Steps,
-		ConcurrencyGroup:   run.ConcurrencyGroup,
-		ConcurrencyLimit:   run.ConcurrencyLimit,
-		PrepareCommands:    run.PrepareCommands,
-		PostCommands:       run.PostCommands,
-		AlwaysCommands:     run.AlwaysCommands,
-		Image:              run.Image,
-		RunnerSize:         run.RunnerSize,
-		TimeoutSeconds:     run.TimeoutSeconds,
-		CacheMode:          run.CacheMode,
-		CacheLaneSizeBytes: run.CacheLaneSizeBytes,
-		ArtifactPaths:      run.ArtifactPaths,
-		NetworkMode:        run.NetworkMode,
-		NetworkAllowlist:   run.NetworkAllowlist,
-		Docker:             run.Docker,
-		Services:           run.Services,
-		WorkerSelector:     run.WorkerSelector,
-		SecretsRequested:   run.SecretsRequested,
-		Env:                run.Env,
-		ChangeMode:         run.ChangeMode,
-		SyncExclude:        run.SyncExclude,
-		IncludeUntracked:   run.IncludeUntracked,
-		CachePaths:         run.CachePaths,
-		CacheKeyFiles:      run.CacheKeyFiles,
-		KeepFailed:         run.KeepFailed,
+		CacheRuntimeRequirements: preflightapi.CloneRuntimeRequirements(run.CacheRuntimeRequirements),
+		CacheDependencyCheck:     run.CacheDependencyCheck,
+		RuntimeRequirements:      preflightapi.CloneRuntimeRequirements(run.RuntimeRequirements),
+		APIURL:                   options.APIURL,
+		Open:                     options.Open,
+		DashboardURL:             options.DashboardURL,
+		ProjectID:                run.ProjectID,
+		Region:                   run.Region,
+		Command:                  run.Command,
+		CommandAlias:             run.CommandAlias,
+		Steps:                    run.Steps,
+		ConcurrencyGroup:         run.ConcurrencyGroup,
+		ConcurrencyLimit:         run.ConcurrencyLimit,
+		PrepareCommands:          run.PrepareCommands,
+		PostCommands:             run.PostCommands,
+		AlwaysCommands:           run.AlwaysCommands,
+		Image:                    run.Image,
+		RunnerSize:               run.RunnerSize,
+		TimeoutSeconds:           run.TimeoutSeconds,
+		CacheMode:                run.CacheMode,
+		CacheLaneSizeBytes:       run.CacheLaneSizeBytes,
+		ArtifactPaths:            run.ArtifactPaths,
+		NetworkMode:              run.NetworkMode,
+		NetworkAllowlist:         run.NetworkAllowlist,
+		Docker:                   run.Docker,
+		Services:                 run.Services,
+		WorkerSelector:           run.WorkerSelector,
+		SecretsRequested:         run.SecretsRequested,
+		Env:                      run.Env,
+		ChangeMode:               run.ChangeMode,
+		SyncExclude:              run.SyncExclude, SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), run.SyncReviewedFixtures...),
+		IncludeUntracked: run.IncludeUntracked,
+		CachePaths:       run.CachePaths,
+		CacheKeyFiles:    run.CacheKeyFiles,
+		KeepFailed:       run.KeepFailed,
 	}
 }
 
@@ -313,35 +317,38 @@ func createRunCommandAndSteps(options remoteRunOptions, command string) (string,
 // not carry.
 func runSpecFromRemoteRunOptions(options remoteRunOptions) verificationplan.RunSpec {
 	return verificationplan.RunSpec{
-		ProjectID:          options.ProjectID,
-		Region:             options.Region,
-		Command:            options.Command,
-		CommandAlias:       options.CommandAlias,
-		Steps:              options.Steps,
-		Env:                options.Env,
-		ConcurrencyGroup:   options.ConcurrencyGroup,
-		ConcurrencyLimit:   options.ConcurrencyLimit,
-		PrepareCommands:    options.PrepareCommands,
-		PostCommands:       options.PostCommands,
-		AlwaysCommands:     options.AlwaysCommands,
-		Image:              options.Image,
-		RunnerSize:         options.RunnerSize,
-		TimeoutSeconds:     options.TimeoutSeconds,
-		CacheMode:          options.CacheMode,
-		CacheLaneSizeBytes: options.CacheLaneSizeBytes,
-		ArtifactPaths:      options.ArtifactPaths,
-		NetworkMode:        options.NetworkMode,
-		NetworkAllowlist:   options.NetworkAllowlist,
-		Docker:             options.Docker,
-		Services:           options.Services,
-		WorkerSelector:     options.WorkerSelector,
-		SecretsRequested:   options.SecretsRequested,
-		ChangeMode:         options.ChangeMode,
-		SyncExclude:        options.SyncExclude,
-		IncludeUntracked:   options.IncludeUntracked,
-		CachePaths:         options.CachePaths,
-		CacheKeyFiles:      options.CacheKeyFiles,
-		KeepFailed:         options.KeepFailed,
+		CacheRuntimeRequirements: preflightapi.CloneRuntimeRequirements(options.CacheRuntimeRequirements),
+		CacheDependencyCheck:     options.CacheDependencyCheck,
+		RuntimeRequirements:      preflightapi.CloneRuntimeRequirements(options.RuntimeRequirements),
+		ProjectID:                options.ProjectID,
+		Region:                   options.Region,
+		Command:                  options.Command,
+		CommandAlias:             options.CommandAlias,
+		Steps:                    options.Steps,
+		Env:                      options.Env,
+		ConcurrencyGroup:         options.ConcurrencyGroup,
+		ConcurrencyLimit:         options.ConcurrencyLimit,
+		PrepareCommands:          options.PrepareCommands,
+		PostCommands:             options.PostCommands,
+		AlwaysCommands:           options.AlwaysCommands,
+		Image:                    options.Image,
+		RunnerSize:               options.RunnerSize,
+		TimeoutSeconds:           options.TimeoutSeconds,
+		CacheMode:                options.CacheMode,
+		CacheLaneSizeBytes:       options.CacheLaneSizeBytes,
+		ArtifactPaths:            options.ArtifactPaths,
+		NetworkMode:              options.NetworkMode,
+		NetworkAllowlist:         options.NetworkAllowlist,
+		Docker:                   options.Docker,
+		Services:                 options.Services,
+		WorkerSelector:           options.WorkerSelector,
+		SecretsRequested:         options.SecretsRequested,
+		ChangeMode:               options.ChangeMode,
+		SyncExclude:              options.SyncExclude, SyncReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.SyncReviewedFixtures...),
+		IncludeUntracked: options.IncludeUntracked,
+		CachePaths:       options.CachePaths,
+		CacheKeyFiles:    options.CacheKeyFiles,
+		KeepFailed:       options.KeepFailed,
 	}
 }
 
@@ -362,13 +369,14 @@ func checkPlansForPlanning(plans []checkRunPlan) []verificationplan.CheckPlan {
 	out := make([]verificationplan.CheckPlan, 0, len(plans))
 	for _, plan := range plans {
 		out = append(out, verificationplan.CheckPlan{
-			Name:             plan.Name,
-			Run:              runSpecFromRemoteRunOptions(plan.Options),
-			LogicalChildID:   plan.Options.LogicalChildID,
-			LogicalChildName: plan.Options.LogicalChildName,
-			Retries:          plan.Retries,
-			Matrix:           plan.Matrix,
-			When:             plan.WhenConfig,
+			DependencyWarmTargets: append([]string(nil), plan.DependencyWarmTargets...),
+			Name:                  plan.Name,
+			Run:                   runSpecFromRemoteRunOptions(plan.Options),
+			LogicalChildID:        plan.Options.LogicalChildID,
+			LogicalChildName:      plan.Options.LogicalChildName,
+			Retries:               plan.Retries,
+			Matrix:                plan.Matrix,
+			When:                  plan.WhenConfig,
 		})
 	}
 	return out

@@ -81,6 +81,14 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 		})
 	}
 	repair := buildAgentRepairPacket(diagnosis, detail.Spec.Command, rerunCommand, logsCommand, evidence, evidencePacks, detail.PolicyReasons)
+	if advisory := sigstorePrerequisiteAdvisory(status, diagnosis.Kind, detail.Spec.NetworkMode, eventsResp.Events); advisory != "" {
+		warnings = append(warnings, agentWarning{Section: "test_prerequisite", Message: advisory})
+		repair.RootCause += " " + advisory
+	}
+	for _, advisory := range kubernetesPrerequisiteAdvisories(status, eventsResp.Events) {
+		warnings = append(warnings, agentWarning{Section: "test_prerequisite", Message: advisory})
+		repair.RootCause += " " + advisory
+	}
 	var testResults *preflightapi.RunTestResults
 	if detail.TestResults != nil {
 		failures := detail.TestResults.Failures(50)

@@ -1,0 +1,33 @@
+{
+  "artifact_paths": [
+    "coverage/**",
+    "test-results/**"
+  ],
+  "cache_lane_size_bytes": 10737418240,
+  "cache_mode": "cache-only",
+  "command_alias": "unit-test",
+  "docker": false,
+  "image": "ubuntu-24.04-ci",
+  "network_allowlist": [
+    "nodejs.org",
+    "registry.npmjs.org",
+    "registry.yarnpkg.com"
+  ],
+  "network_mode": "allowlist",
+  "region": "default",
+  "runner_size": "standard",
+  "runtime_requirements": {
+    "node": "24,>=20.0.0",
+    "pnpm": "12.11.2,12.11.2"
+  },
+  "runtime_resolutions": {
+    "node": {
+      "catalog_digest": "sha256:b44e8b1a537c37b867f32d33211e7a7ceb16255778107ed20657c944f30caca0",
+      "policy": "setup_node_lts_cache_first_v1",
+      "requirement": "24",
+      "selector": "lts/*"
+    }
+  },
+  "secrets_requested": false,
+  "timeout_seconds": 1200
+}

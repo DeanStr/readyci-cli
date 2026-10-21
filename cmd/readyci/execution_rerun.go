@@ -6,6 +6,7 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 func prepareExecutionRerun(previous preflightapi.VerificationSession, apiURL string) (preparedVerificationSession, error) {
@@ -24,33 +25,7 @@ func prepareExecutionRerun(previous preflightapi.VerificationSession, apiURL str
 	cfg := loaded.Config
 	resolve := checkResolveOptions{SkipWarm: previous.Recipe.SkipWarm, RequestSecrets: previous.Recipe.RequestSecrets, APIURL: apiURL, ProjectID: previous.ProjectID, Changes: previous.Recipe.ChangeMode, RetryCount: previous.Recipe.RetryCount, RetryProvided: previous.Recipe.RetryProvided}
 	if len(previous.Recipe.WarmChecks) > 0 {
-		warmResolve, err := warmDependencyResolveOptions(resolve, cfg)
-		if err != nil {
-			return preparedVerificationSession{}, err
-		}
-		prepared := preparedVerificationSession{ProjectID: previous.ProjectID, CoverageMode: "check"}
-		var all []affectedCheckPlan
-		for _, name := range previous.Recipe.WarmChecks {
-			warm, err := resolveCheckRunPlan(name, cfg, warmResolve)
-			if err != nil {
-				return prepared, err
-			}
-			warm.Options.SecretsRequested = boolPtr(false)
-			prepared.WarmPlans = append(prepared.WarmPlans, warm)
-			all = append(all, affectedCheckPlan{Plan: warm})
-			if !previous.Recipe.SkipConfirm {
-				check, err := resolveCheckRunPlan(name, cfg, resolve)
-				if err != nil {
-					return prepared, err
-				}
-				check.Options.SecretsRequested = boolPtr(previous.Recipe.RequestSecrets)
-				prepared.Plans = append(prepared.Plans, check)
-				all = append(all, affectedCheckPlan{Plan: check})
-			}
-		}
-		first := all[0].Plan.Options
-		prepared.BuildOptions, err = compatibleAffectedSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, IncludeUntracked: first.IncludeUntracked})
-		return prepared, err
+		return prepareWarmChecks(context.Background(), previous.Recipe.WarmChecks, cfg, loaded.Path, resolve, previous.Recipe.SkipConfirm)
 	}
 
 	name := previous.Recipe.Check
@@ -86,7 +61,7 @@ func prepareExecutionRerun(previous preflightapi.VerificationSession, apiURL str
 	}
 	all := append(append([]affectedCheckPlan{}, warm...), selected...)
 	first := selected[0].Plan.Options
-	build, err := compatibleAffectedSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, IncludeUntracked: first.IncludeUntracked})
+	build, err := compatibleAffectedSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
 	if err != nil {
 		return preparedVerificationSession{}, err
 	}

@@ -716,23 +716,25 @@ func TestRegisteredSourcePolicyDisablesCandidateReadyCIIgnoreAndBindsFilter(t *t
 	const digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	var bundle bytes.Buffer
 	result, err := BuildWithOptions(ctx, repo, &bundle, BuildOptions{
-		ChangeMode:             ChangeModeWorking,
-		ExcludePatterns:        []string{"trusted-generated/**"},
-		DefaultExcludePatterns: DefaultSourceExcludePatterns(),
-		IncludeUntracked:       &includeUntracked,
-		UseProjectIgnore:       &useProjectIgnore,
-		SourcePolicyDigest:     digest,
+		ChangeMode:                      ChangeModeWorking,
+		ExcludePatterns:                 []string{"trusted-generated/**"},
+		DefaultExcludePatterns:          DefaultSourceExcludePatterns(),
+		DefaultUntrackedExcludePatterns: DefaultUntrackedExcludePatterns(),
+		IncludeUntracked:                &includeUntracked,
+		UseProjectIgnore:                &useProjectIgnore,
+		SourcePolicyDigest:              digest,
 	})
 	if err != nil {
 		t.Fatalf("build registered-policy bundle: %v", err)
 	}
-	if got, want := result.Manifest.ChangedFiles, []string{"candidate-hidden.txt", "kept.txt"}; !reflect.DeepEqual(got, want) {
+	if got, want := result.Manifest.ChangedFiles, []string{"candidate-hidden.txt", "dist/tracked.js", "kept.txt"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("changed files = %v, want candidate ignore disabled and trusted exclude applied: %v", got, want)
 	}
 	if result.Manifest.SourcePolicy == nil ||
 		result.Manifest.SourcePolicy.Digest != digest ||
 		!reflect.DeepEqual(result.Manifest.SourcePolicy.ExcludePatterns, []string{"trusted-generated/**"}) ||
 		!reflect.DeepEqual(result.Manifest.SourcePolicy.DefaultExcludePatterns, DefaultSourceExcludePatterns()) ||
+		!reflect.DeepEqual(result.Manifest.SourcePolicy.DefaultUntrackedExcludePatterns, DefaultUntrackedExcludePatterns()) ||
 		!result.Manifest.SourcePolicy.IncludeUntracked ||
 		result.Manifest.SourcePolicy.ProjectIgnoreUsed {
 		t.Fatalf("source policy binding = %+v", result.Manifest.SourcePolicy)

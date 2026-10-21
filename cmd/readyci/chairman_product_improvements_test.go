@@ -376,7 +376,7 @@ func TestBrowserAndReviewableOutputsResolveIntoRunPlan(t *testing.T) {
 	if len(plan.Options.PrepareCommands) != 2 {
 		t.Fatalf("prepare commands = %v, want user prepare then chromium install", plan.Options.PrepareCommands)
 	}
-	if plan.Options.PrepareCommands[0] != "pnpm install --frozen-lockfile" || !strings.Contains(plan.Options.PrepareCommands[1], "playwright install --with-deps chromium") {
+	if plan.Options.PrepareCommands[0] != "pnpm install --frozen-lockfile" || !strings.Contains(plan.Options.PrepareCommands[1], "playwright install chromium") || strings.Contains(plan.Options.PrepareCommands[1], "--with-deps") {
 		t.Fatalf("prepare commands = %v, want browser setup after user prepare", plan.Options.PrepareCommands)
 	}
 	if !containsString(plan.Options.ArtifactPaths, "tests/fixtures/**") {

@@ -39,6 +39,9 @@ func normalizeExcludePattern(pattern string) string {
 var defaultSourceExcludePatterns = []string{
 	".env*",
 	".git",
+}
+
+var defaultUntrackedExcludePatterns = []string{
 	"apps/web/.next",
 	"coverage",
 	"dist",
@@ -46,11 +49,18 @@ var defaultSourceExcludePatterns = []string{
 	"target",
 }
 
-// DefaultSourceExcludePatterns returns the built-in source filter. Registered
-// policy bindings carry this exact list in the manifest, instead of relying on
-// hidden client behavior.
+// DefaultSourceExcludePatterns returns confidentiality and VCS exclusions that
+// apply to both tracked and untracked source. Registered policy bindings carry
+// this exact list instead of relying on hidden client behavior.
 func DefaultSourceExcludePatterns() []string {
 	return append([]string(nil), defaultSourceExcludePatterns...)
+}
+
+// DefaultUntrackedExcludePatterns returns generated-output exclusions. Git
+// tracked source is preserved even when a directory has a conventional build
+// output name. Explicit exclusions apply to tracked source too.
+func DefaultUntrackedExcludePatterns() []string {
+	return append([]string(nil), defaultUntrackedExcludePatterns...)
 }
 
 // PathMatchesExcludePatterns reports whether a repository-relative path is

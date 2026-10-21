@@ -5,6 +5,7 @@ import (
 
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type affectedDryRunReport struct {
@@ -50,6 +51,7 @@ type affectedChangedFiles struct {
 	ChangeMode       string
 	IncludeUntracked bool
 	ExcludePatterns  []string
+	ReviewedFixtures []syncbundle.ReviewedFixture
 	All              []string
 	Untracked        []string
 	ByCheck          map[string][]string

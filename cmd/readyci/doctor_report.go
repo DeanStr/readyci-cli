@@ -80,6 +80,9 @@ func buildDoctorReport(ctx context.Context, options doctorOptions) doctorReport 
 		report.fail("config", fmt.Sprintf("config invalid: %v", err), "run readyci config explain to see the resolved config")
 	} else {
 		report.ok("config", "config valid: "+path)
+		if warning := sharedSourceScopeWarning(cfg); warning != "" {
+			report.warn("source", warning)
+		}
 		if affectedAuditConfigured(cfg) {
 			if audit, err := buildAffectedAuditReport(".", cfg, path, true, false, true); err != nil {
 				report.warn("affected", "affected audit could not run: "+err.Error(), "run readyci affected audit --strict --duplicates")

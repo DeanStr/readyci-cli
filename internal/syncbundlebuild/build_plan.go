@@ -17,14 +17,17 @@ func planBundle(ctx context.Context, cwd string, options BuildOptions) (plannedB
 	if err != nil {
 		return plannedBundle{}, err
 	}
-	planned.manifest.BaselineKey, err = baselineContentKey(planned.baseline)
+	planned.manifest.BaselineKey, err = baselineContentKey(planned.baseline, planned.manifest.ContentBinding())
 	if err != nil {
 		return plannedBundle{}, err
 	}
 	planned.manifest.SnapshotDigest, err = syncbundle.WorkspaceContentDigest(
-		plannedArchiveEntries(planned.baseline), plannedArchiveEntries(planned.workspace), planned.manifest.Deleted,
+		plannedArchiveEntries(planned.baseline), plannedArchiveEntries(planned.workspace), planned.manifest.Deleted, planned.manifest.ContentBinding(),
 	)
 	if err != nil {
+		return plannedBundle{}, err
+	}
+	if _, err := syncbundle.ManifestAdmission(planned.manifest); err != nil {
 		return plannedBundle{}, err
 	}
 	return planned, nil
@@ -45,12 +48,20 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	if err != nil {
 		return plannedBundle{}, err
 	}
+	fixtures, err := syncbundle.NormalizeReviewedFixtures(options.ReviewedFixtures)
+	if err != nil {
+		return plannedBundle{}, err
+	}
 	includeUntracked := true
 	if options.IncludeUntracked != nil {
 		includeUntracked = *options.IncludeUntracked
 	}
 	if changeMode == syncbundle.ChangeModeStaged {
 		includeUntracked = false
+	}
+	submodules, err := planPinnedSubmodules(ctx, root, matcher, contentMode)
+	if err != nil {
+		return plannedBundle{}, err
 	}
 	trackedPaths, indexModes, err := eligibleIndexPaths(ctx, root, matcher, changeMode)
 	if err != nil {
@@ -63,9 +74,10 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 
 	head := gitHead(ctx, root)
 	manifest := syncbundle.Manifest{
-		Version:    syncbundle.FormatVersion,
-		CreatedAt:  time.Unix(0, 0).UTC(),
-		ChangeMode: changeMode,
+		Version:          syncbundle.FormatVersion,
+		CreatedAt:        time.Unix(0, 0).UTC(),
+		ChangeMode:       changeMode,
+		ReviewedFixtures: fixtures,
 		Git: syncbundle.GitMetadata{
 			Branch: gitBranch(ctx, root),
 			Head:   head,
@@ -79,8 +91,10 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 			DefaultExcludePatterns: append(
 				[]string(nil), options.DefaultExcludePatterns...,
 			),
-			IncludeUntracked:  includeUntracked,
-			ProjectIgnoreUsed: useProjectIgnore,
+			DefaultUntrackedExcludePatterns: append([]string(nil), options.DefaultUntrackedExcludePatterns...),
+			ReviewedFixtures:                fixtures,
+			IncludeUntracked:                includeUntracked,
+			ProjectIgnoreUsed:               useProjectIgnore,
 		})
 		if bindingErr != nil {
 			return plannedBundle{}, bindingErr
@@ -101,6 +115,11 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	if err != nil {
 		return plannedBundle{}, err
 	}
+	// The supported module view is clean and exactly pinned in both HEAD and
+	// the index, so its committed leaves belong solely to the baseline.
+	baseline = append(baseline, submodules.entries...)
+	sortPlanned(baseline)
+	manifest.Submodules = submodules.pins
 	changedFiles := changedSourcePaths(workspace, deleted)
 
 	for _, item := range baseline {
@@ -112,6 +131,12 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	manifest.Deleted = deleted
 	manifest.ChangedFiles = changedFiles
 	manifest.Git.Dirty = manifest.Git.Dirty || len(changedFiles) > 0
+	if err := validatePlannedReviewedFixtures(fixtures, baseline, workspace, trackedPaths, contentMode); err != nil {
+		return plannedBundle{}, fmt.Errorf("%w: %w", ErrUnsupportedRepository, err)
+	}
+	if err := syncbundle.ValidateManifest(manifest); err != nil {
+		return plannedBundle{}, fmt.Errorf("%w: %w", ErrUnsupportedRepository, err)
+	}
 
 	return plannedBundle{
 		root:             root,
@@ -217,8 +242,11 @@ func planBaseline(ctx context.Context, root, head string, matcher ignoreMatcher,
 		if err != nil {
 			return nil, err
 		}
-		if matcher.ignored(rel) {
+		if matcher.ignoredTracked(rel) {
 			continue
+		}
+		if mode == "160000" {
+			continue // Validated and flattened by planPinnedSubmodules.
 		}
 		if err := validateSourceGitMode(mode, rel); err != nil {
 			return nil, err
@@ -249,8 +277,11 @@ func eligibleIndexPaths(ctx context.Context, root string, matcher ignoreMatcher,
 		if err != nil {
 			return nil, nil, err
 		}
-		if matcher.ignored(rel) {
+		if matcher.ignoredTracked(rel) {
 			continue
+		}
+		if mode == "160000" {
+			continue // Validated and flattened by planPinnedSubmodules.
 		}
 		if err := validateSourceGitMode(mode, rel); err != nil {
 			return nil, nil, err
@@ -312,7 +343,8 @@ func planWorkspace(ctx context.Context, root, head string, baseline []plannedEnt
 		} else if ok {
 			rel = ancestor
 		}
-		if matcher.ignored(rel) {
+		_, tracked := indexModes[rel]
+		if tracked && matcher.ignoredTracked(rel) || !tracked && matcher.ignored(rel) {
 			continue
 		}
 		if _, ok := seen[rel]; ok {

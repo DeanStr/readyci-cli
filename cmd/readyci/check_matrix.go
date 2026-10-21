@@ -8,6 +8,7 @@ import (
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 func retryableRemoteRunError(err error) (int, bool) {
@@ -85,7 +86,7 @@ func watchCheck(plan checkRunPlan, warm []checkRunPlan, token string, interval t
 	defer stop()
 
 	fingerprint, err := workspaceFingerprint(ctx, workspaceFingerprintOptions{
-		ExcludePatterns:  options.SyncExclude,
+		ExcludePatterns: options.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.SyncReviewedFixtures...),
 		IncludeUntracked: options.IncludeUntracked,
 		ChangeMode:       options.ChangeMode,
 	})
@@ -110,7 +111,7 @@ func watchCheck(plan checkRunPlan, warm []checkRunPlan, token string, interval t
 			return nil
 		case <-ticker.C:
 			next, err := workspaceFingerprint(ctx, workspaceFingerprintOptions{
-				ExcludePatterns:  options.SyncExclude,
+				ExcludePatterns: options.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), options.SyncReviewedFixtures...),
 				IncludeUntracked: options.IncludeUntracked,
 				ChangeMode:       options.ChangeMode,
 			})
