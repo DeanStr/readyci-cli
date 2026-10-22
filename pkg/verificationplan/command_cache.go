@@ -47,7 +47,95 @@ func cachePathSetupScript(cachePaths, cacheKeyFiles []string, requirements map[s
 	script.WriteString(`__preflight_cache_attached() {
   [ -n "${READYCI_CACHE_LANE_ID:-}" ] && [ -d /cache ]
 }
-__preflight_link_cache_path() {
+__preflight_cache_validate_mapping() (
+  __preflight_path="$1"
+  __preflight_target="$2"
+  if [ -L "$__preflight_target" ] || { [ -e "$__preflight_target" ] && [ ! -d "$__preflight_target" ] && [ ! -f "$__preflight_target" ]; }; then
+    return 65
+  fi
+  __preflight_parent="$(dirname "$__preflight_target")"
+  while [ "$__preflight_parent" != / ]; do
+    [ ! -L "$__preflight_parent" ] || return 65
+    __preflight_parent="$(dirname "$__preflight_parent")"
+  done
+  __preflight_parent="$(dirname "$__preflight_path")"
+  while [ "$__preflight_parent" != / ]; do
+    if [ -L "$__preflight_parent" ]; then
+      __preflight_cache_known_link "$__preflight_parent" || return 65
+    fi
+    __preflight_parent="$(dirname "$__preflight_parent")"
+  done
+  if [ -L "$__preflight_path" ]; then
+    [ "$(readlink -- "$__preflight_path")" = "$__preflight_target" ] || return 65
+  elif [ -e "$__preflight_path" ] && [ ! -d "$__preflight_path" ] && [ ! -f "$__preflight_path" ]; then
+    return 65
+  fi
+)
+__preflight_publish_cache_path() (
+  __preflight_path="$1"
+  __preflight_target="$2"
+  __preflight_pending="$__preflight_target.readyci-pending"
+  __preflight_stage="$__preflight_target.readyci-stage"
+  __preflight_cache_validate_mapping "$__preflight_path" "$__preflight_target" || {
+    __preflight_report_cache_path_error "$?" "publication validation" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  [ -d "$__preflight_pending" ] && [ ! -L "$__preflight_pending" ] || {
+    __preflight_report_cache_path_error 65 "publication state" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  if [ -L "$__preflight_path" ]; then
+    if [ ! -e "$__preflight_target" ]; then
+      mkdir -- "$__preflight_target" || {
+        __preflight_report_cache_path_error "$?" "publication deletion" "$__preflight_path" "$__preflight_target"
+        return $?
+      }
+    fi
+    return 0
+  fi
+  # The pending marker was synced before payload execution. A replacement is
+  # authoritative, including deletions: never merge the old retained contents.
+  mkdir -m 700 -- "$__preflight_stage" || {
+    __preflight_report_cache_path_error "$?" "publication staging" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  rm -rf -- "$__preflight_target" || {
+    __preflight_report_cache_path_error "$?" "publication invalidation" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  if [ -e "$__preflight_path" ]; then
+    __preflight_before="$(stat -c '%d:%i:%f:%s:%y:%z' -- "$__preflight_path")" || return $?
+    cp -a -- "$__preflight_path" "$__preflight_stage/data" || {
+      __preflight_report_cache_path_error "$?" "publication copy" "$__preflight_path" "$__preflight_target"
+      return $?
+    }
+    [ "$__preflight_before" = "$(stat -c '%d:%i:%f:%s:%y:%z' -- "$__preflight_path")" ] || {
+      __preflight_report_cache_path_error 65 "publication source changed" "$__preflight_path" "$__preflight_target"
+      return $?
+    }
+  else
+    mkdir -- "$__preflight_stage/data" || {
+      __preflight_report_cache_path_error "$?" "publication deletion" "$__preflight_path" "$__preflight_target"
+      return $?
+    }
+  fi
+  __preflight_cache_validate_mapping "$__preflight_path" "$__preflight_target" || return $?
+  [ ! -L "$__preflight_stage/data" ] && { [ -d "$__preflight_stage/data" ] || [ -f "$__preflight_stage/data" ]; } || return 65
+  mv -T -- "$__preflight_stage/data" "$__preflight_target" || {
+    __preflight_report_cache_path_error "$?" "publication rename" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  rm -rf -- "$__preflight_path" || {
+    __preflight_report_cache_path_error "$?" "publication replace" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  ln -s -- "$__preflight_target" "$__preflight_path" || {
+    __preflight_report_cache_path_error "$?" "publication link" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  rmdir -- "$__preflight_stage" || return $?
+)
+__preflight_resolve_cache_path() {
   __preflight_key="$1"
   __preflight_path="$2"
   __preflight_workspace="${READYCI_WORKSPACE_DIR:-$PWD}"
@@ -59,37 +147,62 @@ __preflight_link_cache_path() {
     /*) ;;
     *) __preflight_path="$__preflight_workspace/$__preflight_path" ;;
   esac
+  __preflight_path="$(realpath -m -s -- "$__preflight_path")" || return $?
   if [ -n "${__preflight_cache_key_suffix:-}" ]; then
     __preflight_base="/cache/paths/$__preflight_key"
-    __preflight_prune_cache_path_generations "$__preflight_base" "$__preflight_cache_key_suffix" || return $?
     __preflight_target="$__preflight_base/$__preflight_cache_key_suffix"
   else
     __preflight_target="/cache/paths/$__preflight_key"
   fi
-  mkdir -p "$__preflight_target" "$(dirname "$__preflight_path")" || {
-    __preflight_status=$?
-    __preflight_report_cache_path_error "$__preflight_status" "mkdir" "$__preflight_path" "$__preflight_target"
+}
+__preflight_link_cache_path() {
+  __preflight_resolve_cache_path "$1" "$2" || return $?
+  __preflight_cache_validate_mapping "$__preflight_path" "$__preflight_target" || {
+    __preflight_report_cache_path_error "$?" "mapping validation" "$__preflight_path" "$__preflight_target"
     return $?
   }
-  if [ -d "$__preflight_path" ] && [ ! -L "$__preflight_path" ] && [ -z "$(find "$__preflight_target" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
-    cp -a "$__preflight_path"/. "$__preflight_target"/ || {
-      __preflight_status=$?
-      __preflight_report_cache_path_error "$__preflight_status" "copy" "$__preflight_path" "$__preflight_target"
+  if [ -n "${__preflight_cache_key_suffix:-}" ]; then
+    __preflight_prune_cache_path_generations "$__preflight_base" "$__preflight_cache_key_suffix" || return $?
+  fi
+  mkdir -p "$(dirname "$__preflight_target")" "$(dirname "$__preflight_path")" || {
+    __preflight_report_cache_path_error "$?" "mkdir" "$__preflight_path" "$__preflight_target"
+    return $?
+  }
+  __preflight_pending="$__preflight_target.readyci-pending"
+  __preflight_stage="$__preflight_target.readyci-stage"
+  if [ -e "$__preflight_pending" ] || [ -L "$__preflight_pending" ]; then
+    [ -d "$__preflight_pending" ] && [ ! -L "$__preflight_pending" ] && [ ! -L "$__preflight_stage" ] || return 65
+    # An interrupted/failed writer may have modified even an unchanged link.
+    # Invalidate it rather than treating partial data as prepared dependencies.
+    rm -rf -- "$__preflight_target" "$__preflight_stage" "$__preflight_pending" || return $?
+  fi
+  mkdir -m 700 -- "$__preflight_pending" || return $?
+  sync -f -- "$__preflight_pending" || return $?
+  if { [ -d "$__preflight_path" ] || [ -f "$__preflight_path" ]; } && [ ! -L "$__preflight_path" ]; then
+    if [ ! -e "$__preflight_target" ] || { [ -d "$__preflight_target" ] && [ -z "$(find "$__preflight_target" -mindepth 1 -maxdepth 1 -print -quit)" ]; }; then
+      __preflight_publish_cache_path "$__preflight_path" "$__preflight_target" || return $?
+      return 0
+    fi
+  fi
+  if [ ! -e "$__preflight_target" ]; then
+    mkdir -- "$__preflight_target" || {
+      __preflight_report_cache_path_error "$?" "mkdir" "$__preflight_path" "$__preflight_target"
       return $?
     }
   fi
-  rm -rf "$__preflight_path" || {
-    __preflight_status=$?
-    __preflight_report_cache_path_error "$__preflight_status" "replace" "$__preflight_path" "$__preflight_target"
+  if [ -L "$__preflight_path" ]; then
+    return 0
+  fi
+  rm -rf -- "$__preflight_path" || {
+    __preflight_report_cache_path_error "$?" "replace" "$__preflight_path" "$__preflight_target"
     return $?
   }
-  ln -s "$__preflight_target" "$__preflight_path" || {
-    __preflight_status=$?
-    __preflight_report_cache_path_error "$__preflight_status" "link" "$__preflight_path" "$__preflight_target"
+  ln -s -- "$__preflight_target" "$__preflight_path" || {
+    __preflight_report_cache_path_error "$?" "link" "$__preflight_path" "$__preflight_target"
     return $?
   }
 }
-__preflight_report_cache_path_error() {
+__preflight_report_cache_path_error() (
   __preflight_status="$1"
   __preflight_operation="$2"
   __preflight_path="$3"
@@ -100,7 +213,7 @@ __preflight_report_cache_path_error() {
     df -h /cache >&2 || true
   fi
   return "$__preflight_status"
-}
+)
 __preflight_prune_failed_run_cache() {
   if ! __preflight_cache_attached || [ ! -d /cache/failed-runs ]; then
     return 0
@@ -116,7 +229,7 @@ __preflight_prune_cache_path_generations() {
   case "$__preflight_keep" in
     *[!0123456789abcdef]*) return 0 ;;
   esac
-  find "$__preflight_base" -mindepth 1 -maxdepth 1 -type d ! -name "$__preflight_keep" -exec rm -rf -- {} + || return $?
+  find "$__preflight_base" -mindepth 1 -maxdepth 1 \( -type d -o -type f \) ! -name "$__preflight_keep" ! -name "$__preflight_keep.readyci-pending" ! -name "$__preflight_keep.readyci-stage" -exec rm -rf -- {} + || return $?
 }
 __preflight_compute_cache_key() {
   __preflight_cache_key_suffix=""
@@ -162,10 +275,11 @@ __preflight_compute_cache_key() {
   rm -f "$__preflight_key_tmp" || return $?
 }
 __preflight_setup_cache_paths() {
+  __preflight_cache_enabled=0
   if ! __preflight_cache_attached; then
     return 0
   fi
-  __preflight_prune_failed_run_cache || return $?
+  __preflight_cache_enabled=1
 `)
 	script.WriteString("  __preflight_compute_cache_key")
 	for _, keyFile := range keyFiles {
@@ -175,6 +289,24 @@ __preflight_setup_cache_paths() {
 	script.WriteString(" || return $?\n")
 	script.WriteString(`
 `)
+	// Resolve and validate every mapping before changing any retained or source
+	// data. Runtime HOME/workspace expansion can alias otherwise distinct paths.
+	for index, cachePath := range paths {
+		script.WriteString("  __preflight_resolve_cache_path ")
+		script.WriteString(ShellQuoteArg(runtimeNamespace + cachePathKey(cachePath)))
+		script.WriteByte(' ')
+		script.WriteString(ShellQuoteArg(cachePath))
+		script.WriteString(" || return $?\n")
+		fmt.Fprintf(&script, "  __preflight_cache_source_%d=\"$__preflight_path\"\n  __preflight_cache_target_%d=\"$__preflight_target\"\n", index, index)
+	}
+	for index := range paths {
+		fmt.Fprintf(&script, "  __preflight_cache_validate_mapping \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\" || { __preflight_report_cache_path_error \"$?\" \"mapping validation\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $?; }\n", index, index, index, index)
+		for other := 0; other < index; other++ {
+			fmt.Fprintf(&script, "  case \"$__preflight_cache_source_%d/\" in \"$__preflight_cache_source_%d/\"*) __preflight_report_cache_path_error 65 \"overlapping mappings\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $? ;; esac\n", index, other, index, index)
+			fmt.Fprintf(&script, "  case \"$__preflight_cache_source_%d/\" in \"$__preflight_cache_source_%d/\"*) __preflight_report_cache_path_error 65 \"overlapping mappings\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $? ;; esac\n", other, index, index, index)
+		}
+	}
+	script.WriteString("  __preflight_prune_failed_run_cache || return $?\n")
 	for _, cachePath := range paths {
 		script.WriteString("  __preflight_link_cache_path ")
 		script.WriteString(ShellQuoteArg(runtimeNamespace + cachePathKey(cachePath)))
@@ -182,7 +314,20 @@ __preflight_setup_cache_paths() {
 		script.WriteString(ShellQuoteArg(cachePath))
 		script.WriteString(" || return $?\n")
 	}
-	script.WriteString("}\n")
+
+	script.WriteString("}\n__preflight_cache_known_link() {\n")
+	for index := range paths {
+		fmt.Fprintf(&script, "  if [ \"$1\" = \"${__preflight_cache_source_%d:-}\" ] && [ \"$(readlink -- \"$1\")\" = \"${__preflight_cache_target_%d:-}\" ]; then return 0; fi\n", index, index)
+	}
+	script.WriteString("  return 1\n}\n__preflight_publish_cache_paths() (\n  [ \"${__preflight_cache_enabled:-0}\" = 1 ] || return 0\n")
+	for index := range paths {
+		fmt.Fprintf(&script, "  __preflight_publish_cache_path \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\" || return $?\n", index, index)
+	}
+	script.WriteString("  return 0\n)\n__preflight_finalize_cache_paths() (\n  [ \"${__preflight_cache_enabled:-0}\" = 1 ] || return 0\n  __preflight_publish_cache_paths || return $?\n  sync -f -- /cache || return $?\n")
+	for index := range paths {
+		fmt.Fprintf(&script, "  rmdir -- \"$__preflight_cache_target_%d.readyci-pending\" || return $?\n", index)
+	}
+	script.WriteString("  sync -f -- /cache\n)\n")
 	return script.String(), nil
 }
 

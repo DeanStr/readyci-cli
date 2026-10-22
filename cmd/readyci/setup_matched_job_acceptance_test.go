@@ -54,6 +54,8 @@ type matchedJobSource struct {
 // Alias fixtures retain their historical native policy. Current imports
 // deliberately replace that policy with an explicit numeric pin; the native
 // proof establishes the historical job, not a native run of the new policy.
+// Likewise, historical sealed commands do not attest to today's cache wrapper;
+// current manual and automatic commands are compiled and compared separately.
 func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 	// New imports use the current reviewed catalog; native proof retains its
 	// original catalog. Refreshes within the same series do not rewrite proof.
@@ -169,30 +171,22 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 				t.Fatal("reviewed network override was widened or replaced")
 			}
 
-			nodes, groups, err := verificationplan.NodesForPlans(nil, []verificationplan.CheckPlan{automatic}, verificationplan.BundleIdentity{}, verificationplan.ClientIdentity{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			sealed, err := preflightapi.NormalizeCreateVerificationSessionRequest(preflightapi.CreateVerificationSessionRequest{
-				ProjectID: "matched-fixture", IdempotencyKey: "matched-whole-job",
-				Recipe: preflightapi.VerificationRecipe{SchemaVersion: preflightapi.VerificationRecipeSchemaVersion,
-					Purpose: preflightapi.ExecutionPurpose, Check: fixture.Check, ChangeMode: "working",
-					Source: &preflightapi.VerificationSourceRecipe{IncludeUntracked: *automatic.Run.IncludeUntracked, ExcludePatterns: automatic.Run.SyncExclude}},
-				Snapshot: preflightapi.VerificationSnapshot{Digest: "sha256:" + strings.Repeat("a", 64), GitHead: fixture.Commit, ChangeMode: "working"},
-				Plan:     preflightapi.VerificationPlan{Nodes: nodes, MatrixGroups: groups},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			sealed := matchedJobSeal(t, automatic, fixture)
+			manualSealed := matchedJobSeal(t, manual, fixture)
 			if len(sealed.Plan.Nodes) != 1 || len(sealed.Plan.MatrixGroups) != 0 || sealed.Plan.Nodes[0].Retry.MaxAttempts != 1 ||
 				sealed.Plan.Nodes[0].ID != fixture.Check || sealed.Plan.Nodes[0].Name != fixture.Check || sealed.Plan.Nodes[0].Kind != "check" ||
 				sealed.Plan.Nodes[0].Phase != "verify" || sealed.Plan.Nodes[0].Condition != "always" || !sealed.Plan.Nodes[0].Required ||
 				len(sealed.Plan.Nodes[0].DependsOn) != 0 || len(sealed.Plan.Nodes[0].SuccessDependsOn) != 0 {
 				t.Fatal("sealing changed the single full selected job")
 			}
-			command := matchedJobRead(t, filepath.Join(fixtureRoot, "sealed-command.sh"))
-			if matchedJobSHA256(command) != fixture.SealedCommandSHA256 || sealed.Plan.Nodes[0].Run.Command != string(command) || len(sealed.Plan.Nodes[0].Run.Steps) != 0 {
-				t.Fatal("compiled command differs from both successful native jobs; review complete scope and cache wrapper before updating")
+			historicalCommand := matchedJobRead(t, filepath.Join(fixtureRoot, "sealed-command.sh"))
+			if matchedJobSHA256(historicalCommand) != fixture.SealedCommandSHA256 {
+				t.Fatal("historical native sealed command changed")
+			}
+			if len(manualSealed.Plan.Nodes) != 1 || len(manualSealed.Plan.MatrixGroups) != 0 ||
+				sealed.Plan.Nodes[0].Run.Command == "" || sealed.Plan.Nodes[0].Run.Command != manualSealed.Plan.Nodes[0].Run.Command ||
+				len(sealed.Plan.Nodes[0].Run.Steps) != 0 || len(manualSealed.Plan.Nodes[0].Run.Steps) != 0 {
+				t.Fatal("current automatic sealed command differs from the independently compiled manual whole job")
 			}
 			// The native manual job also supplies the independent effective
 			// policy oracle after sealing. Transport/source identities vary per
@@ -241,6 +235,29 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 			matchedJobAssertNativeProof(t, fixtureRoot, fixture)
 		})
 	}
+}
+
+func matchedJobSeal(t *testing.T, plan verificationplan.CheckPlan, fixture matchedJobFixture) preflightapi.CreateVerificationSessionRequest {
+	t.Helper()
+	if plan.Run.IncludeUntracked == nil {
+		t.Fatal("selected source inclusion policy disappeared")
+	}
+	nodes, groups, err := verificationplan.NodesForPlans(nil, []verificationplan.CheckPlan{plan}, verificationplan.BundleIdentity{}, verificationplan.ClientIdentity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := preflightapi.NormalizeCreateVerificationSessionRequest(preflightapi.CreateVerificationSessionRequest{
+		ProjectID: "matched-fixture", IdempotencyKey: "matched-whole-job",
+		Recipe: preflightapi.VerificationRecipe{SchemaVersion: preflightapi.VerificationRecipeSchemaVersion,
+			Purpose: preflightapi.ExecutionPurpose, Check: fixture.Check, ChangeMode: "working",
+			Source: &preflightapi.VerificationSourceRecipe{IncludeUntracked: *plan.Run.IncludeUntracked, ExcludePatterns: plan.Run.SyncExclude}},
+		Snapshot: preflightapi.VerificationSnapshot{Digest: "sha256:" + strings.Repeat("a", 64), GitHead: fixture.Commit, ChangeMode: "working"},
+		Plan:     preflightapi.VerificationPlan{Nodes: nodes, MatrixGroups: groups},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sealed
 }
 
 func matchedJobResolve(t *testing.T, data []byte, check string) verificationplan.CheckPlan {

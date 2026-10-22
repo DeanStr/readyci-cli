@@ -45,7 +45,9 @@ func TestRuntimeGroupsKeepSeparateDependenciesOnTheSameCacheLane(t *testing.T) {
 					t.Fatal(err)
 				}
 				major, _, _ := strings.Cut(selected.Versions["node"], ".")
-				warm[i].Run.Command = "printf '%s' " + ShellQuoteArg(major) + " > node_modules/runtime"
+				// Installers can unlink and recreate the mapped directory rather
+				// than writing through its original cache symlink.
+				warm[i].Run.Command = "rm -rf node_modules; mkdir node_modules; printf '%s' " + ShellQuoteArg(major) + " > node_modules/runtime"
 			}
 			nodes, _, err := NodesForPlans(warm, targets, BundleIdentity{}, ClientIdentity{})
 			if err != nil {

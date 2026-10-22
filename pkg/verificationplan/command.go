@@ -101,20 +101,20 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 		script.WriteString(envScript)
 	}
 	if len(phases.Prepare) > 0 {
-		writeCommandFunction(&script, "__preflight_prepare", phases.Prepare)
+		writeCommandFunction(&script, "__preflight_prepare", phases.Prepare, cacheScript != "")
 	}
 	if len(phases.Steps) > 0 {
 		for index, step := range phases.Steps {
 			writeStepFunction(&script, fmt.Sprintf("__preflight_step_%d", index), step)
 		}
 	} else {
-		writeCommandFunction(&script, "__preflight_command", []string{phases.Command})
+		writeCommandFunction(&script, "__preflight_command", []string{phases.Command}, cacheScript != "")
 	}
 	if len(phases.Post) > 0 {
-		writeCommandFunction(&script, "__preflight_post", phases.Post)
+		writeCommandFunction(&script, "__preflight_post", phases.Post, cacheScript != "")
 	}
 	if len(phases.Always) > 0 {
-		writeCommandFunction(&script, "__preflight_always", phases.Always)
+		writeCommandFunction(&script, "__preflight_always", phases.Always, cacheScript != "")
 	}
 	script.WriteString("__preflight_run_phases() {\n")
 	if len(phases.Prepare) > 0 {
@@ -131,6 +131,9 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 			}
 			writeStepInvocation(&script, fmt.Sprintf("__preflight_step_%d", index), step)
 			script.WriteString("  __preflight_status=$?\n")
+			if cacheScript != "" {
+				writeCachePublication(&script, "__preflight_status")
+			}
 			script.WriteString("  if [ $__preflight_status -ne 0 ]; then return $__preflight_status; fi\n")
 		}
 	} else {
@@ -148,6 +151,9 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 	script.WriteString("}\n")
 	writeCommandInvocation(&script, "__preflight_run_phases", "command")
 	script.WriteString("__preflight_status=$?\n")
+	if cacheScript != "" {
+		writeCachePublication(&script, "__preflight_status")
+	}
 	if len(phases.Steps) > 0 {
 		for index, step := range phases.Steps {
 			if !step.Always {
@@ -158,13 +164,24 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 			writeStepInvocation(&script, fmt.Sprintf("__preflight_step_%d", index), step)
 			script.WriteString(")\n")
 			script.WriteString("__preflight_always_step_status=$?\n")
+			if cacheScript != "" {
+				writeCachePublication(&script, "__preflight_always_step_status")
+			}
 			script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_step_status -ne 0 ]; then __preflight_status=$__preflight_always_step_status; fi\n")
 		}
 	}
 	if len(phases.Always) > 0 {
 		writeCommandInvocation(&script, "__preflight_always", "always")
 		script.WriteString("__preflight_always_status=$?\n")
+		if cacheScript != "" {
+			writeCachePublication(&script, "__preflight_always_status")
+		}
 		script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_status -ne 0 ]; then __preflight_status=$__preflight_always_status; fi\n")
+	}
+	if cacheScript != "" {
+		script.WriteString("if [ $__preflight_status -eq 0 ]; then\n")
+		script.WriteString("  if __preflight_finalize_cache_paths; then :; else __preflight_status=$?; fi\n")
+		script.WriteString("fi\n")
 	}
 	if keepFailed {
 		script.WriteString(failedWorkspaceRetentionScript())
@@ -210,16 +227,27 @@ func writeRemoteLogPhaseMarkerFunction(script *strings.Builder) {
 	script.WriteString("}\n")
 }
 
-func writeCommandFunction(script *strings.Builder, label string, commands []string) {
+func writeCommandFunction(script *strings.Builder, label string, commands []string, publishCache bool) {
 	script.WriteString(label)
 	script.WriteString("() {\n")
 	for _, command := range commands {
 		script.WriteString(command)
 		script.WriteString("\n")
 		script.WriteString("  __preflight_phase_status=$?\n")
+		if publishCache {
+			writeCachePublication(script, "__preflight_phase_status")
+		}
 		script.WriteString("  if [ $__preflight_phase_status -ne 0 ]; then return $__preflight_phase_status; fi\n")
 	}
 	script.WriteString("}\n")
+}
+
+// Cache functions run in subshells so their own diagnostics cannot overwrite
+// the authored command status. A failed command keeps its original exit code;
+// a successful command cannot hide a failed persistence handoff.
+func writeCachePublication(script *strings.Builder, status string) {
+	script.WriteString("  if __preflight_publish_cache_paths; then\n    __preflight_cache_publish_status=0\n  else\n    __preflight_cache_publish_status=$?\n  fi\n")
+	fmt.Fprintf(script, "  if [ $%s -eq 0 ] && [ $__preflight_cache_publish_status -ne 0 ]; then %s=$__preflight_cache_publish_status; fi\n", status, status)
 }
 
 func writeCommandInvocation(script *strings.Builder, label, phase string) {

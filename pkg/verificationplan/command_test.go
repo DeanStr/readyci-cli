@@ -401,15 +401,17 @@ func TestCachePathSetupReportsPathAndFilesystemUsageOnFailure(t *testing.T) {
 	workdir := t.TempDir()
 	cacheRoot := filepath.Join(workdir, "cache")
 	repoRoot := filepath.Join(workdir, "repo")
-	if err := os.MkdirAll(filepath.Join(cacheRoot, "paths"), 0o755); err != nil {
-		t.Fatalf("mkdir cache paths: %v", err)
+	if err := os.MkdirAll(cacheRoot, 0o755); err != nil {
+		t.Fatalf("mkdir cache root: %v", err)
 	}
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 	key := cachePathKey("target")
 	blockedTarget := filepath.Join(cacheRoot, "paths", key)
-	if err := os.WriteFile(blockedTarget, []byte("not a directory"), 0o644); err != nil {
+	// Regular cache entries are supported. A regular parent still prevents
+	// creating the mapping and must retain the path/filesystem diagnostic.
+	if err := os.WriteFile(filepath.Join(cacheRoot, "paths"), []byte("not a directory"), 0o644); err != nil {
 		t.Fatalf("write blocking cache file: %v", err)
 	}
 
