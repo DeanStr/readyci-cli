@@ -134,5 +134,49 @@
     "want_primary_file": "tests/test_requests.py",
     "want_summary_contains": "FAILED tests/test_requests.py::TestTimeout::test_connect_timeout[timeout0]",
     "want_summary_not_contains": "DeprecationWarning"
+  },
+  {
+    "name": "requests preparation download failure before tests",
+    "run_id": "run_16493bbb24237e3b",
+    "lab_report": "matched50-20261020; preparation excerpts 45756/45764/45767; wrapper reduced to its phase structure",
+    "status": "failed",
+    "command": "__preflight_prepare() { docker build .; }; __preflight_command() { python -m pytest tests; }; __preflight_prepare && __preflight_command",
+    "exit_code": 1,
+    "events": [
+      {
+        "event_id": 45756,
+        "type": "stderr",
+        "phase": "prepare",
+        "data": "#9 37.93 Err:3 https://snapshot.ubuntu.com/ubuntu/20261020T000000Z noble-security InRelease\n#9 37.93   503  Service Unavailable\n"
+      },
+      {
+        "event_id": 45764,
+        "type": "stderr",
+        "phase": "prepare",
+        "data": "#10 0.198 sha256sum: '/var/lib/apt/lists/*_dists_noble_InRelease': No such file or directory\n#10 0.198 /var/lib/apt/lists/*_dists_noble_InRelease: FAILED open or read\n"
+      },
+      {
+        "event_id": 45767,
+        "type": "stderr",
+        "phase": "prepare",
+        "data": "RuntimeError: Docker operation failed: build:\n"
+      },
+      {
+        "event_id": 45796,
+        "type": "stderr",
+        "data": "readyci: warning: artifact path \"report.xml\" matched no files after the run\n"
+      },
+      {
+        "event_id": 45797,
+        "type": "stderr",
+        "data": "readyci: warning: artifact path \"readyci-dependencies.txt\" matched no files after the run\n"
+      },
+      {"type": "command_exited", "exit_code": 1}
+    ],
+    "want_classification": "dependency_download_failed",
+    "want_agent_action": "retry",
+    "want_primary_file": "",
+    "want_summary_contains": "503",
+    "want_summary_not_contains": "pytest"
   }
 ]

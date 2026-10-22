@@ -9,6 +9,10 @@ func RuntimePreparationFailed(events []preflightapi.RunEvent, exitCode *int) boo
 	if exitCode == nil || *exitCode != 78 {
 		return false
 	}
+	// The platform's fatal runtime marker is stronger than trailing cleanup
+	// output. A later repository command or invocation still invalidates it.
+	start, end := commandFailureScope(events, true)
+	events = events[start:end]
 	type lineState struct {
 		text    string
 		discard bool

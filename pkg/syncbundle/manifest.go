@@ -12,7 +12,7 @@ const (
 
 	MaxCompressedBundleBytes = 400 << 20
 	MaxExpandedBundleBytes   = 900 << 20
-	MaxManifestBytes         = 4 << 20
+	MaxManifestBytes         = 16 << 20
 	MaxBundleEntries         = 100000
 
 	EntryTypeFile    = "file"

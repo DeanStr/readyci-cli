@@ -80,6 +80,47 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		analysis.Evidence = evidence
 		return analysis
 	}
+	// Without a recorded failed command exit, a primary artifact-transfer
+	// failure retains the existing delivery classification, even with prep logs.
+	if strings.HasPrefix(strings.ToLower(primaryFailureReason), "artifact upload failed:") {
+		kind := preflightapi.ClassificationSyncFailed
+		if localSyncTooLargeFailureText(strings.ToLower(primaryFailureReason)) {
+			kind = preflightapi.ClassificationSyncTooLarge
+		}
+		analysis := localFailureAnalysis(kind, 0.6, localDefaultSummary(kind), primaryFailureReason)
+		analysis.Evidence = evidence
+		return analysis
+	}
+	if failure := diagnosiscommon.PreparationFailureFromEvents(events, exitCode); failure != nil {
+		observed := primaryFailureReason + "\n" + failure.Output
+		observedKind, _ := localClassifyCommandFailure("", observed, exitCode)
+		if observedKind == preflightapi.ClassificationConfigInvalid {
+			analysis := localFailureAnalysis(observedKind, 0.65, localDefaultSummary(observedKind), primaryFailureReason)
+			analysis.Evidence = failure.Evidence
+			return analysis
+		}
+		if module := localMissingPythonModuleName(failure.Output); module != "" && !localAnalysisTextLooksTestFailure(failure.Output, strings.ToLower(observed)) {
+			analysis := localFailureAnalysis(preflightapi.ClassificationDependencySetupFailed, 0.55, localDefaultSummary(preflightapi.ClassificationDependencySetupFailed), "Missing Python dependency: "+module+".")
+			analysis.Evidence = failure.Evidence
+			return analysis
+		}
+		kind := preflightapi.ClassificationEnvironmentSetupFailed
+		summary := "Preparation output reports a failure."
+		if failure.DownloadFailure || observedKind == preflightapi.ClassificationDependencyDownloadFailed {
+			kind = preflightapi.ClassificationDependencyDownloadFailed
+			summary = "Dependency download failed during preparation."
+			if (failure.ReachabilityFailure || diagnosiscommon.RegistryEgressReachabilityFailureText(strings.ToLower(failure.Output))) && strings.EqualFold(strings.TrimSpace(networkMode), preflightapi.DefaultNetworkMode) {
+				kind = preflightapi.ClassificationNetworkNotAllowed
+				summary = "Preparation required a download, but this run used network_mode: none."
+			}
+		}
+		if failure.Diagnostic != "" {
+			summary += " " + failure.Diagnostic
+		}
+		analysis := localFailureAnalysis(kind, 0.8, localDefaultSummary(kind), summary)
+		analysis.Evidence = failure.Evidence
+		return analysis
+	}
 	// Refine only an ordinary command failure. A worker's recorded primary
 	// failure reason retains precedence over a test runner's output.
 	if primaryFailureReason == "" {

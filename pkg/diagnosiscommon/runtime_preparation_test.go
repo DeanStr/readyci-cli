@@ -6,6 +6,29 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
+func TestRuntimePreparationFailurePreservesPrimaryFailureBeforeCleanup(t *testing.T) {
+	code := 78
+	marker := preflightapi.RunEvent{Type: preflightapi.EventStderr, Phase: "prepare", Data: preflightapi.RuntimePreparationFailureMarker + "\n"}
+	for _, tc := range []struct {
+		name  string
+		extra []preflightapi.RunEvent
+		want  bool
+	}{
+		{"successful always cleanup", []preflightapi.RunEvent{{Type: "stdout", Phase: "always", Data: "cleanup complete\n"}}, true},
+		{"later repository command", []preflightapi.RunEvent{{Type: "stdout", Phase: "command", Data: "FAILED tests/test_api.py::test_runtime - AssertionError\n"}}, false},
+		{"later silent command boundary", []preflightapi.RunEvent{{Type: "stdout", Phase: "command", Data: "\n"}}, false},
+		{"later command then cleanup", []preflightapi.RunEvent{{Type: "stdout", Phase: "command", Data: "FAILED tests/test_api.py::test_runtime - AssertionError\n"}, {Type: "stdout", Phase: "always", Data: "cleanup complete\n"}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			events := append([]preflightapi.RunEvent{marker}, tc.extra...)
+			events = append(events, preflightapi.RunEvent{Type: preflightapi.EventCommandExited, ExitCode: &code})
+			if got := RuntimePreparationFailed(events, &code); got != tc.want {
+				t.Fatalf("runtime preparation failure = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRuntimePreparationFailureRequiresItsDiagnosticRecord(t *testing.T) {
 	code := 78
 	otherCode := 1
