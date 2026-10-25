@@ -159,6 +159,8 @@ func TestDefiniteTestNonFailureLine(t *testing.T) {
 		"-  546 [mobile-chrome] › tests/e2e/check.spec.ts:860:3 › failure inspection",
 		"\x1b[2m-  546 [chromium]\x1b[0m › tests/e2e/check.spec.ts:860:3 › failure inspection",
 		"--- PASS: TestFailureRecovery (0.00s)",
+		"test_winsound skipped -- No module named 'winsound'",
+		"test_socket (tests.SocketTests.test_socket) ... skipped 'IPv6 is unavailable'",
 	} {
 		if !DefiniteTestNonFailureLine(line) {
 			t.Errorf("DefiniteTestNonFailureLine(%q) = false", line)
@@ -170,6 +172,8 @@ func TestDefiniteTestNonFailureLine(t *testing.T) {
 		"- 546 [tool] tests/config.yaml:12:3: invalid target",
 		"- 546 [tool] › tests/config.yaml:12:3: invalid target",
 		"✓ setup completed but later failed",
+		"ModuleNotFoundError: No module named 'skipped'",
+		"ImportError: test was skipped because a module was not found",
 	} {
 		if DefiniteTestNonFailureLine(line) {
 			t.Errorf("DefiniteTestNonFailureLine(%q) = true", line)
@@ -178,5 +182,28 @@ func TestDefiniteTestNonFailureLine(t *testing.T) {
 	input := "- 546 [chromium] › tests/check.spec.ts:12:3 › expected error\nactual version differs from required version\n"
 	if got := FilterTestNonFailureLines(input); got != "\nactual version differs from required version\n" {
 		t.Fatalf("FilterTestNonFailureLines() = %q", got)
+	}
+}
+
+func TestPythonTestFailureRecords(t *testing.T) {
+	for _, line := range []string{
+		"ERROR: testStream (test.test_socket.BasicVSOCKTest.testStream)",
+		"FAIL: test_equal (tests.Values.test_equal)",
+		"FAILED (errors=1)",
+		"FAILED (failures=2, errors=1, skipped=50)",
+	} {
+		if !DefiniteTestFailureText(line) {
+			t.Errorf("DefiniteTestFailureText(%q) = false", line)
+		}
+	}
+	for _, line := range []string{
+		"Error: test environment not found",
+		"expected ERROR: testStream (test.test_socket.BasicVSOCKTest.testStream), got nothing",
+		"FAILED (errors=0)",
+		"expected FAILED (errors=1) but succeeded",
+	} {
+		if DefiniteTestFailureText(line) {
+			t.Errorf("DefiniteTestFailureText(%q) = true", line)
+		}
 	}
 }

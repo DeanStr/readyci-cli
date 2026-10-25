@@ -32,6 +32,7 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 	var candidates []repoImportCandidate
 	var scopeCandidates []repoImportCandidate
 	importScope := options.ImportScope
+	languageDefaultNotice := ""
 	if options.Detect && (configPath == "" || options.Force) {
 		scopeCandidates = setupImportCandidates(".", "", options.RuntimePins)
 		candidates = filterSetupImportCandidates(scopeCandidates, options.ImportSource)
@@ -60,8 +61,10 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 			// Writing still requires a concrete template and rejects ambiguity.
 			if detected, detectionErr := setupDetectedTemplate(".", projectID, options, candidates); detectionErr == nil {
 				options.ConfigTemplate = &detected
-				if imported, _ := automaticSetupImport(candidates); imported != nil {
-					importScope = selectedSetupImportScope(*imported, scopeCandidates)
+				if selection := automaticSetupSelection(candidates); selection.Imported != nil {
+					importScope = selectedSetupImportScope(*selection.Imported, scopeCandidates)
+				} else if len(selection.NotImported) > 0 {
+					languageDefaultNotice = setupLanguageDefaultNotice(selection)
 				}
 			}
 		} else if len(options.NetworkAllowlist) > 0 {
@@ -158,6 +161,9 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		report.SelectionReason = "Generated configuration is proposed; review the selected checks and network access."
 		if importScope != nil {
 			report.SelectionReason = importScope.Coverage
+		} else if languageDefaultNotice != "" {
+			report.SelectionReason = languageDefaultNotice
+			report.Warnings = append(report.Warnings, languageDefaultNotice)
 		}
 	}
 

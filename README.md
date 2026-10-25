@@ -276,7 +276,11 @@ readyci check --retry 2 --open ci
 `readyci agent setup` installs Ready CI verification as a repo skill at
 `.agents/skills/readyci-verify/SKILL.md` and, by default, writes the Claude Code
 compatibility copy at `.claude/skills/readyci-verify/SKILL.md`, then runs the
-instructions doctor. It does not write `AGENTS.md` unless you pass
+instructions doctor. The skill and every other instruction target also tell
+agents how to set up a repository that has no configuration or that
+`readyci setup` cannot select for: start from
+`readyci setup --preview --json`, translate the upstream test job, and confirm
+that tests executed before reporting setup complete. It does not write `AGENTS.md` unless you pass
 `--agents-md`; use that opt-in for agents that do not support skills or for
 teams that want always-loaded repo guidance. See the public
 [workflow guides](https://readyci.com/docs/workflows) and

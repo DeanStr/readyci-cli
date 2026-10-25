@@ -36,6 +36,7 @@ func executeAffectedRules(cwd string, cfg config.ProjectConfig, configPath strin
 			return err
 		}
 		report.Warnings = append(report.Warnings, preparation...)
+		report.Warnings = append(report.Warnings, executionOptions.Warnings...)
 		token, tokenErr := effectiveAPIToken(executionOptions.APIURL, executionOptions.APIToken)
 		_, report = applyProjectHomeRegionsForAffectedDiagnosticsBestEffort(ctx, plans, report, executionOptions.APIURL, token)
 		if tokenErr != nil {
@@ -129,6 +130,7 @@ func affectedVerificationPlanForExecution(cfg config.ProjectConfig, configPath s
 		Mode:           defaultString(executionOptions.SelectionMode, "affected_rules"),
 		Inferred:       executionOptions.Inferred,
 		Signals:        executionOptions.Signals,
+		Warnings:       executionOptions.Warnings,
 		SelectedReason: executionOptions.SelectedReason,
 	})
 }

@@ -30,12 +30,12 @@ func PreparationFailureFromEvents(events []preflightapi.RunEvent, exitCode *int)
 	if exitCode == nil || *exitCode == 0 {
 		return nil
 	}
-	start, end := finalCommandFailureScope(events)
-	if start >= end || events[start].Phase != "prepare" {
+	_, _, exit := commandInvocation(events)
+	if exit != nil && (exit.ExitCode == nil || *exit.ExitCode != *exitCode) {
 		return nil
 	}
-	if end < len(events) && events[end].Type == preflightapi.EventCommandExited &&
-		(events[end].ExitCode == nil || *events[end].ExitCode != *exitCode) {
+	events = FinalCommandFailureEvents(events)
+	if len(events) == 0 || events[0].Phase != "prepare" {
 		return nil
 	}
 	failure := &PreparationFailure{}
@@ -87,10 +87,9 @@ func PreparationFailureFromEvents(events []preflightapi.RunEvent, exitCode *int)
 		return failure
 	}
 	remaining := 1 << 20
-	for index := start; index < end; index++ {
-		event := events[index]
+	for index, event := range events {
 		stream, log := EventStream(event)
-		if !log || event.Service != "" || postRunArtifactWarning(event) {
+		if !log || event.Service != "" || PostRunArtifactWarning(event) {
 			continue
 		}
 		line, known := pending[stream]

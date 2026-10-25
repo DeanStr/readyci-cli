@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -53,21 +54,22 @@ func TestWorkflowStaticMatrixRetainsParentAndEveryVariant(t *testing.T) {
 	if ubuntu != 1 || unsupported != 2 {
 		t.Fatalf("OS variants disappeared: ubuntu=%d unsupported=%d", ubuntu, unsupported)
 	}
-	if _, err := automaticSetupImport(candidates); err == nil {
-		t.Fatal("automatic setup silently selected a matrix variant")
+	if selection := automaticSetupSelection(candidates); selection.Imported != nil || len(selection.NotImported) != 1 || selection.NotImported[0].ID != parent {
+		t.Fatalf("automatic setup silently selected a matrix variant: %+v", selection)
 	}
 	if repeated := setupImportCandidates(repo, "github-actions"); !reflect.DeepEqual(candidates, repeated) {
 		t.Fatal("matrix scan was nondeterministic")
 	}
 }
 
-func TestWorkflowMalformedYAMLPreventsLanguageFallback(t *testing.T) {
+func TestWorkflowMalformedYAMLLanguageFallbackReportsUncoveredScope(t *testing.T) {
 	repo := t.TempDir()
 	writeFileForRepoMapTest(t, filepath.Join(repo, "go.mod"), "module fixture\n\ngo 1.25.13\n")
 	writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/tests.yml"), "jobs: [invalid YAML\n")
 	candidates := setupImportCandidates(repo, "github-actions")
-	if _, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, candidates); err == nil || !strings.Contains(err.Error(), "workflow") {
-		t.Fatalf("uninspectable workflow silently fell back to a different test scope: %v candidates=%+v", err, candidates)
+	template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, candidates)
+	if err != nil || !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/tests.yml:uninspectable"; blocked: "workflow YAML cannot be parsed`) {
+		t.Fatalf("uninspectable workflow silently fell back to a different test scope: %v\n%s", err, template)
 	}
 }
 
@@ -79,12 +81,12 @@ func TestWorkflowScannerOnlyReadsImmediateWorkflowFiles(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("nested workflow support data was imported as execution scope: %+v", candidates)
 	}
-	if selected, err := automaticSetupImport(candidates); err != nil || selected == nil {
-		t.Fatalf("nested support data blocked the actual workflow: selected=%+v err=%v", selected, err)
+	if selected := automaticSetupSelection(candidates).Imported; selected == nil {
+		t.Fatal("nested support data blocked the actual workflow")
 	}
 }
 
-func TestWorkflowUnknownBuildScopePreventsLanguageFallback(t *testing.T) {
+func TestWorkflowUnknownBuildScopeLanguageFallbackReportsUncoveredScope(t *testing.T) {
 	for _, source := range []struct{ file, job string }{{"ci.yml", "build"}, {"quality.yml", "suite"}} {
 		for _, steps := range []string{
 			"    steps: []\n",
@@ -100,8 +102,9 @@ func TestWorkflowUnknownBuildScopePreventsLanguageFallback(t *testing.T) {
 			if len(candidates) != 1 || !candidates[0].ScopeUnknown {
 				t.Fatalf("unknown execution structure lost its scope diagnostic: %+v", candidates)
 			}
-			if _, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, candidates); err == nil {
-				t.Fatalf("uninspectable build job silently fell back to generic Go tests: %+v", candidates)
+			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, candidates)
+			if err != nil || !strings.Contains(template, "# Ready CI setup scope: language default only") || !strings.Contains(template, "# Not imported: "+strconv.Quote(candidates[0].ID)) {
+				t.Fatalf("uninspectable build job silently fell back to generic Go tests: %v\n%s", err, template)
 			}
 		}
 	}
@@ -421,8 +424,8 @@ func TestWorkflowMatrixPinnedPopular50Sources(t *testing.T) {
 			writeFileForRepoMapTest(t, filepath.Join(repo, filepath.FromSlash(fixture.SourcePath)), string(data))
 			writeFileForRepoMapTest(t, filepath.Join(repo, "go.mod"), "module fixture\n\ngo 1.27.2\n")
 			candidates := setupImportCandidates(repo, "github-actions")
-			if _, err := automaticSetupImport(candidates); err == nil {
-				t.Fatal("authentic multiple scopes became an automatic single variant")
+			if selection := automaticSetupSelection(candidates); selection.Imported != nil || selection.Reason == "" {
+				t.Fatalf("authentic multiple scopes became an automatic single variant: %+v", selection)
 			}
 			parentName, want := "build", 3
 			if fixture.Repository == "sveltejs/svelte" {

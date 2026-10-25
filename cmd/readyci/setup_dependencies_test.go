@@ -318,8 +318,11 @@ func TestSetupUninspectableMakeArgumentsRequireExplicitConfiguration(t *testing.
 			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
 			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
 			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "+command+"\n")
-			if template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, "")); err == nil || template != "" {
-				t.Fatalf("uninspectable Make invocation was accepted: %q %v", template, err)
+			// Either explicit configuration is required, or the repository's own
+			// Make target is proposed without importing the upstream invocation.
+			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
+			if err == nil && (strings.Contains(template, shellQuoteArg(command)) || strings.Contains(template, "# Selected:") || !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:tests"`)) {
+				t.Fatalf("uninspectable Make invocation was accepted:\n%s", template)
 			}
 		})
 	}

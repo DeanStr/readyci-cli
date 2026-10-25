@@ -215,3 +215,52 @@ func TestLocalPreparationFailureRequiresObservedFailedPreparation(t *testing.T) 
 		})
 	}
 }
+
+func TestLocalPreparationRetainsRepositoryCodeFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name, output, classification, action, primaryFile string
+	}{
+		{"TypeScript build", "src/app.ts:12:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n", preflightapi.ClassificationTypecheckFailed, preflightapi.AgentActionFixCode, "src/app.ts"},
+		{"TypeScript nonpretty build", "src/app.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.\n", preflightapi.ClassificationTypecheckFailed, preflightapi.AgentActionFixCode, "src/app.ts"},
+		{"dependency TypeScript postinstall", "npm ci\nnode_modules/some-package/src/index.ts:12:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"dependency TypeScript nonpretty postinstall", "node_modules/some-package/src/index.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"dependency Python typecheck", ".venv/lib/python3.12/site-packages/pkg/mod.pyi:12: error: Incompatible types in assignment [assignment]\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"unattributed type diagnostic", "error TS2322: Type 'string' is not assignable to type 'number'.\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"Jest summary", "FAIL src/sum.test.js\nTests:       1 failed, 4 passed, 5 total\n", preflightapi.ClassificationTestFailed, preflightapi.AgentActionFixCode, ""},
+		{"pytest failure", "FAILED tests/test_codegen.py::test_render - AssertionError: expected header\n", preflightapi.ClassificationTestFailed, preflightapi.AgentActionFixCode, "tests/test_codegen.py"},
+		{"repository compiler error", "src/native/ext.c:12:5: error: unknown type name 'widget_t'\nerror: compilation failed\n", preflightapi.ClassificationBuildFailed, preflightapi.AgentActionFixCode, "src/native/ext.c"},
+		{"repository lint error", "src/app.js:3:1: error: Unexpected var no-var\neslint: lint failed\n", preflightapi.ClassificationLintFailed, preflightapi.AgentActionFixCode, "src/app.js"},
+		{"dependency compiler error", "/tmp/pip-install-x1/numpy/src/x.c:1:1: error: unknown type name 'npy'\nerror: compilation failed\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"installed dependency lint mention", "npm error eslint@9.1.0 postinstall failed\nnode_modules/eslint/bin/eslint.js:3:1: error\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+		{"installer names test runner", "ERROR: Could not find a version that satisfies the requirement pytest-cov==99 (from versions: none)\n", preflightapi.ClassificationEnvironmentSetupFailed, preflightapi.AgentActionReportSetup, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exit := 1
+			events := []preflightapi.RunEvent{
+				{ID: 10, Type: preflightapi.EventCommandStarted},
+				{ID: 11, Type: preflightapi.EventStderr, Phase: "prepare", Step: "build", Data: tc.output},
+				{ID: 12, Type: preflightapi.EventCommandExited, Phase: "prepare", Step: "build", ExitCode: &exit},
+			}
+			got := localAnalyzeRunFailureWithNetworkMode(preflightapi.StatusFailed, "npm run build && npm test", &exit, events, "", "allowlist")
+			if got.Classification != tc.classification || got.AgentAction != tc.action {
+				t.Fatalf("analysis=%+v, want %s/%s", got, tc.classification, tc.action)
+			}
+			if got.PrimaryFile != tc.primaryFile {
+				t.Fatalf("primary file=%q, want %q", got.PrimaryFile, tc.primaryFile)
+			}
+		})
+	}
+}
+
+func TestLocalIncompleteArtifactCollectionRequestsReducedScope(t *testing.T) {
+	exit := 0
+	reason := "artifact upload failed: artifact collection incomplete: retained 2 of 9 selected files; 7 omitted (1 report candidates); inspect .readyci/artifact-retention.json"
+	events := []preflightapi.RunEvent{
+		{ID: 1, Type: preflightapi.EventStdout, Phase: "command", Data: "ok\n"},
+		{ID: 2, Type: preflightapi.EventCommandExited, ExitCode: &exit},
+	}
+	got := localAnalyzeRunFailureWithNetworkMode(preflightapi.StatusFailed, "go test ./...", &exit, events, reason, "")
+	if got.Classification != preflightapi.ClassificationSyncTooLarge || got.AgentAction != preflightapi.AgentActionReduceScope || got.Retryable {
+		t.Fatalf("incomplete artifact collection analysis=%+v, want sync_too_large/reduce_scope", got)
+	}
+}

@@ -17,7 +17,8 @@ import (
 var (
 	ansiSGR              = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	definiteTestSuccess  = regexp.MustCompile(`(?i)^(?:\[[^\r\n]+\]\s*)?(?:ok\s+\S+\s+(?:[0-9.]+s|\(cached\))(?:\s+coverage:\s*(?:[0-9.]+% of statements|\[no statements\]))?$|test\s+.+\s+\.\.\.\s+ok\s*$|---\s+pass:[^\r\n]*$|test result:\s+ok\b[^\r\n]*$|[A-Za-z0-9_./-]+\.py(?:::[^\r\n]+)+\s+passed(?:\s+\[[^\r\n]*\])?$)`)
-	definiteTestFailure  = regexp.MustCompile(`(?im)^\s*(?:\[[^\r\n]+\]\s*)?test result:\s+failed\b`)
+	definiteTestFailure  = regexp.MustCompile(`(?im)^\s*(?:(?:\[[^\r\n]+\]\s*)?test result:\s+failed\b|(?:ERROR|FAIL):\s+test[A-Za-z0-9_.]+\s+\([^\r\n]+\)\s*$|FAILED\s+\([^\r\n]*(?:failures|errors)=[1-9][0-9]*\b[^\r\n]*\)\s*$|Tests:?\s+[1-9][0-9]*\s+failed\b)`)
+	pythonTestSkipped    = regexp.MustCompile(`(?i)^(?:test_[A-Za-z0-9_.]+ skipped -- [^\r\n]+|test[A-Za-z0-9_.]+(?:\s+\([^\r\n]+\))?\s+\.\.\.\s+skipped(?:\s+[^\r\n]+)?)$`)
 	playwrightNonFailure = regexp.MustCompile(`^[✓-]\s+[0-9]+\s+\[[^\]\r\n]+\]\s+›\s+[^\s\r\n]+:[0-9]+:[0-9]+\s+›\s+[^\r\n]+$`)
 )
 
@@ -152,7 +153,8 @@ func DefiniteTestSuccessLine(text string) bool {
 // The Playwright marker is meaningful only with the full reporter row shape;
 // an ordinary diagnostic starting with a dash must remain eligible evidence.
 func DefiniteTestNonFailureLine(text string) bool {
-	return DefiniteTestSuccessLine(text) || playwrightNonFailure.MatchString(stripANSISGR(strings.TrimSpace(text)))
+	text = stripANSISGR(strings.TrimSpace(text))
+	return DefiniteTestSuccessLine(text) || playwrightNonFailure.MatchString(text) || pythonTestSkipped.MatchString(text)
 }
 
 // FilterTestNonFailureLines prevents completed or skipped test names from
@@ -176,6 +178,13 @@ func stripANSISGR(text string) string {
 	return ansiSGR.ReplaceAllString(text, "")
 }
 
+// StripDiagnosticANSI removes terminal color sequences before a diagnostic is
+// searched for file locations or displayed as a summary. Parse the cleaned
+// line, rather than cleaning a path after an escape prefix entered its match.
+func StripDiagnosticANSI(text string) string {
+	return stripANSISGR(text)
+}
+
 // ValidPrimaryFilePath rejects URL, IP, and traversal-shaped matches before a
 // diagnosis exposes a candidate repository path.
 func ValidPrimaryFilePath(path string) bool {
@@ -185,6 +194,23 @@ func ValidPrimaryFilePath(path string) bool {
 		!strings.Contains(path, "://") &&
 		!PathHasParentTraversal(path) &&
 		net.ParseIP(strings.Trim(path, "[]")) == nil
+}
+
+// RepositorySourcePath accepts a workspace-relative location outside installed
+// dependency trees. Absolute paths and package-manager directories name build
+// inputs the repository does not own, such as a wheel compiled under /tmp.
+func RepositorySourcePath(path string) bool {
+	path = strings.TrimSpace(path)
+	if !ValidPrimaryFilePath(path) || strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") || strings.HasPrefix(path, "\\") || len(path) > 1 && path[1] == ':' {
+		return false
+	}
+	for _, part := range strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }) {
+		switch part {
+		case "node_modules", "site-packages", "dist-packages", ".venv", ".tox", ".nox":
+			return false
+		}
+	}
+	return true
 }
 
 // PathHasParentTraversal recognizes parent traversal with either slash style.

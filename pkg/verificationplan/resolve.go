@@ -15,6 +15,7 @@ import (
 // graph identity a planner assigns later, so that resolving a check produces the
 // same specification for the CLI and for service-side planning.
 type RunSpec struct {
+	EnvironmentRequirements []string
 	// Planner-owned cache identity includes preparation-only SDKs even when a
 	// run omits preparation. It is rendered into the command, never a run API field.
 	CacheDependencyCheck     string            `json:"-"`
@@ -186,6 +187,10 @@ func ResolveCheck(name string, cfg config.ProjectConfig, options ResolveOptions)
 	if err != nil {
 		return CheckPlan{}, err
 	}
+	environmentRequirements, err := preflightapi.MergeEnvironmentRequirements(cfg.EnvironmentRequirements, check.EnvironmentRequirements)
+	if err != nil {
+		return CheckPlan{}, fmt.Errorf("check %q environment_requirements: %w", name, err)
+	}
 	runtimeRequirements, err := preflightapi.NormalizeRuntimeRequirements(check.RuntimeRequirements)
 	if err != nil {
 		return CheckPlan{}, fmt.Errorf("check %q runtime_requirements: %w", name, err)
@@ -229,6 +234,7 @@ func ResolveCheck(name string, cfg config.ProjectConfig, options ResolveOptions)
 		RegionDefaulted:  identity.regionDefaulted,
 		DiagnosticRegion: preflightapi.NormalizeRegion(identity.region),
 		Run: RunSpec{
+			EnvironmentRequirements:  environmentRequirements,
 			CacheRuntimeRequirements: cacheRuntimeRequirements,
 			CacheDependencyCheck:     cacheDependencyCheck,
 			RuntimeRequirements:      runtimeRequirements,

@@ -8,7 +8,7 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-var localDiagnosisFileLinePattern = regexp.MustCompile(`(?:^|[^A-Za-z0-9_./@-])([A-Za-z0-9_./@-]+\.[A-Za-z0-9_+-]+):([0-9]+)(?::[0-9]+)?`)
+var localDiagnosisFileLinePattern = regexp.MustCompile(`(?:^|[^A-Za-z0-9_./@-])([A-Za-z0-9_./@-]+\.[A-Za-z0-9_+-]+)(?::[0-9]+(?::[0-9]+)?|\([0-9]+,[0-9]+\))`)
 
 var localDiagnosisPytestFailedPattern = regexp.MustCompile(`(?i)\bFAILED\s+([A-Za-z0-9_./-]+\.py)(?:::|\s|$)`)
 
@@ -58,9 +58,33 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		return localFailureAnalysis(preflightapi.ClassificationPolicyDenied, 0.8, "The run was denied by project policy.", primaryFailureReason)
 	}
 
-	analysisText := command + "\n" + primaryFailureReason + "\n" + localRunEventSearchText(events)
-	analysisLower := strings.ToLower(analysisText)
 	evidence := localEvidenceFromEvents(events, 12)
+	primaryEvidence := evidence
+	primaryEvents := diagnosiscommon.WithoutServiceEvents(events)
+	if len(primaryEvents) != len(events) {
+		primaryEvidence = localEvidenceFromEvents(primaryEvents, 12)
+	}
+	lifecycleReason := ""
+	for _, event := range events {
+		if event.Service == "" && (event.Type == preflightapi.EventRunFailed || event.Type == preflightapi.EventCommandExited) {
+			lifecycleReason += "\n" + localPrimaryWorkerFailureReason(event.Message, events)
+		}
+	}
+	if scope := diagnosiscommon.FinalCommandFailureEvents(primaryEvents); len(scope) != 0 {
+		for index, event := range primaryEvents {
+			if &primaryEvents[index] == &scope[0] {
+				break
+			}
+			if _, log := diagnosiscommon.EventStream(event); log {
+				primaryEvidence = localEvidenceFromEvents(scope, 12)
+				break
+			}
+		}
+		primaryEvents = scope
+	}
+	observedText := primaryFailureReason + lifecycleReason + "\n" + localRunEventSearchText(primaryEvents)
+	analysisText := command + "\n" + observedText
+	analysisLower := strings.ToLower(analysisText)
 	for _, reason := range strings.Split(failureReason, "; ") {
 		if localContainsAny(strings.ToLower(reason), "firecracker shutdown failed", "remove firecracker cgroup", "terminate firecracker cgroup", "firecracker containment failure") {
 			analysis := localFailureAnalysis(preflightapi.ClassificationWorkerInternalError, 0.7, localDefaultSummary(preflightapi.ClassificationWorkerInternalError), reason)
@@ -71,6 +95,13 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	if artifactFailureKind := localTerminalArtifactUploadFailureClassification(failureReason, events); artifactFailureKind != "" {
 		analysis := localFailureAnalysis(artifactFailureKind, 0.65, localDefaultSummary(artifactFailureKind), failureReason)
 		analysis.PrimaryFile = localPrimaryFileFromEvidence(evidence)
+		analysis.Evidence = evidence
+		return analysis
+	}
+	if localContainsAny(strings.ToLower(primaryFailureReason+lifecycleReason),
+		"agent protocol closed before command_exit", "agent protocol decode failed before command_exit",
+		"agent protocol received unexpected message", "agent command_exit missing exit_code", "agent command_exit invalid exit_code") {
+		analysis := localFailureAnalysis(preflightapi.ClassificationWorkerInternalError, 0.7, localDefaultSummary(preflightapi.ClassificationWorkerInternalError), strings.TrimSpace(primaryFailureReason+lifecycleReason))
 		analysis.Evidence = evidence
 		return analysis
 	}
@@ -91,12 +122,36 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		analysis.Evidence = evidence
 		return analysis
 	}
+	if failure := diagnosiscommon.EnvironmentPrerequisiteFailureFromEvents(events, exitCode); failure != nil {
+		analysis := localFailureAnalysis(preflightapi.ClassificationEnvironmentSetupFailed, 0.7,
+			localDefaultSummary(preflightapi.ClassificationEnvironmentSetupFailed), failure.Summary)
+		analysis.Evidence = append([]preflightapi.RunFailureEvidence{failure.Evidence}, evidence...)
+		if len(analysis.Evidence) > 12 {
+			analysis.Evidence = analysis.Evidence[:12]
+		}
+		return analysis
+	}
 	if failure := diagnosiscommon.PreparationFailureFromEvents(events, exitCode); failure != nil {
 		observed := primaryFailureReason + "\n" + failure.Output
 		observedKind, _ := localClassifyCommandFailure("", observed, exitCode)
 		if observedKind == preflightapi.ClassificationConfigInvalid {
 			analysis := localFailureAnalysis(observedKind, 0.65, localDefaultSummary(observedKind), primaryFailureReason)
 			analysis.Evidence = failure.Evidence
+			return analysis
+		}
+		// checks.<name>.prepare runs repository commands. Match hosted diagnosis
+		// while requiring source attribution for lint and compiler diagnostics.
+		observedLower := strings.ToLower(observed)
+		if observedKind == preflightapi.ClassificationBuildFailed && localLintEvidenceText(observed) {
+			observedKind = preflightapi.ClassificationLintFailed
+		}
+		primaryFile := localPrimaryFile(failure.Output)
+		if localPreparationRepositoryFailure(observedKind, observed, observedLower, primaryFile) {
+			failedEvents := diagnosiscommon.FinalCommandFailureEvents(events)
+			failureEvidence := localEvidenceFromEvents(failedEvents, 12)
+			analysis := localFailureAnalysis(observedKind, 0.55, localDefaultSummary(observedKind), localPreferredEvidenceText(observedKind, failureEvidence))
+			analysis.Evidence = failureEvidence
+			analysis.PrimaryFile = primaryFile
 			return analysis
 		}
 		if module := localMissingPythonModuleName(failure.Output); module != "" && !localAnalysisTextLooksTestFailure(failure.Output, strings.ToLower(observed)) {
@@ -134,9 +189,9 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 			return analysis
 		}
 	}
-	if module := localMissingPythonModuleName(analysisText); module != "" && !localAnalysisTextLooksTestFailure(analysisText, analysisLower) {
+	if module := localMissingPythonModuleName(observedText); module != "" && !localAnalysisTextLooksTestFailure(analysisText, analysisLower) {
 		analysis := localFailureAnalysis(preflightapi.ClassificationDependencySetupFailed, 0.55, failureReason, "Missing Python dependency: "+module+".")
-		analysis.PrimaryFile = localPrimaryFile(analysisText)
+		analysis.PrimaryFile = localPrimaryFile(observedText)
 		analysis.Evidence = evidence
 		return analysis
 	}
@@ -172,7 +227,7 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	}
 	failureSummary := strings.TrimSpace(primaryFailureReason)
 	summary := failureSummary
-	evidenceSummary := localPreferredEvidenceText(kind, evidence)
+	evidenceSummary := localPreferredEvidenceText(kind, primaryEvidence)
 	if kind == preflightapi.ClassificationNetworkNotAllowed &&
 		strings.EqualFold(strings.TrimSpace(networkMode), preflightapi.DefaultNetworkMode) &&
 		localDependencyRegistryEgressFailureText(command, analysisLower, exitCode) {
@@ -184,20 +239,20 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		summary = evidenceSummary
 	}
 	if summary == "" {
-		summary = localFirstEvidenceText(evidence)
+		summary = localFirstEvidenceText(primaryEvidence)
 	}
 	if summary == "" {
 		summary = failureSummary
 	}
 	analysis := localFailureAnalysis(kind, confidence, localDefaultSummary(kind), summary)
-	analysis.PrimaryFile = localPrimaryFileFromEvidence(evidence)
+	analysis.PrimaryFile = localPrimaryFileFromEvidence(primaryEvidence)
 	if kind == preflightapi.ClassificationTestFailed {
-		if _, path := diagnosiscommon.PytestFailureSummary(evidence); path != "" {
+		if _, path := diagnosiscommon.PytestFailureSummary(primaryEvidence); path != "" {
 			analysis.PrimaryFile = path
 		}
 	}
 	if analysis.PrimaryFile == "" {
-		analysis.PrimaryFile = localPrimaryFile(analysisText)
+		analysis.PrimaryFile = localPrimaryFile(observedText)
 	}
 	analysis.Evidence = evidence
 	return analysis

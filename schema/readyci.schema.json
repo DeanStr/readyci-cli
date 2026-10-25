@@ -248,6 +248,9 @@
       "additionalProperties": {
         "$ref": "#/$defs/service"
       }
+    },
+    "environment_requirements": {
+      "$ref": "#/$defs/environmentRequirements"
     }
   },
   "$defs": {
@@ -1069,6 +1072,9 @@
                   }
                 }
               }
+            },
+            "environment_requirements": {
+              "$ref": "#/$defs/environmentRequirements"
             }
           }
         }
@@ -1090,6 +1096,18 @@
           }
         }
       ]
+    },
+    "environmentRequirements": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "enum": [
+          "filesystem:btrfs",
+          "filesystem:minix",
+          "network:ipv6-loopback",
+          "network:ipv6-interface"
+        ]
+      }
     }
   }
 }

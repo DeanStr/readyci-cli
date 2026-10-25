@@ -128,7 +128,8 @@ func TestGuidedSetupNetworkOverrideRetainsUnresolvedCandidateSelection(t *testin
 	options.NetworkAllowlist = []string{"example.com"}
 	writeFileForRepoMapTest(t, filepath.Join(".github", "workflows", "tests.yml"), "jobs:\n  integration:\n    runs-on: ubuntu-latest\n    steps:\n      - run: go test -tags=integration ./...\n  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - run: go test ./...\n")
 	report, err := buildSetupReport(options)
-	if err != nil || len(report.ImportCandidates) != 2 || report.SelectionStatus != "configuration_required" || report.ProposedConfig != "" {
+	if err != nil || len(report.ImportCandidates) != 2 || report.ImportScope != nil || !strings.Contains(report.SelectionReason, "upstream jobs not imported or covered") ||
+		!strings.Contains(report.ProposedConfig, `# Not imported: "github-actions:.github/workflows/tests.yml:unit"`) || !strings.Contains(report.ProposedConfig, `# Not imported: "github-actions:.github/workflows/tests.yml:integration"`) {
 		t.Fatalf("network override discarded unresolved scope: %+v %v", report, err)
 	}
 	var output bytes.Buffer

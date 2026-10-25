@@ -1,5 +1,7 @@
 package preflightapi
 
+import "github.com/DeanStr/readyci-cli/pkg/artifactbundle"
+
 // TestReportIndex is diagnostic data derived by the service from the retained
 // archive. A parsed report is not an execution or verification verdict.
 type TestReportIndex struct {
@@ -8,6 +10,10 @@ type TestReportIndex struct {
 	Results   []StructuredTestResult `json:"results"`
 	Counts    TestResultCounts       `json:"counts"`
 	Truncated bool                   `json:"truncated"`
+	// Collection distinguishes known collection omissions from an empty index.
+	// OmittedReportCount counts path-based candidates, not confirmed JUnit files
+	// or tests. Counts describes retained indexed test results only.
+	Collection *artifactbundle.Retention `json:"collection,omitempty"`
 }
 
 type TestReportSummary struct {

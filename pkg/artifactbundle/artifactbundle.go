@@ -38,8 +38,9 @@ type File struct {
 }
 
 type Manifest struct {
-	Files              []File `json:"files"`
-	TotalExpandedBytes int64  `json:"total_expanded_bytes"`
+	Files              []File     `json:"files"`
+	TotalExpandedBytes int64      `json:"total_expanded_bytes"`
+	Retention          *Retention `json:"retention,omitempty"`
 }
 
 type ArchiveFile struct {
@@ -54,6 +55,8 @@ func WriteArchive(writer io.Writer, files []ArchiveFile) (Manifest, error) {
 	archivePaths := make([]string, 0, len(files))
 	seen := make(map[string]struct{})
 	var manifest Manifest
+	var payloadBytes int64
+	payloadFiles := 0
 	for _, file := range files {
 		rel, err := ValidateArchivePath(file.Path)
 		if err != nil {
@@ -68,11 +71,16 @@ func WriteArchive(writer io.Writer, files []ArchiveFile) (Manifest, error) {
 		if file.Mode == 0 {
 			file.Mode = 0o644
 		}
-		if int64(len(file.Data)) > MaxExpandedBytes-manifest.TotalExpandedBytes {
-			return Manifest{}, ErrTooLarge
-		}
-		if len(manifest.Files) >= MaxEntryCount {
-			return Manifest{}, ErrTooLarge
+		if rel == RetentionManifestPath {
+			if len(file.Data) > MaxRetentionManifestBytes {
+				return Manifest{}, ErrTooLarge
+			}
+		} else {
+			if int64(len(file.Data)) > MaxExpandedBytes-payloadBytes || payloadFiles >= MaxEntryCount {
+				return Manifest{}, ErrTooLarge
+			}
+			payloadBytes += int64(len(file.Data))
+			payloadFiles++
 		}
 		normalizedFiles = append(normalizedFiles, file)
 		manifest.Files = append(manifest.Files, File{Path: rel, SizeBytes: int64(len(file.Data))})
@@ -132,6 +140,8 @@ func ValidateContext(ctx context.Context, reader io.Reader) (Manifest, error) {
 	stream := NewTarStreamReader(ctx, gzipReader)
 	tarReader := tar.NewReader(stream)
 	var manifest Manifest
+	var payloadBytes int64
+	payloadFiles := 0
 	seen := make(map[string]struct{})
 	var archivePaths []string
 	for {
@@ -142,6 +152,9 @@ func ValidateContext(ctx context.Context, reader io.Reader) (Manifest, error) {
 			}
 			if parent, nested, ok := FindPathPrefixConflict(archivePaths); ok {
 				return Manifest{}, fmt.Errorf("artifact path %q conflicts with nested artifact path %q", parent, nested)
+			}
+			if err := ValidateRetentionFiles(manifest.Retention, manifest.Files); err != nil {
+				return Manifest{}, err
 			}
 			return manifest, nil
 		}
@@ -163,13 +176,27 @@ func ValidateContext(ctx context.Context, reader io.Reader) (Manifest, error) {
 		if header.Size < 0 {
 			return Manifest{}, fmt.Errorf("artifact %q has invalid size", rel)
 		}
-		if header.Size > MaxExpandedBytes-manifest.TotalExpandedBytes {
-			return Manifest{}, ErrTooLarge
+		if rel != RetentionManifestPath {
+			if header.Size > MaxExpandedBytes-payloadBytes || payloadFiles >= MaxEntryCount {
+				return Manifest{}, ErrTooLarge
+			}
+			payloadBytes += header.Size
+			payloadFiles++
 		}
-		if len(manifest.Files) >= MaxEntryCount {
-			return Manifest{}, ErrTooLarge
+		var n int64
+		if rel == RetentionManifestPath {
+			if header.Size > MaxRetentionManifestBytes {
+				return Manifest{}, fmt.Errorf("artifact retention manifest exceeds its byte limit")
+			}
+			data, readErr := io.ReadAll(tarReader)
+			if readErr != nil {
+				return Manifest{}, readErr
+			}
+			manifest.Retention, err = DecodeRetention(data)
+			n = int64(len(data))
+		} else {
+			n, err = io.Copy(io.Discard, tarReader)
 		}
-		n, err := io.Copy(io.Discard, tarReader)
 		if err != nil {
 			return Manifest{}, err
 		}
@@ -465,6 +492,43 @@ func PatternMatches(pattern, rel string) bool {
 		return rel == pattern || strings.HasPrefix(rel, pattern+"/")
 	}
 	return matchSegments(strings.Split(pattern, "/"), strings.Split(rel, "/"))
+}
+
+// UnmatchedLiteralPaths identifies configured files or directories that matched
+// no selected files. Wildcards and the optional generated workspace archive do
+// not produce missing-path warnings. Pass the complete selection before any
+// bounded retention removes files.
+func UnmatchedLiteralPaths(patterns []string, files []File) ([]string, error) {
+	normalized, err := NormalizePatterns(patterns)
+	if err != nil {
+		return nil, err
+	}
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+	selectedPaths := make([]string, len(files))
+	for index, file := range files {
+		selectedPaths[index] = file.Path
+	}
+	sort.Strings(selectedPaths)
+	var unmatched []string
+	for _, pattern := range normalized {
+		if hasPatternMeta(pattern) || IsFailedWorkspaceArtifactPattern(pattern) {
+			continue
+		}
+		index := sort.SearchStrings(selectedPaths, pattern)
+		if index < len(selectedPaths) && selectedPaths[index] == pattern {
+			continue
+		}
+		// A sibling such as "report-old" sorts before "report/result.xml".
+		// Search the directory prefix separately from the exact file name.
+		prefix := pattern + "/"
+		index = sort.SearchStrings(selectedPaths, prefix)
+		if index == len(selectedPaths) || !strings.HasPrefix(selectedPaths[index], prefix) {
+			unmatched = append(unmatched, pattern)
+		}
+	}
+	return unmatched, nil
 }
 
 func artifactPatternMatches(pattern, rel string) bool {

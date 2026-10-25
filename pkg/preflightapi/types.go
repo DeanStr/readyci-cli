@@ -147,24 +147,30 @@ const (
 )
 
 const (
-	EventRunQueued        = "run_queued"
-	EventRunScheduled     = "run_scheduled"
-	EventUploadReceived   = "upload_received"
-	EventUploadFailed     = "upload_failed"
-	EventVMStarting       = "vm_starting"
-	EventAgentReady       = "agent_ready"
-	EventCommandStarted   = "command_started"
-	EventStdout           = "stdout"
-	EventStderr           = "stderr"
-	EventResourceUsage    = "resource_usage"
-	EventCommandExited    = "command_exited"
-	EventArtifactUploaded = "artifact_uploaded"
-	EventLogTruncated     = "log_truncated"
-	EventRunFinished      = "run_finished"
-	EventRunFailed        = "run_failed"
-	EventRunCancelled     = "run_cancelled"
-	EventRunTimedOut      = "run_timed_out"
+	EventRunQueued          = "run_queued"
+	EventRunScheduled       = "run_scheduled"
+	EventUploadReceived     = "upload_received"
+	EventUploadFailed       = "upload_failed"
+	EventVMStarting         = "vm_starting"
+	EventAgentReady         = "agent_ready"
+	EventCommandStarted     = "command_started"
+	EventStdout             = "stdout"
+	EventStderr             = "stderr"
+	EventResourceUsage      = "resource_usage"
+	EventRuntimeDiagnostics = "runtime_diagnostics"
+	EventCommandExited      = "command_exited"
+	EventArtifactUploaded   = "artifact_uploaded"
+	EventLogTruncated       = "log_truncated"
+	EventRunFinished        = "run_finished"
+	EventRunFailed          = "run_failed"
+	EventRunCancelled       = "run_cancelled"
+	EventRunTimedOut        = "run_timed_out"
 )
+
+// CommandFailureScopeMessage identifies a claim-bound diagnostic log record.
+// Its phase, step and nonzero exit code locate the primary failed scope; it
+// cannot finish a run or establish runner evidence.
+const CommandFailureScopeMessage = "Ready CI primary command scope failed."
 
 const (
 	MaintenanceJobTypeExpiredArtifacts = "expired_artifacts"

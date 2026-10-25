@@ -120,6 +120,9 @@ func printAgentExplainReport(report agentExplainReport) {
 	}
 	fmt.Printf("classification: %s\n", report.Diagnosis.Kind)
 	fmt.Printf("summary: %s\n", report.Diagnosis.Summary)
+	if report.RuntimeDiagnostics != nil {
+		printRuntimeDiagnosticSummary(*report.RuntimeDiagnostics)
+	}
 	if report.Timings != nil {
 		printRunTimings(*report.Timings)
 	}

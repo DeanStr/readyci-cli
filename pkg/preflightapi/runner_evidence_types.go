@@ -88,43 +88,48 @@ func RunnerEvidenceEligible(spec RunSpec) bool {
 // material and secret values are intentionally excluded. Secret-bearing runs
 // bind the opaque server-selected revision digest instead.
 func RunnerExecutionDigest(spec RunSpec) (string, error) {
+	environmentRequirements, err := NormalizeEnvironmentRequirements(spec.EnvironmentRequirements)
+	if err != nil {
+		return "", err
+	}
 	type execution struct {
-		RuntimeRequirements  map[string]string `json:"runtime_requirements,omitempty"`
-		RunID                string            `json:"run_id"`
-		TeamID               string            `json:"team_id,omitempty"`
-		RunGroupID           string            `json:"run_group_id"`
-		RunGroupKey          string            `json:"run_group_key,omitempty"`
-		RunGroupKind         string            `json:"run_group_kind"`
-		LogicalChildID       string            `json:"logical_child_id"`
-		LogicalChildName     string            `json:"logical_child_name,omitempty"`
-		MatrixVariant        string            `json:"matrix_variant,omitempty"`
-		Attempt              int               `json:"attempt"`
-		ProjectID            string            `json:"project_id"`
-		Region               string            `json:"region"`
-		Image                string            `json:"image"`
-		Command              string            `json:"command"`
-		CommandAlias         string            `json:"command_alias,omitempty"`
-		Steps                []RunStepSpec     `json:"steps,omitempty"`
-		RunnerSize           string            `json:"runner_size"`
-		TimeoutSeconds       int               `json:"timeout_seconds"`
-		CacheMode            string            `json:"cache_mode"`
-		CacheLaneID          string            `json:"cache_lane_id,omitempty"`
-		CacheLaneIndex       *int              `json:"cache_lane_index,omitempty"`
-		CacheLaneSizeBytes   int64             `json:"cache_lane_size_bytes,omitempty"`
-		ArtifactPaths        []string          `json:"artifact_paths,omitempty"`
-		NetworkMode          string            `json:"network_mode"`
-		NetworkAllowlist     []string          `json:"network_allowlist,omitempty"`
-		Docker               bool              `json:"docker"`
-		Services             []RunServiceSpec  `json:"services,omitempty"`
-		WorkerSelector       map[string]string `json:"worker_selector,omitempty"`
-		ChangeMode           string            `json:"change_mode"`
-		SnapshotDigest       string            `json:"snapshot_digest"`
-		ChangedFilesDigest   string            `json:"changed_files_digest"`
-		BundleBaselineKey    string            `json:"bundle_baseline_key,omitempty"`
-		SecretsRequested     bool              `json:"secrets_requested"`
-		SecretRevisionDigest string            `json:"secret_revision_digest,omitempty"`
-		Git                  GitInfo           `json:"git"`
-		WorkerReleaseDigest  string            `json:"worker_release_digest"`
+		EnvironmentRequirements []string          `json:"environment_requirements,omitempty"`
+		RuntimeRequirements     map[string]string `json:"runtime_requirements,omitempty"`
+		RunID                   string            `json:"run_id"`
+		TeamID                  string            `json:"team_id,omitempty"`
+		RunGroupID              string            `json:"run_group_id"`
+		RunGroupKey             string            `json:"run_group_key,omitempty"`
+		RunGroupKind            string            `json:"run_group_kind"`
+		LogicalChildID          string            `json:"logical_child_id"`
+		LogicalChildName        string            `json:"logical_child_name,omitempty"`
+		MatrixVariant           string            `json:"matrix_variant,omitempty"`
+		Attempt                 int               `json:"attempt"`
+		ProjectID               string            `json:"project_id"`
+		Region                  string            `json:"region"`
+		Image                   string            `json:"image"`
+		Command                 string            `json:"command"`
+		CommandAlias            string            `json:"command_alias,omitempty"`
+		Steps                   []RunStepSpec     `json:"steps,omitempty"`
+		RunnerSize              string            `json:"runner_size"`
+		TimeoutSeconds          int               `json:"timeout_seconds"`
+		CacheMode               string            `json:"cache_mode"`
+		CacheLaneID             string            `json:"cache_lane_id,omitempty"`
+		CacheLaneIndex          *int              `json:"cache_lane_index,omitempty"`
+		CacheLaneSizeBytes      int64             `json:"cache_lane_size_bytes,omitempty"`
+		ArtifactPaths           []string          `json:"artifact_paths,omitempty"`
+		NetworkMode             string            `json:"network_mode"`
+		NetworkAllowlist        []string          `json:"network_allowlist,omitempty"`
+		Docker                  bool              `json:"docker"`
+		Services                []RunServiceSpec  `json:"services,omitempty"`
+		WorkerSelector          map[string]string `json:"worker_selector,omitempty"`
+		ChangeMode              string            `json:"change_mode"`
+		SnapshotDigest          string            `json:"snapshot_digest"`
+		ChangedFilesDigest      string            `json:"changed_files_digest"`
+		BundleBaselineKey       string            `json:"bundle_baseline_key,omitempty"`
+		SecretsRequested        bool              `json:"secrets_requested"`
+		SecretRevisionDigest    string            `json:"secret_revision_digest,omitempty"`
+		Git                     GitInfo           `json:"git"`
+		WorkerReleaseDigest     string            `json:"worker_release_digest"`
 	}
 	if spec.SecretsRequested == nil {
 		return "", fmt.Errorf("runner evidence requires explicit secrets_requested")
@@ -140,42 +145,43 @@ func RunnerExecutionDigest(spec RunSpec) (string, error) {
 		services[index].Logs = append([]string(nil), services[index].Logs...)
 	}
 	payload := execution{
-		RuntimeRequirements:  CloneRuntimeRequirements(spec.RuntimeRequirements),
-		RunID:                strings.TrimSpace(spec.RunID),
-		TeamID:               strings.TrimSpace(spec.TeamID),
-		RunGroupID:           strings.TrimSpace(spec.RunGroupID),
-		RunGroupKey:          strings.TrimSpace(spec.RunGroupKey),
-		RunGroupKind:         strings.TrimSpace(spec.RunGroupKind),
-		LogicalChildID:       strings.TrimSpace(spec.LogicalChildID),
-		LogicalChildName:     strings.TrimSpace(spec.LogicalChildName),
-		MatrixVariant:        strings.TrimSpace(spec.MatrixVariant),
-		Attempt:              spec.Attempt,
-		ProjectID:            strings.TrimSpace(spec.ProjectID),
-		Region:               strings.TrimSpace(spec.Region),
-		Image:                strings.TrimSpace(spec.Image),
-		Command:              spec.Command,
-		CommandAlias:         strings.TrimSpace(spec.CommandAlias),
-		Steps:                steps,
-		RunnerSize:           strings.TrimSpace(spec.RunnerSize),
-		TimeoutSeconds:       spec.TimeoutSeconds,
-		CacheMode:            strings.TrimSpace(spec.CacheMode),
-		CacheLaneID:          strings.TrimSpace(spec.CacheLaneID),
-		CacheLaneIndex:       cloneRunnerEvidenceInt(spec.CacheLaneIndex),
-		CacheLaneSizeBytes:   spec.CacheLaneSizeBytes,
-		ArtifactPaths:        append([]string(nil), spec.ArtifactPaths...),
-		NetworkMode:          strings.TrimSpace(spec.NetworkMode),
-		NetworkAllowlist:     append([]string(nil), spec.NetworkAllowlist...),
-		Docker:               spec.Docker,
-		Services:             services,
-		WorkerSelector:       cloneRunnerEvidenceStringMap(spec.WorkerSelector),
-		ChangeMode:           strings.TrimSpace(spec.ChangeMode),
-		SnapshotDigest:       strings.TrimSpace(spec.SnapshotDigest),
-		ChangedFilesDigest:   strings.TrimSpace(spec.ChangedFilesDigest),
-		BundleBaselineKey:    strings.TrimSpace(spec.BundleBaselineKey),
-		SecretsRequested:     *spec.SecretsRequested,
-		SecretRevisionDigest: strings.TrimSpace(spec.SecretRevisionDigest),
-		Git:                  spec.Git,
-		WorkerReleaseDigest:  strings.TrimSpace(spec.WorkerReleaseDigest),
+		EnvironmentRequirements: environmentRequirements,
+		RuntimeRequirements:     CloneRuntimeRequirements(spec.RuntimeRequirements),
+		RunID:                   strings.TrimSpace(spec.RunID),
+		TeamID:                  strings.TrimSpace(spec.TeamID),
+		RunGroupID:              strings.TrimSpace(spec.RunGroupID),
+		RunGroupKey:             strings.TrimSpace(spec.RunGroupKey),
+		RunGroupKind:            strings.TrimSpace(spec.RunGroupKind),
+		LogicalChildID:          strings.TrimSpace(spec.LogicalChildID),
+		LogicalChildName:        strings.TrimSpace(spec.LogicalChildName),
+		MatrixVariant:           strings.TrimSpace(spec.MatrixVariant),
+		Attempt:                 spec.Attempt,
+		ProjectID:               strings.TrimSpace(spec.ProjectID),
+		Region:                  strings.TrimSpace(spec.Region),
+		Image:                   strings.TrimSpace(spec.Image),
+		Command:                 spec.Command,
+		CommandAlias:            strings.TrimSpace(spec.CommandAlias),
+		Steps:                   steps,
+		RunnerSize:              strings.TrimSpace(spec.RunnerSize),
+		TimeoutSeconds:          spec.TimeoutSeconds,
+		CacheMode:               strings.TrimSpace(spec.CacheMode),
+		CacheLaneID:             strings.TrimSpace(spec.CacheLaneID),
+		CacheLaneIndex:          cloneRunnerEvidenceInt(spec.CacheLaneIndex),
+		CacheLaneSizeBytes:      spec.CacheLaneSizeBytes,
+		ArtifactPaths:           append([]string(nil), spec.ArtifactPaths...),
+		NetworkMode:             strings.TrimSpace(spec.NetworkMode),
+		NetworkAllowlist:        append([]string(nil), spec.NetworkAllowlist...),
+		Docker:                  spec.Docker,
+		Services:                services,
+		WorkerSelector:          cloneRunnerEvidenceStringMap(spec.WorkerSelector),
+		ChangeMode:              strings.TrimSpace(spec.ChangeMode),
+		SnapshotDigest:          strings.TrimSpace(spec.SnapshotDigest),
+		ChangedFilesDigest:      strings.TrimSpace(spec.ChangedFilesDigest),
+		BundleBaselineKey:       strings.TrimSpace(spec.BundleBaselineKey),
+		SecretsRequested:        *spec.SecretsRequested,
+		SecretRevisionDigest:    strings.TrimSpace(spec.SecretRevisionDigest),
+		Git:                     spec.Git,
+		WorkerReleaseDigest:     strings.TrimSpace(spec.WorkerReleaseDigest),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

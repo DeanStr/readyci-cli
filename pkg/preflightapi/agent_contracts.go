@@ -171,7 +171,7 @@ func IsRunEventLogTailCandidate(event RunEvent) bool {
 
 func IsRunEventLifecycleTailCandidate(event RunEvent) bool {
 	switch event.Type {
-	case EventRunFinished:
+	case EventRunFinished, EventRuntimeDiagnostics:
 		return true
 	case EventCommandExited:
 		return event.ExitCode != nil && *event.ExitCode == 0

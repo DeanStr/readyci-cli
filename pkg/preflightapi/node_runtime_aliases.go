@@ -26,34 +26,44 @@ type NodeRuntimeAliasRelease struct {
 	LTS     string `json:"lts,omitempty"`
 }
 
+// NodeRuntimeAliasSeries is a scheduled Active LTS start from nodejs/Release.
+type NodeRuntimeAliasSeries struct {
+	Major    int    `json:"major"`
+	LTSStart string `json:"lts_start"`
+}
+
 type NodeRuntimeAliasCatalog struct {
 	Schema            string                    `json:"schema"`
 	Policy            string                    `json:"policy"`
 	SourceURL         string                    `json:"source_url"`
 	SourceSHA256      string                    `json:"source_sha256"`
+	ScheduleURL       string                    `json:"schedule_url"`
+	ScheduleSHA256    string                    `json:"schedule_sha256"`
 	ReviewedActionRef string                    `json:"reviewed_action_ref"`
 	ReviewedAt        time.Time                 `json:"reviewed_at"`
 	ValidBefore       time.Time                 `json:"valid_before"`
 	Releases          []NodeRuntimeAliasRelease `json:"releases"`
+	Series            []NodeRuntimeAliasSeries  `json:"series"`
 }
 
-// The release-reviewed projection includes reviewed stable series heads from
-// the immutable official manifest. setup-node's pinned implementation resolves
-// lts/* to the newest LTS major, then tries installed versions before downloads.
-// This snapshot expires before the next scheduled LTS transition (2026-10-28).
-// It does not label the image default, or the newest approved archive, as LTS.
+// Releases are the stable series heads observed in the immutable setup-node
+// manifest at review. The schedule bounds validity before the next transition;
+// it cannot establish that a release was published or entered the manifest.
 func NodeRuntimeAliasCatalogMetadata() NodeRuntimeAliasCatalog {
-	return nodeRuntimeAliasCatalog20261020()
+	return nodeRuntimeAliasCatalog20261024()
 }
 
-func nodeRuntimeAliasCatalog20261020() NodeRuntimeAliasCatalog {
+func nodeRuntimeAliasCatalog20261024() NodeRuntimeAliasCatalog {
 	return NodeRuntimeAliasCatalog{
-		Schema: "readyci.node_runtime_alias_catalog.v1", Policy: RuntimeResolutionPolicySetupNodeLTSImport,
+		Schema: "readyci.node_runtime_alias_catalog.v2", Policy: RuntimeResolutionPolicySetupNodeLTSImport,
 		SourceURL:         "https://raw.githubusercontent.com/actions/node-versions/c5f220c78c527ccc4bea4bbc2a5d78d2fc035972/versions-manifest.json",
 		SourceSHA256:      "70d6102a80ec4a7e1f0e54673d37981887e17d74fa5e2f0f9a1947f88d86bb1f",
+		ScheduleURL:       "https://raw.githubusercontent.com/nodejs/Release/de0b20f409ba90dcde129b4bfb85b47c3c422ecb/schedule.json",
+		ScheduleSHA256:    "26c8e4743fc3a76d686a038c2df40426bc3bdc7a018cb83f3b88bbf89f45436f",
 		ReviewedActionRef: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
-		ReviewedAt:        time.Date(2026, 10, 20, 3, 15, 42, 0, time.UTC), ValidBefore: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
+		ReviewedAt:        time.Date(2026, 10, 24, 3, 48, 40, 0, time.UTC), ValidBefore: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
 		Releases: []NodeRuntimeAliasRelease{{Version: "26.12.0", Stable: true}, {Version: "24.22.0", Stable: true, LTS: "Krypton"}, {Version: "22.23.3", Stable: true, LTS: "Jod"}, {Version: "20.20.2", Stable: true, LTS: "Iron"}},
+		Series:   []NodeRuntimeAliasSeries{{Major: 20, LTSStart: "2023-10-24"}, {Major: 22, LTSStart: "2024-10-29"}, {Major: 24, LTSStart: "2025-10-28"}, {Major: 26, LTSStart: "2026-10-28"}, {Major: 27, LTSStart: "2027-10-20"}},
 	}
 }
 
@@ -67,6 +77,8 @@ func nodeRuntimeAliasCatalogDigest(catalog NodeRuntimeAliasCatalog) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// nodeRuntimeAliasRelease reports the newest stable LTS series in the observed
+// manifest projection.
 func nodeRuntimeAliasRelease(catalog NodeRuntimeAliasCatalog) (string, string, error) {
 	var chosen runtimeVersion
 	var version string

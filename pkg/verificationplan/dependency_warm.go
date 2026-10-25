@@ -140,6 +140,21 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 			plan.Run.RunnerSize = placement.runnerSize
 			plan.Run.WorkerSelector = copyStringMap(placement.workerSelector)
 			plan.Run.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(runtimeGroup.requirements)
+			plan.Run.EnvironmentRequirements, err = preflightapi.NormalizeEnvironmentRequirements(warmPlan.Run.EnvironmentRequirements)
+			if err != nil {
+				return nil, err
+			}
+			for _, target := range group.targets {
+				// Runtime groups prepare independent filesystems, and each
+				// consumer binds only to its own group's successful cache.
+				if !slices.Contains(runtimeGroup.targets, target.Name) {
+					continue
+				}
+				plan.Run.EnvironmentRequirements, err = preflightapi.MergeEnvironmentRequirements(plan.Run.EnvironmentRequirements, target.Run.EnvironmentRequirements)
+				if err != nil {
+					return nil, err
+				}
+			}
 
 			// Docker is an execution mode, not a placement-only constraint. Keep the
 			// trusted warm command native, but bind it to a worker that can later execute

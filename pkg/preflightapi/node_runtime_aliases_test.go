@@ -1,6 +1,7 @@
 package preflightapi
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,10 +15,9 @@ func TestNodeAliasImportUsesReviewedLTSMajor(t *testing.T) {
 	if record.Requirement != "24" || record.Policy != RuntimeResolutionPolicySetupNodeLTSImport || record.CatalogDigest != NodeRuntimeAliasCatalogDigest() {
 		t.Fatalf("unexpected import: %+v", record)
 	}
-	catalog.Releases = append(catalog.Releases, NodeRuntimeAliasRelease{Version: "28.1.0", Stable: true}, NodeRuntimeAliasRelease{Version: "26.13.0", Stable: true, LTS: "Next"})
-	major, latest, err := nodeRuntimeAliasRelease(catalog)
-	if err != nil || major != "26" || latest != "26.13.0" {
-		t.Fatalf("LTS selection: %s %s %v", major, latest, err)
+	// Selection must use observed LTS releases, never forecast a newer series.
+	if major, _, err := nodeRuntimeAliasRelease(catalog); err != nil || major != record.Requirement {
+		t.Fatalf("manifest LTS %s disagrees with resolved LTS %s: %v", major, record.Requirement, err)
 	}
 	for _, now := range []time.Time{catalog.ReviewedAt.Add(-time.Nanosecond), catalog.ValidBefore, catalog.ValidBefore.Add(24 * time.Hour)} {
 		if _, err := ResolveRuntimeAlias("node", "lts/*", now); err == nil {
@@ -33,6 +33,45 @@ func TestNodeAliasImportUsesReviewedLTSMajor(t *testing.T) {
 		if _, err := ResolveRuntimeAlias(tc[0], tc[1], catalog.ReviewedAt); err == nil {
 			t.Fatalf("unreviewed alias accepted: %v", tc)
 		}
+	}
+}
+
+func TestNodeAliasImportChangesMajorOnlyWithObservedLTSRelease(t *testing.T) {
+	catalog := NodeRuntimeAliasCatalogMetadata()
+	// Even a schedule that says the transition happened cannot establish LTS.
+	catalog.Series = []NodeRuntimeAliasSeries{{Major: 26, LTSStart: "2020-01-01"}}
+	record, err := canonicalRuntimeAliasFromCatalog("node", "lts/*", catalog)
+	if err != nil || record.Requirement != "24" {
+		t.Fatalf("schedule overrode observed manifest: %+v %v", record, err)
+	}
+	catalog.Releases = append(catalog.Releases, NodeRuntimeAliasRelease{Version: "26.13.0", Stable: true, LTS: "Next"})
+	record, err = canonicalRuntimeAliasFromCatalog("node", "lts/*", catalog)
+	if err != nil || record.Requirement != "26" {
+		t.Fatalf("observed LTS release was not selected: %+v %v", record, err)
+	}
+}
+
+func TestNodeAliasImportRequiresReviewAcrossScheduledTransition(t *testing.T) {
+	transition := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	catalog := NodeRuntimeAliasCatalogMetadata()
+	if catalog.ValidBefore.After(transition.Add(-24 * time.Hour)) {
+		t.Fatalf("catalog validity %s reaches an unreviewed LTS transition", catalog.ValidBefore)
+	}
+	for _, tc := range []struct {
+		name string
+		now  time.Time
+	}{
+		{"before transition", transition.Add(-24 * time.Hour)},
+		{"transition day", transition.Add(12 * time.Hour)},
+		{"three days later", transition.Add(72 * time.Hour)},
+		{"months later", time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			record, err := ResolveRuntimeAlias("node", "lts/*", tc.now)
+			if err == nil || !strings.Contains(err.Error(), "explicit numeric runtime") {
+				t.Fatalf("unreviewed transition resolved: %+v %v", record, err)
+			}
+		})
 	}
 }
 

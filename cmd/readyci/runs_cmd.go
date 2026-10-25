@@ -199,15 +199,16 @@ func shouldPrintQueuedRunDiagnostics(detail preflightapi.RunDetail) bool {
 
 func runSpecWorkerCapability(spec preflightapi.RunSpec, workers []preflightapi.AdminWorkerSummary) workerCapabilityReport {
 	return checkWorkerCapability(checkRunPlan{Options: remoteRunOptions{
-		RuntimeRequirements: preflightapi.CloneRuntimeRequirements(spec.RuntimeRequirements),
-		Image:               spec.Image,
-		Region:              spec.Region,
-		RunnerSize:          spec.RunnerSize,
-		NetworkMode:         spec.NetworkMode,
-		NetworkAllowlist:    append([]string(nil), spec.NetworkAllowlist...),
-		Docker:              spec.Docker,
-		Services:            cloneRunServices(spec.Services),
-		WorkerSelector:      copyStringMap(spec.WorkerSelector),
+		RuntimeRequirements:     preflightapi.CloneRuntimeRequirements(spec.RuntimeRequirements),
+		EnvironmentRequirements: preflightapi.CloneEnvironmentRequirements(spec.EnvironmentRequirements),
+		Image:                   spec.Image,
+		Region:                  spec.Region,
+		RunnerSize:              spec.RunnerSize,
+		NetworkMode:             spec.NetworkMode,
+		NetworkAllowlist:        append([]string(nil), spec.NetworkAllowlist...),
+		Docker:                  spec.Docker,
+		Services:                cloneRunServices(spec.Services),
+		WorkerSelector:          copyStringMap(spec.WorkerSelector),
 	}}, workers)
 }
 

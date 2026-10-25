@@ -34,6 +34,7 @@ type ConfigField struct {
 
 func ConfigFieldMetadata() []ConfigField {
 	fields := []ConfigField{
+		field(ScopeProject, "environment_requirements", "environment_requirements", "Required guest filesystem and local IPv6 capabilities enforced before execution; does not grant network egress.", ""),
 		field(ScopeProject, "version", "version", "Configuration file version.", "1"),
 		field(ScopeProject, "project_id", "project_id", "Ready CI project identifier used for submitted runs.", "proj_dev"),
 		field(ScopeProject, "region", "region", "Default worker region for runs.", "default"),
@@ -105,6 +106,7 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeCheck, "command", "checks.<name>.command", "Shell command for a check.", ""),
 		field(ScopeCheck, "dependency_check", "checks.<name>.dependency_check", "Named dependency installer run without secrets before this check, using network.warm_mode and the same sealed workspace and cache lane.", "dependencies when defined"),
 		field(ScopeCheck, "steps", "checks.<name>.steps", "Ordered step definitions for a check.", ""),
+		field(ScopeCheck, "environment_requirements", "checks.<name>.environment_requirements", "Required guest capabilities combined with project requirements and enforced by the service and runner.", ""),
 		field(ScopeCheck, "runtime_requirements", "checks.<name>.runtime_requirements", "Runtime version constraints and supported pnpm integrity pins enforced by the service and runner.", ""),
 		field(ScopeCheck, "prepare", "checks.<name>.prepare", "Commands run before the main check command.", ""),
 		field(ScopeCheck, "post", "checks.<name>.post", "Commands run after the main check command.", ""),

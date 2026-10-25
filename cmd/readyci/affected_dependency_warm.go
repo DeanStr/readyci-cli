@@ -169,6 +169,7 @@ func specializedDependencyWarmRunPlans(template checkRunPlan, resolvedPlans []ve
 		plan.DependencyWarmTargets = append([]string(nil), resolved.DependencyWarmTargets...)
 		plan.Options.CacheDependencyCheck = resolved.Run.CacheDependencyCheck
 		plan.Options.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(resolved.Run.RuntimeRequirements)
+		plan.Options.EnvironmentRequirements = preflightapi.CloneEnvironmentRequirements(resolved.Run.EnvironmentRequirements)
 		plan.Options.CacheMode = resolved.Run.CacheMode
 		plan.Options.CacheLaneSizeBytes = resolved.Run.CacheLaneSizeBytes
 		plan.Options.CacheKeyFiles = append([]string(nil), resolved.Run.CacheKeyFiles...)

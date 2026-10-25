@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
@@ -65,6 +66,15 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 		diagnosis.Action = preflightapi.AgentActionInspectTestReport
 		diagnosis.Summary = preflightapi.TestReportConflictMessage
 	}
+	if detail.TestResults != nil && detail.TestResults.Collection.RequiredOmissions() {
+		collection := detail.TestResults.Collection
+		warnings = append(warnings, agentWarning{
+			Code: "artifact_collection_incomplete", Section: "test_results",
+			Message: fmt.Sprintf("Artifact collection was incomplete: %d files were not retained; omitted report candidates: %d. Reported counts cover retained reports only.", collection.OmittedFileCount, collection.OmittedReportCount),
+			Action:  preflightapi.AgentActionInspectTestReport, RunID: runID,
+			ArtifactID: detail.TestResults.ArtifactID, ArtifactSHA256: detail.TestResults.ArtifactSHA256,
+		})
+	}
 	evidence := evidenceForDiagnosis(diagnosis, eventsResp.Events, 8)
 	checkName, matrixVariant := preflightapi.SplitCheckAliasVariant(detail.Spec.CommandAlias)
 	if checkName == "" {
@@ -101,7 +111,13 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 			}
 		}
 	}
+	runtimeDiagnostics := preflightapi.RuntimeDiagnosticsFromEvents(eventsResp.Events)
+	nextStep := recommendedNextStep(diagnosis, apiURL, checkName, requestSecrets)
+	if runtimeDiagnostics != nil && diagnosis.Kind == preflightapi.ClassificationWorkerInternalError {
+		nextStep = "Inspect runtime_diagnostics and retained logs to identify the runtime failure before retrying or changing repository code."
+	}
 	return agentExplainReport{
+		RuntimeDiagnostics:  runtimeDiagnostics,
 		Timings:             detail.Timings,
 		TestResults:         testResults,
 		SchemaVersion:       agentSchemaVersion,
@@ -116,7 +132,7 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 		Repair:              repair,
 		Evidence:            evidence,
 		EvidencePacks:       evidencePacks,
-		RecommendedNextStep: recommendedNextStep(diagnosis, apiURL, checkName, requestSecrets),
+		RecommendedNextStep: nextStep,
 		RerunCommand:        rerunCommand,
 		LogsCommand:         logsCommand,
 		Artifacts:           artifactsResp.Artifacts,

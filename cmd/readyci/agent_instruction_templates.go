@@ -33,6 +33,59 @@ stable, set ` + "`SESSION_KEY`" + ` to a fresh value after each edit, and set
 - ` + "`/readyci-fixtures RUN_ID PATHS`" + `: run ` + "`readyci agent artifacts plan --json RUN_ID --paths PATHS`" + `, preview with ` + "`readyci agent artifacts apply --json RUN_ID --paths PATHS`" + `, then add ` + "`--confirm`" + ` only after paths are expected.`
 }
 
+// readyCIRepositorySetupSection is the agent side of setup: the CLI's static,
+// deterministic inspection proposes, the agent decides what it cannot, and the
+// configured check must then show executed tests.
+func readyCIRepositorySetupSection(heading string) string {
+	return `
+` + heading + `
+
+Use this when the repository has no ` + "`.readyci.yml`" + `, when ` + "`readyci agent plan --json`" + ` or
+setup reports ` + "`configuration required`" + `, or when the user asks you to set up Ready CI.
+Setup inspects files statically and never runs repository code; you decide what it cannot.
+
+1. Inspect with ` + "`readyci setup --preview --json`" + ` (add ` + "`--force`" + ` when replacing an
+   existing ` + "`.readyci.yml`" + `). Read ` + "`selection_status`" + `, ` + "`selection_reason`" + `, ` + "`warnings`" + `,
+   ` + "`import_scope`" + `, ` + "`proposed_config`" + `, and each ` + "`import_candidates`" + ` entry's ` + "`id`" + `,
+   ` + "`command`" + `, ` + "`unsupported`" + `, and ` + "`automatic_unsupported`" + `.
+2. Choose the check:
+   - If ` + "`proposed_config`" + ` runs the repository's real tests (an imported job or the
+     language default) and the jobs it lists as not imported do not matter for
+     the task, save it with ` + "`readyci setup --write-config`" + `.
+   - If another listed candidate is that job and has no ` + "`unsupported`" + ` entries, import
+     it with ` + "`readyci setup --candidate ID --write-config`" + `. Both writes need
+     ` + "`--force`" + ` to replace an existing file. A matrix lists concrete
+     variants; import one by ID. Pin a moving runtime with ` + "`--runtime node=24`" + `
+     (also ` + "`go`" + `, ` + "`python`" + `, ` + "`pnpm`" + `).
+   - Otherwise write ` + "`.readyci.yml`" + ` yourself, starting from ` + "`proposed_config`" + `.
+     Translate the upstream CI test job: its test command and working directory,
+     numeric ` + "`runtime_requirements`" + `, ` + "`prepare`" + ` steps for dependencies, ` + "`services`" + `
+     for databases, and the smallest network allowlist that reaches its registries.
+3. Keep scope honest. Never skip or delete tests, exclude source, or widen
+   network or secrets to get a pass. A narrower suite than upstream CI is
+   acceptable only when you report which upstream jobs it does not cover.
+4. Run ` + "`readyci config validate`" + `, then review the image, network, upload paths,
+   and commands in ` + "`readyci check --dry-run --json CHECK`" + `.
+5. Run ` + "`readyci check --json CHECK`" + `. It runs the local configuration's commands
+   under the server's permissions and network policy, even when a registered
+   policy governs ` + "`readyci verify`" + `. If team policy rejects the network a check
+   needs, report it instead of changing the policy.
+6. Prove that tests ran; exit 0 alone is not enough. Confirm executed tests in
+   ` + "`readyci runs tests --json RUN_ID`" + ` when JUnit reports are retained, or a test
+   runner summary with a nonzero count in
+   ` + "`readyci runs logs --tail 200 --json RUN_ID`" + `. A placeholder script, "no test
+   files", or a build-only command means setup is not finished.
+7. On failure, use ` + "`readyci agent explain --json RUN_ID`" + `. Environment, dependency,
+   network, and service classifications usually mean the configuration needs
+   repair. Real test assertions on code you did not change are pre-existing
+   failures: report them rather than editing tests.
+8. Leave ` + "`.readyci.yml`" + ` uncommitted unless asked. Report the check, the upstream
+   jobs it covers and does not cover, and its run_id, status, classification,
+   and exit code. If the project uses a registered policy, submit the file with
+   ` + "`readyci project policy propose --file .readyci.yml`" + `; only a project owner or
+   admin can activate it.`
+}
+
 func readyCISlashCommandsSnippet() string {
 	return strings.TrimLeft(readyCISlashCommandsSection("## Ready CI Slash Commands"), "\n")
 }
@@ -46,6 +99,7 @@ check, runs it remotely, classifies failures, and returns structured repair and
 artifact handoff data without log scraping.
 ` + readyCIAgentContractSection("Contract:") + `
 ` + readyCISlashCommandsSection("Shortcut commands:") + `
+` + readyCIRepositorySetupSection("Repository setup:") + `
 
 During the edit loop, run:
 
@@ -103,6 +157,7 @@ keep the task ID stable, rotate the session key after edits, and treat
 ` + "`readyci.verification.v0alpha1`" + ` reports as the source of truth.
 ` + readyCIAgentContractSection("Contract:") + `
 ` + readyCISlashCommandsSection("Shortcut commands:") + `
+` + readyCIRepositorySetupSection("Repository setup:") + `
 
 For normal Codex edit loops:
 
@@ -160,6 +215,7 @@ Automation can use Ready CI through the shell without scraping human output.
 Always request JSON and treat ` + "`readyci.verification.v0alpha1`" + ` reports as the source of truth.
 ` + readyCIAgentContractSection("Contract:") + `
 ` + readyCISlashCommandsSection("Shortcut commands:") + `
+` + readyCIRepositorySetupSection("Repository setup:") + `
 
 ` + "```bash" + `
 : "${TASK_ID:=readyci-$(date +%s)}"
@@ -193,7 +249,7 @@ Use scoped ` + "`READYCI_API_TOKEN`" + ` values only. Never store token values i
 func readyCIAgentSkill() string {
 	return `---
 name: readyci-verify
-description: Verify code changes with Ready CI remote checks. Use after editing code, before opening a PR, before claiming completion, when local tests are too slow, or when fixture artifacts need preview/apply.
+description: Verify code changes with Ready CI remote checks. Use after editing code, before opening a PR, before claiming completion, when local tests are too slow, when fixture artifacts need preview/apply, or when a repository needs Ready CI setup or reports configuration required.
 ---
 
 # Ready CI verification
@@ -213,6 +269,7 @@ The environment should provide:
 - ` + "`READYCI_API_TOKEN`" + `
 
 Do not use browser login. Do not ask for admin tokens.
+` + readyCIRepositorySetupSection("## Set up a repository") + `
 
 ## Run verification
 
@@ -250,7 +307,8 @@ readyci check CHECK
 ## Failure handling
 
 - Test, lint, typecheck, or build failure: edit code and rerun the same check.
-- Auth, config, or project error: report the missing setup; do not guess credentials.
+- Missing or unselectable configuration: follow "Set up a repository".
+- Auth, invalid config, or project error: report the missing setup; do not guess credentials.
 - Worker, capability, or queue error: run ` + "`readyci doctor --json`" + ` and summarize the blockage.
 - Network or dependency failure: retry once only if logs suggest transient infrastructure.
 - Secret-required failure: ask for a scoped Ready CI token with explicit secret access.

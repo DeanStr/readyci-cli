@@ -57,6 +57,7 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 	var applied artifactbundle.Manifest
 	var staged []stagedArtifactFile
 	var archivePaths []string
+	var archiveFiles []artifactbundle.File
 	var archiveTotal int64
 	var archiveCount int
 	for {
@@ -70,6 +71,9 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 			}
 			if parent, nested, ok := artifactbundle.FindPathPrefixConflict(archivePaths); ok {
 				return artifactbundle.Manifest{}, fmt.Errorf("artifact path %q conflicts with nested artifact path %q", parent, nested)
+			}
+			if err := artifactbundle.ValidateRetentionFiles(applied.Retention, archiveFiles); err != nil {
+				return artifactbundle.Manifest{}, err
 			}
 			if !options.DryRun {
 				if err := validateStagedArtifactTargets(workspaceRoot, staged); err != nil {
@@ -106,6 +110,27 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 		archivePaths = append(archivePaths, rel)
 		if header.Size < 0 {
 			return artifactbundle.Manifest{}, fmt.Errorf("artifact %q has invalid size", rel)
+		}
+		if rel == artifactbundle.RetentionManifestPath {
+			if header.Size > artifactbundle.MaxRetentionManifestBytes {
+				return artifactbundle.Manifest{}, fmt.Errorf("artifact retention manifest exceeds its byte limit")
+			}
+			data, err := io.ReadAll(tarReader)
+			if err != nil {
+				return artifactbundle.Manifest{}, err
+			}
+			if int64(len(data)) != header.Size {
+				return artifactbundle.Manifest{}, io.ErrUnexpectedEOF
+			}
+			applied.Retention, err = artifactbundle.DecodeRetention(data)
+			if err != nil {
+				return artifactbundle.Manifest{}, err
+			}
+			archiveFiles = append(archiveFiles, artifactbundle.File{Path: rel, SizeBytes: header.Size})
+			// Retention metadata describes the original collection. Return its
+			// diagnostics, but never apply this reserved control file or spend
+			// the customer's file-content/entry allowance on its envelope.
+			continue
 		}
 		if header.Size > artifactbundle.MaxExpandedBytes-archiveTotal {
 			return artifactbundle.Manifest{}, artifactbundle.ErrTooLarge
@@ -147,6 +172,7 @@ func Apply(ctx context.Context, workspaceRoot string, patterns []string, reader 
 		}
 		archiveTotal += header.Size
 		archiveCount++
+		archiveFiles = append(archiveFiles, artifactbundle.File{Path: rel, SizeBytes: header.Size})
 	}
 }
 

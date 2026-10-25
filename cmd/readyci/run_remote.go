@@ -12,6 +12,7 @@ import (
 )
 
 type remoteRunOptions struct {
+	EnvironmentRequirements  []string
 	CacheDependencyCheck     string
 	CacheRuntimeRequirements map[string]string
 	RuntimeRequirements      map[string]string

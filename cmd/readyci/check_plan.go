@@ -58,6 +58,7 @@ type checkExecutionOptions struct {
 	Why            bool
 	Inferred       bool
 	Signals        []string
+	Warnings       []string
 	SelectionMode  string
 	SelectedReason string
 	Watch          bool

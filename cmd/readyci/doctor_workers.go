@@ -69,21 +69,22 @@ func publicWorkerCapability(ctx context.Context, apiURL, token string, plan chec
 		region = ""
 	}
 	spec := preflightapi.RunSpec{
-		RuntimeRequirements: preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements),
-		ProjectID:           plan.Options.ProjectID,
-		Command:             plan.Options.Command,
-		Region:              region,
-		Image:               plan.Options.Image,
-		RunnerSize:          plan.Options.RunnerSize,
-		TimeoutSeconds:      plan.Options.TimeoutSeconds,
-		CacheMode:           plan.Options.CacheMode,
-		CacheLaneSizeBytes:  plan.Options.CacheLaneSizeBytes,
-		NetworkMode:         plan.Options.NetworkMode,
-		NetworkAllowlist:    append([]string(nil), plan.Options.NetworkAllowlist...),
-		Docker:              plan.Options.Docker,
-		Services:            cloneRunServices(plan.Options.Services),
-		WorkerSelector:      copyStringMap(plan.Options.WorkerSelector),
-		SecretsRequested:    plan.Options.SecretsRequested,
+		RuntimeRequirements:     preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements),
+		EnvironmentRequirements: preflightapi.CloneEnvironmentRequirements(plan.Options.EnvironmentRequirements),
+		ProjectID:               plan.Options.ProjectID,
+		Command:                 plan.Options.Command,
+		Region:                  region,
+		Image:                   plan.Options.Image,
+		RunnerSize:              plan.Options.RunnerSize,
+		TimeoutSeconds:          plan.Options.TimeoutSeconds,
+		CacheMode:               plan.Options.CacheMode,
+		CacheLaneSizeBytes:      plan.Options.CacheLaneSizeBytes,
+		NetworkMode:             plan.Options.NetworkMode,
+		NetworkAllowlist:        append([]string(nil), plan.Options.NetworkAllowlist...),
+		Docker:                  plan.Options.Docker,
+		Services:                cloneRunServices(plan.Options.Services),
+		WorkerSelector:          copyStringMap(plan.Options.WorkerSelector),
+		SecretsRequested:        plan.Options.SecretsRequested,
 	}
 	resp, err := api.NewClient(apiURL, api.WithToken(token)).WorkerCapability(ctx, preflightapi.WorkerCapabilityCheckRequest{Spec: spec})
 	if err != nil {
@@ -107,6 +108,7 @@ func workerClaimCapabilityReasons(plan checkRunPlan, worker preflightapi.AdminWo
 	var reasons []string
 	runtimeImage := defaultString(plan.Options.Image, preflightapi.DefaultImage)
 	reasons = append(reasons, preflightapi.RuntimePreparationMismatchReasons(preflightapi.RunSpec{RuntimeRequirements: plan.Options.RuntimeRequirements, NetworkMode: plan.Options.NetworkMode, NetworkAllowlist: plan.Options.NetworkAllowlist}, worker.RuntimeInventory[runtimeImage], worker.RuntimeProviders[runtimeImage])...)
+	reasons = append(reasons, preflightapi.EnvironmentCapabilityMismatchReasons(preflightapi.RunSpec{EnvironmentRequirements: plan.Options.EnvironmentRequirements, NetworkMode: plan.Options.NetworkMode}, worker.EnvironmentCapabilities[runtimeImage], worker.ReleaseIdentity)...)
 	if worker.Draining {
 		reasons = append(reasons, "worker is draining")
 	}

@@ -186,6 +186,9 @@ type repoImportCandidate struct {
 	Evidence             []string                                  `json:"evidence,omitempty"`
 	Requirements         []string                                  `json:"requirements,omitempty"`
 	Unsupported          []string                                  `json:"unsupported,omitempty"`
+	// DeclaredTests records a syntactic test command that static package
+	// inspection could not confirm; it still declares test scope.
+	DeclaredTests bool `json:"-"`
 }
 
 type repoImportReport struct {

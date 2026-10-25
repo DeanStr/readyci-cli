@@ -750,6 +750,10 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 		node.SuccessDependsOn = normalizedStrings(node.SuccessDependsOn)
 		node.DependsOn = normalizedStrings(append(node.DependsOn, node.SuccessDependsOn...))
 		var err error
+		node.Run.EnvironmentRequirements, err = NormalizeEnvironmentRequirements(node.Run.EnvironmentRequirements)
+		if err != nil {
+			return fmt.Errorf("verification node %q environment_requirements: %w", node.ID, err)
+		}
 		node.Run.RuntimeRequirements, err = NormalizeRuntimeRequirements(node.Run.RuntimeRequirements)
 		if err != nil {
 			return fmt.Errorf("verification node %q runtime_requirements: %w", node.ID, err)

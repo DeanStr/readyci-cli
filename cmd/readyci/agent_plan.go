@@ -39,7 +39,7 @@ func agentPlanCommand(args []string) error {
 	return nil
 }
 
-func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, changes string, requestSecrets bool) (agentPlanReport, error) {
+func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, changes string, requestSecrets bool) (report agentPlanReport, returnedErr error) {
 	intent, err := normalizeAgentIntent(intentFlag)
 	if err != nil {
 		return agentPlanReport{}, cliConfigError(err.Error(), err)
@@ -52,6 +52,17 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 	if err != nil {
 		return agentPlanReport{}, err
 	}
+	defer func() {
+		if returnedErr != nil {
+			return
+		}
+		for _, warning := range loaded.Warnings {
+			report.Warnings = append(report.Warnings, agentWarning{Section: "setup", Message: warning})
+		}
+		if report.Plan != nil {
+			report.Plan.Warnings = append(report.Plan.Warnings, loaded.Warnings...)
+		}
+	}()
 	cfg := loaded.Config
 	if err := validateExplicitDependencyWarmSecretRequest(cfg, checkName, intent, requestSecrets); err != nil {
 		return agentPlanReport{}, cliConfigError(err.Error(), err)

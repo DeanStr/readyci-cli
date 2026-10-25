@@ -81,10 +81,10 @@ func TestWorkflowMatrixPinnedOverlayCohort(t *testing.T) {
 			repo := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(repo, filepath.FromSlash(fixture.SourcePath)), string(data))
 			candidates := setupImportCandidates(repo, "github-actions")
-			if _, err := automaticSetupImport(candidates); err == nil {
-				t.Fatal("authentic workflow silently became an automatic selected scope")
-			}
 			parent := "github-actions:" + fixture.SourcePath + ":test"
+			if selection := automaticSetupSelection(candidates); selection.Imported != nil || selection.Reason == "" || !setupSelectionReportsCandidate(selection, parent) {
+				t.Fatalf("authentic workflow silently became an automatic selected scope: %+v", selection)
+			}
 			children, parents := 0, 0
 			seen := map[string]bool{}
 			for _, candidate := range candidates {

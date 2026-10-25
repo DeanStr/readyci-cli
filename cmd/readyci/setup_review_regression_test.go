@@ -16,9 +16,19 @@ func TestSetupWorkflowRejectsPlaceholderPackageTests(t *testing.T) {
 			root := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(root, "package.json"), `{"scripts":{"test":"echo 'TODO add tests'","check":"node --test"}}`)
 			writeFileForRepoMapTest(t, filepath.Join(root, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "+command+"\n")
-			_, err := setupDetectedTemplate(root, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(root, ""))
-			if err == nil || !strings.Contains(err.Error(), "configuration required") {
-				t.Fatalf("placeholder workflow became automatic verification: %v", err)
+			template, err := setupDetectedTemplate(root, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(root, ""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.ParseProjectConfig([]byte(template), "generated")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, imported := cfg.Checks["tests"]; imported || strings.Contains(template, "# Selected:") || cfg.Checks["node"].Command != "npm install && npm run check" {
+				t.Fatalf("placeholder workflow became automatic verification:\n%s", template)
+			}
+			if !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:tests"`) {
+				t.Fatalf("language default hid the uncovered upstream job:\n%s", template)
 			}
 		})
 	}
@@ -48,12 +58,15 @@ func TestSetupUnknownPackageScopeNeverSilentlyNarrowsWorkflowSelection(t *testin
 				workflow += "  unit:\n    runs-on: ubuntu-latest\n    steps:\n      - run: go test ./...\n"
 			}
 			writeFileForRepoMapTest(t, filepath.Join(root, ".github/workflows/ci.yml"), workflow)
-			selected, err := automaticSetupImport(setupImportCandidates(root, ""))
-			if (err != nil) != tc.wantError {
-				t.Fatalf("declared test jobs must not be silently dropped: selected=%+v err=%v", selected, err)
+			selection := automaticSetupSelection(setupImportCandidates(root, ""))
+			if (selection.Imported == nil) != tc.wantError {
+				t.Fatalf("declared test jobs must not be silently dropped: %+v", selection)
 			}
-			if !tc.wantError && (selected == nil || selected.Name != "unit") {
-				t.Fatalf("a non-test job blocked the concrete unit test: %+v", selected)
+			if tc.wantError && (selection.Reason == "" || !setupSelectionReportsJob(selection, "ci")) {
+				t.Fatalf("language default did not report the uncovered declared job: %+v", selection)
+			}
+			if !tc.wantError && selection.Imported.Name != "unit" {
+				t.Fatalf("a non-test job blocked the concrete unit test: %+v", selection.Imported)
 			}
 		})
 	}
@@ -105,9 +118,9 @@ func TestSetupPackageSelectionConfigurationPreservesUnknownWorkflowScope(t *test
 					t.Fatalf("package selection inspected the wrong script: entrypoint=%v unknown=%v want unknown=%v", candidate.TestEntrypoint, candidate.ScopeUnknown, tc.unknown)
 				}
 			}
-			selected, err := automaticSetupImport(candidates)
-			if (err != nil) != tc.unknown {
-				t.Fatalf("package selection must not silently narrow scope: selected=%+v err=%v", selected, err)
+			selection := automaticSetupSelection(candidates)
+			if (selection.Imported == nil) != tc.unknown || tc.unknown && !setupSelectionReportsJob(selection, "ci") {
+				t.Fatalf("package selection must not silently narrow scope: %+v", selection)
 			}
 		})
 	}
@@ -254,4 +267,22 @@ func TestSetupAutomaticPreviewResolvesProposalAndCapability(t *testing.T) {
 	if _, err := os.Stat(".readyci.yml"); !os.IsNotExist(err) || runs.Load() != 0 {
 		t.Fatal("preview wrote a configuration or started execution")
 	}
+}
+
+func setupSelectionReportsJob(selection setupAutomaticSelection, name string) bool {
+	for _, candidate := range selection.NotImported {
+		if candidate.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func setupSelectionReportsCandidate(selection setupAutomaticSelection, id string) bool {
+	for _, candidate := range selection.NotImported {
+		if candidate.ID == id {
+			return true
+		}
+	}
+	return false
 }

@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 // Detection is a static source inspection. Never execute repository Makefiles,
 // scripts, package managers, or workflow actions to discover a command.
 func setupDetectedTemplate(root, projectID string, options setupOptions, candidates []repoImportCandidate) (string, error) {
-	if imported, err := automaticSetupImport(candidates); err != nil {
-		return "", err
-	} else if imported != nil {
-		template := setupImportedTemplateWithScope(root, options, projectID, *imported, candidates)
-		template, err = applySetupNetworkPolicy(template, options)
+	selection := automaticSetupSelection(candidates)
+	if selection.Imported != nil {
+		template := setupImportedTemplateWithScope(root, options, projectID, *selection.Imported, candidates)
+		template, err := applySetupNetworkPolicy(template, options)
 		if err != nil {
 			return "", err
 		}
@@ -33,6 +33,7 @@ func setupDetectedTemplate(root, projectID string, options setupOptions, candida
 		if options.WriteHelpers {
 			template, _ = basicDetectedProjectTemplate(root, projectID, options.Image, options.Profile, true)
 		}
+		template = appendSetupLanguageDefaultScope(template, selection)
 		var err error
 		template, err = applySetupNetworkPolicy(template, options)
 		if err != nil {
@@ -42,6 +43,9 @@ func setupDetectedTemplate(root, projectID string, options setupOptions, candida
 			return "", err
 		}
 		return template, nil
+	}
+	if selection.Reason != "" {
+		return "", cliConfigError("configuration required: "+selection.Reason, nil)
 	}
 	return "", cliConfigError("configuration required: no supported root test entrypoint was found; inspect readyci setup --preview --json and select --candidate ID, or use readyci setup --print --detect=false to configure the repository's documented tests", nil)
 }
@@ -86,20 +90,41 @@ func validateSetupRootMakeTestScope(root string) error {
 	return nil
 }
 
-func automaticSetupImport(candidates []repoImportCandidate) (*repoImportCandidate, error) {
+// setupAutomaticSelection is the deterministic first-run choice. Exactly one
+// importable upstream test job is imported. Otherwise the language default is
+// proposed and every upstream verification job is reported as not imported;
+// the default never claims that scope.
+type setupAutomaticSelection struct {
+	Imported    *repoImportCandidate
+	NotImported []repoImportCandidate
+	Reason      string
+}
+
+func automaticSetupSelection(candidates []repoImportCandidate) setupAutomaticSelection {
+	variants := map[string][]repoImportCandidate{}
+	for _, candidate := range candidates {
+		if candidate.Source == "github-actions" && candidate.ParentJobID != "" {
+			variants[candidate.ParentJobID] = append(variants[candidate.ParentJobID], candidate)
+		}
+	}
+	var selection setupAutomaticSelection
 	var supported []repoImportCandidate
 	var blockers []string
 	var testJobs []string
 	for _, candidate := range candidates {
-		if candidate.Source != "github-actions" {
+		// Matrix variants are decided with their upstream job.
+		if candidate.Source != "github-actions" || candidate.ParentJobID != "" {
 			continue
 		}
-		testIntent := candidate.ScopeUnknown || candidate.TestEntrypoint || hasSeparatedMarker(candidate.Name, "test") || hasSeparatedMarker(candidate.Name, "tests") || hasSeparatedMarker(candidate.Name, "unit") || hasSeparatedMarker(candidate.Name, "integration") || hasSeparatedMarker(candidate.Name, "e2e")
-		if !testIntent {
+		selection.NotImported = append(selection.NotImported, candidate)
+		if !setupWorkflowJobDeclaresTests(candidate, variants[candidate.ID]) {
 			continue
 		}
 		testJobs = append(testJobs, candidate.ID)
 		unsupported := append(append([]string(nil), candidate.Unsupported...), candidate.AutomaticUnsupported...)
+		if count := len(variants[candidate.ID]); count > 0 {
+			unsupported = append(unsupported, fmt.Sprintf("upstream matrix job has %d variants; one variant does not establish the job's scope, so select a variant explicitly", count))
+		}
 		if !candidate.TestEntrypoint {
 			unsupported = append(unsupported, "no concrete recognized test entrypoint is available; job names alone do not establish test scope")
 		}
@@ -118,20 +143,60 @@ func automaticSetupImport(candidates []repoImportCandidate) (*repoImportCandidat
 		}
 		supported = append(supported, candidate)
 	}
-	if len(testJobs) > 1 {
-		message := "configuration required: multiple upstream test jobs are available; select --candidate ID after reviewing readyci setup --preview --json: " + strings.Join(testJobs, ", ")
+	switch {
+	case len(testJobs) > 1:
+		selection.Reason = "multiple upstream test jobs are available; select --candidate ID after reviewing readyci setup --preview --json: " + strings.Join(testJobs, ", ")
 		if len(blockers) > 0 {
-			message += "; jobs requiring explicit translation: " + strings.Join(blockers, " | ")
+			selection.Reason += "; jobs requiring explicit translation: " + strings.Join(blockers, " | ")
 		}
-		return nil, cliConfigError(message, nil)
+	case len(supported) == 1:
+		return setupAutomaticSelection{Imported: &supported[0]}
+	case len(blockers) > 0:
+		selection.Reason = "upstream test jobs need explicit translation or selection; inspect readyci setup --preview --json: " + strings.Join(blockers, " | ")
+	case len(selection.NotImported) > 0:
+		selection.Reason = "no upstream job has a recognized test entrypoint"
 	}
-	if len(supported) == 1 {
-		return &supported[0], nil
+	return selection
+}
+
+// A test job needs a test command or a test-shaped name. Third-party actions
+// make scope unknown without making a job a test job; such jobs are reported
+// as not imported rather than competing for automatic selection.
+func setupWorkflowJobDeclaresTests(candidate repoImportCandidate, variants []repoImportCandidate) bool {
+	if candidate.TestEntrypoint || candidate.DeclaredTests {
+		return true
 	}
-	if len(blockers) > 0 {
-		return nil, cliConfigError("configuration required: upstream test jobs need explicit translation or selection; inspect readyci setup --preview --json: "+strings.Join(blockers, " | "), nil)
+	for _, variant := range variants {
+		if variant.TestEntrypoint || variant.DeclaredTests {
+			return true
+		}
 	}
-	return nil, nil
+	for _, marker := range []string{"test", "tests", "unit", "integration", "e2e"} {
+		if hasSeparatedMarker(candidate.Name, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// appendSetupLanguageDefaultScope records the upstream jobs a language default
+// leaves uncovered, in the same comment form as an imported scope.
+func appendSetupLanguageDefaultScope(template string, selection setupAutomaticSelection) string {
+	if len(selection.NotImported) == 0 {
+		return template
+	}
+	var out strings.Builder
+	out.WriteString(template)
+	out.WriteString("\n# Ready CI setup scope: language default only; upstream jobs below are not covered.\n")
+	fmt.Fprintf(&out, "# Reason: %s\n", strconv.Quote(selection.Reason))
+	for _, candidate := range selection.NotImported {
+		fmt.Fprintf(&out, "# Not imported: %s", strconv.Quote(candidate.ID))
+		if len(candidate.Unsupported) > 0 {
+			fmt.Fprintf(&out, "; blocked: %s", strconv.Quote(strings.Join(candidate.Unsupported, "; ")))
+		}
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
 
 // This recognizes test entrypoints, not successful test execution or complete
@@ -459,4 +524,12 @@ func setupWorkflowMakeRequirements(makeMap repoMakeMap, steps []repoWorkflowRunS
 		}
 	}
 	return uniqueStrings(unsupported)
+}
+
+func setupLanguageDefaultNotice(selection setupAutomaticSelection) string {
+	ids := make([]string, 0, len(selection.NotImported))
+	for _, candidate := range selection.NotImported {
+		ids = append(ids, candidate.ID)
+	}
+	return "language default proposed; upstream jobs not imported or covered: " + strings.Join(ids, ", ") + " (" + selection.Reason + "); select --candidate ID to import one"
 }

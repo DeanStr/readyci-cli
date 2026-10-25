@@ -20,6 +20,7 @@ type loadedReadyCIConfig struct {
 	Path     string
 	Inferred bool
 	Signals  []string
+	Warnings []string
 }
 
 func loadProjectConfigOrInfer(cwd string) (loadedReadyCIConfig, error) {
@@ -34,33 +35,20 @@ func loadProjectConfigOrInferProject(cwd, projectID string) (loadedReadyCIConfig
 	if path != "" {
 		return loadedReadyCIConfig{Config: cfg, Path: path}, nil
 	}
-	inferred, signals, err := inferProjectConfigProject(cwd, projectID)
+	return inferProjectConfigProject(cwd, projectID)
+}
+
+func inferProjectConfigProject(cwd, projectID string) (loadedReadyCIConfig, error) {
+	root, err := inferenceRoot(cwd)
 	if err != nil {
 		return loadedReadyCIConfig{}, err
 	}
-	return loadedReadyCIConfig{
-		Config:   inferred,
-		Path:     inferredConfigPath,
-		Inferred: true,
-		Signals:  signals,
-	}, nil
-}
-
-func inferProjectConfig(cwd string) (config.ProjectConfig, []string, error) {
-	return inferProjectConfigProject(cwd, "")
-}
-
-func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []string, error) {
-	root, err := inferenceRoot(cwd)
-	if err != nil {
-		return config.ProjectConfig{}, nil, err
-	}
-	template, templateErr := inferredProjectTemplateWithError(root, projectID)
+	template, warnings, templateErr := inferredProjectTemplateWithError(root, projectID)
 	if templateErr != nil {
-		return config.ProjectConfig{}, nil, fmt.Errorf("%w: %w", errCouldNotInferSafeCheck, templateErr)
+		return loadedReadyCIConfig{}, fmt.Errorf("%w: %w", errCouldNotInferSafeCheck, templateErr)
 	}
 	if strings.TrimSpace(template) == "" {
-		return config.ProjectConfig{}, nil, fmt.Errorf("%w; run readyci setup --print to inspect a starter config or readyci plan --recommend --suggest-config for hosted suggestions", errCouldNotInferSafeCheck)
+		return loadedReadyCIConfig{}, fmt.Errorf("%w; run readyci setup --print to inspect a starter config or readyci plan --recommend --suggest-config for hosted suggestions", errCouldNotInferSafeCheck)
 	}
 	signals := detectedTemplateSignals(template)
 	if len(signals) == 0 {
@@ -68,20 +56,17 @@ func inferProjectConfigProject(cwd, projectID string) (config.ProjectConfig, []s
 	}
 	cfg, err := config.ParseProjectConfig([]byte(template), inferredConfigPath)
 	if err != nil {
-		return config.ProjectConfig{}, nil, err
+		return loadedReadyCIConfig{}, err
 	}
 	if len(cfg.Checks) == 0 {
-		return config.ProjectConfig{}, nil, fmt.Errorf("readyci check inferred repo signals but no runnable checks; run readyci setup --print to inspect the generated config")
+		return loadedReadyCIConfig{}, fmt.Errorf("readyci check inferred repo signals but no runnable checks; run readyci setup --print to inspect the generated config")
 	}
-	return cfg, signals, nil
+	return loadedReadyCIConfig{Config: cfg, Path: inferredConfigPath, Inferred: true, Signals: signals, Warnings: warnings}, nil
 }
 
-func inferredProjectTemplate(cwd, projectID string) string {
-	template, _ := inferredProjectTemplateWithError(cwd, projectID)
-	return template
-}
-
-func inferredProjectTemplateWithError(cwd, projectID string) (string, error) {
+// Carry scope warnings separately from the YAML: parsing a generated template
+// discards its comments, but execution must still report uncovered upstream jobs.
+func inferredProjectTemplateWithError(cwd, projectID string) (string, []string, error) {
 	root, err := inferenceRoot(cwd)
 	if err != nil {
 		root = cwd
@@ -96,7 +81,16 @@ func inferredProjectTemplateWithError(cwd, projectID string) (string, error) {
 	if projectID == "" {
 		projectID = inferProjectID(root)
 	}
-	return setupDetectedTemplate(root, projectID, setupOptions{Detect: true, Profile: "remote-ci"}, setupImportCandidates(root, ""))
+	candidates := setupImportCandidates(root, "")
+	template, err := setupDetectedTemplate(root, projectID, setupOptions{Detect: true, Profile: "remote-ci"}, candidates)
+	if err != nil {
+		return "", nil, err
+	}
+	var warnings []string
+	if selection := automaticSetupSelection(candidates); selection.Imported == nil && len(selection.NotImported) > 0 {
+		warnings = append(warnings, setupLanguageDefaultNotice(selection))
+	}
+	return template, warnings, nil
 }
 
 func inferenceRoot(cwd string) (string, error) {
@@ -154,6 +148,9 @@ func printInferredConfigNotice(loaded loadedReadyCIConfig, selected string) {
 	for _, signal := range loaded.Signals {
 		fmt.Fprintf(os.Stderr, "readyci: inferred: %s\n", signal)
 	}
+	for _, warning := range loaded.Warnings {
+		fmt.Fprintf(os.Stderr, "readyci: warning: %s\n", warning)
+	}
 	if strings.TrimSpace(selected) != "" {
 		fmt.Fprintf(os.Stderr, "readyci: selected %s; save or edit this plan with readyci setup --print\n", selected)
 	}
@@ -166,6 +163,7 @@ func defaultCheckSelection(cfg config.ProjectConfig, goal string) (agentCheckRec
 func executeDefaultInferredCheck(cwd string, loaded loadedReadyCIConfig, resolveOptions checkResolveOptions, executionOptions checkExecutionOptions) error {
 	cfg := loaded.Config
 	executionOptions.Inferred = loaded.Inferred
+	executionOptions.Warnings = append([]string(nil), loaded.Warnings...)
 	if len(executionOptions.Signals) == 0 {
 		executionOptions.Signals = append([]string(nil), loaded.Signals...)
 	}

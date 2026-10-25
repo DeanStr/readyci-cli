@@ -51,6 +51,7 @@ type verificationPlan struct {
 	ConfigPath      string           `json:"config_path"`
 	Inferred        bool             `json:"inferred"`
 	Signals         []repoSignal     `json:"signals,omitempty"`
+	Warnings        []string         `json:"warnings,omitempty"`
 	Candidates      []checkCandidate `json:"candidates,omitempty"`
 	Selected        []checkCandidate `json:"selected"`
 	Skipped         []skippedCheck   `json:"skipped,omitempty"`
@@ -65,6 +66,7 @@ type verificationPlanOptions struct {
 	Mode           string
 	Inferred       bool
 	Signals        []string
+	Warnings       []string
 	SelectedReason string
 }
 
@@ -94,6 +96,7 @@ func buildCheckVerificationPlan(cfg config.ProjectConfig, configPath string, pla
 		ConfigPath:      configPath,
 		Inferred:        options.Inferred,
 		Signals:         repoSignalsFromStrings(options.Signals),
+		Warnings:        append([]string(nil), options.Warnings...),
 		Candidates:      checkCandidatesFromConfig(cfg, plan.Name),
 		Selected:        []checkCandidate{selected},
 		Explanation:     explanation,
@@ -146,6 +149,7 @@ func buildAffectedVerificationPlan(cfg config.ProjectConfig, configPath string, 
 		ConfigPath:      configPath,
 		Inferred:        options.Inferred,
 		Signals:         repoSignalsFromStrings(options.Signals),
+		Warnings:        append([]string(nil), options.Warnings...),
 		Candidates:      checkCandidatesFromConfig(cfg, ""),
 		Selected:        selected,
 		Skipped:         skipped,
@@ -362,6 +366,7 @@ func printVerificationPlan(plan verificationPlan) {
 	fmt.Printf("goal: %s\n", plan.Goal)
 	fmt.Printf("mode: %s\n", plan.Mode)
 	fmt.Printf("confidence: %.2f\n", plan.Confidence)
+	printDryRunWarnings(plan.Warnings)
 	if len(plan.Signals) > 0 {
 		fmt.Println("signals:")
 		for _, signal := range plan.Signals {

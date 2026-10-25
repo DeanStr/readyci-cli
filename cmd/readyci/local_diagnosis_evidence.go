@@ -61,6 +61,8 @@ func localSyncTooLargeFailureText(lower string) bool {
 		"expanded bundle exceeds",
 		"artifact bundle too large",
 		"bundle is too large",
+		// Retention omits selected artifacts only at the bundle limit.
+		"artifact collection incomplete",
 	) {
 		return true
 	}
@@ -69,6 +71,22 @@ func localSyncTooLargeFailureText(lower string) bool {
 	}
 	return localContainsAny(lower, "request entity too large", "payload too large", "content too large") ||
 		localDiagnosisHTTP413Pattern.MatchString(lower)
+}
+
+func localPreparationRepositoryFailure(kind, observed, lower, primaryFile string) bool {
+	switch kind {
+	case preflightapi.ClassificationTestFailed:
+		return localConcreteTestFailureText(observed, lower)
+	case preflightapi.ClassificationTypecheckFailed:
+		return localAnalysisTextLooksTypecheckFailure(observed, lower) && diagnosiscommon.RepositorySourcePath(primaryFile)
+	case preflightapi.ClassificationLintFailed:
+		return diagnosiscommon.RepositorySourcePath(primaryFile)
+	case preflightapi.ClassificationBuildFailed:
+		return localContainsAny(lower, "build failed", "compilation failed", "compile error", "syntax error", "undefined:") &&
+			diagnosiscommon.RepositorySourcePath(primaryFile)
+	default:
+		return false
+	}
 }
 
 func localAnalysisTextLooksTypecheckFailure(text, lower string) bool {
@@ -122,7 +140,7 @@ func localPreferredEvidenceText(kind string, evidence []preflightapi.RunFailureE
 				return text
 			}
 		case preflightapi.ClassificationTestFailed:
-			if item.Path != "" || localDiagnosisPytestFailedPattern.MatchString(text) || localDiagnosisAssertionPattern.MatchString(strings.ToLower(text)) {
+			if item.Path != "" || localDiagnosisPytestFailedPattern.MatchString(text) || diagnosiscommon.DefiniteTestFailureText(text) || localDiagnosisAssertionPattern.MatchString(strings.ToLower(text)) || diagnosiscommon.SocketFailureDiagnostic(text) {
 				return text
 			}
 		case preflightapi.ClassificationLintFailed:
@@ -211,49 +229,44 @@ func localPendingRunStatus(status string) bool {
 }
 
 func localRunEventSearchText(events []preflightapi.RunEvent) string {
-	return diagnosiscommon.FilterTestNonFailureLines(diagnosiscommon.EventSearchText(events))
+	return diagnosiscommon.DiagnosticSearchText(events)
 }
 
 func localEvidenceFromEvents(events []preflightapi.RunEvent, limit int) []preflightapi.RunFailureEvidence {
 	var evidence []preflightapi.RunFailureEvidence
 	var ranker runLogsFailureEvidenceRanker
-	for eventIndex, event := range events {
-		if event.Type != preflightapi.EventStdout && event.Type != preflightapi.EventStderr {
-			continue
+	diagnosiscommon.ForEachDiagnosticLine(events, func(record diagnosiscommon.DiagnosticLine) {
+		if record.Message {
+			return
 		}
-		data := diagnosiscommon.EventData(event)
-		if data == "" {
-			continue
-		}
+		eventIndex := record.EventIndex
+		event := events[eventIndex]
 		stream, _ := diagnosiscommon.EventStream(event)
-		for index, line := range strings.Split(data, "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			path := localPrimaryFile(line)
-			if localLowSignalEvidenceText(line) || (path == "" && !localEvidenceLineLooksUseful(line)) {
-				continue
-			}
-			evidence = append(evidence, preflightapi.RunFailureEvidence{
-				EventID: event.ID,
-				Stream:  stream,
-				Seq:     diagnosiscommon.EventSequence(event, eventIndex),
-				Line:    index + 1,
-				Event:   event.Type,
-				Path:    path,
-				Text:    textlimit.PrefixUTF8WithinBytes(line, 500),
-			})
-			if limit > 0 && len(evidence) >= limit {
-				if len(evidence) > limit {
-					// Retain strong failures on either side of long warning
-					// sections, using the same ranking as the log summary.
-					evidence = selectRunLogsFailureEvidenceWithRanker(evidence, limit, &ranker)
-					ranker.retain(evidence)
-				}
-			}
+		artifactWarning := diagnosiscommon.PostRunArtifactWarning(event)
+		line := strings.TrimSpace(diagnosiscommon.StripDiagnosticANSI(record.Text))
+		if line == "" {
+			return
 		}
-	}
+		path := localPrimaryFile(line)
+		if localLowSignalEvidenceText(line) || (!artifactWarning && path == "" && !localEvidenceLineLooksUseful(line)) {
+			return
+		}
+		evidence = append(evidence, preflightapi.RunFailureEvidence{
+			EventID: event.ID,
+			Stream:  stream,
+			Seq:     diagnosiscommon.EventSequence(event, eventIndex),
+			Line:    record.Line,
+			Event:   event.Type,
+			Path:    path,
+			Text:    textlimit.PrefixUTF8WithinBytes(line, 500),
+		})
+		if limit > 0 && len(evidence) > limit {
+			// Retain strong failures on either side of long warning sections,
+			// using the same ranking as the log summary.
+			evidence = selectRunLogsFailureEvidenceWithRanker(evidence, limit, &ranker)
+			ranker.retain(evidence)
+		}
+	})
 	return evidence
 }
 
@@ -281,6 +294,9 @@ func repositoryTestOutputEvents(events []preflightapi.RunEvent) []preflightapi.R
 
 func localEvidenceLineLooksUseful(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
+	if diagnosiscommon.SocketFailureDiagnostic(line) {
+		return true
+	}
 	if localDiagnosisRegistryHTTPFailurePattern.MatchString(line) || localRegistryTransportFailureText(lower) {
 		return true
 	}
@@ -300,6 +316,7 @@ func localEvidenceLineLooksUseful(line string) bool {
 }
 
 func localPrimaryFile(text string) string {
+	text = diagnosiscommon.FileLocationSearchText(text)
 	for _, match := range localDiagnosisPytestFailedPattern.FindAllStringSubmatch(text, -1) {
 		path := strings.TrimSpace(match[1])
 		if localValidPrimaryFilePath(path) {

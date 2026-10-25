@@ -22,6 +22,7 @@ func executeCheckPlan(plan checkRunPlan, cfg config.ProjectConfig, configPath st
 		if err != nil {
 			return err
 		}
+		report.Warnings = append(report.Warnings, executionOptions.Warnings...)
 		if executionOptions.SelectionMode != "warm" {
 			preparation, err := dependencyWarmPreview(".", []affectedCheckPlan{{Plan: plan}}, cfg, checkResolveOptions{APIURL: plan.Options.APIURL, ProjectID: plan.Options.ProjectID, Changes: plan.Options.ChangeMode, SkipWarm: plan.SkipWarm})
 			if err != nil {
@@ -37,6 +38,7 @@ func executeCheckPlan(plan checkRunPlan, cfg config.ProjectConfig, configPath st
 				Mode:           defaultString(executionOptions.SelectionMode, "check"),
 				Inferred:       executionOptions.Inferred,
 				Signals:        executionOptions.Signals,
+				Warnings:       executionOptions.Warnings,
 				SelectedReason: executionOptions.SelectedReason,
 			}))
 		}
@@ -54,6 +56,7 @@ func executeCheckPlan(plan checkRunPlan, cfg config.ProjectConfig, configPath st
 		Mode:           defaultString(executionOptions.SelectionMode, "check"),
 		Inferred:       executionOptions.Inferred,
 		Signals:        executionOptions.Signals,
+		Warnings:       executionOptions.Warnings,
 		SelectedReason: executionOptions.SelectedReason,
 	})
 	if executionOptions.Why && !executionOptions.JSONOutput {

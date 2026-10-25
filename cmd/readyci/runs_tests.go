@@ -44,6 +44,17 @@ func runsTestsCommand(args []string) error {
 
 func printRunTestResults(result preflightapi.RunTestResults) {
 	fmt.Printf("test_reports: %s\n", result.State)
+	if result.Collection.RequiredOmissions() {
+		collection := result.Collection
+		fmt.Printf("artifact_collection: retained=%d omitted=%d omitted_reports=%d\n", collection.RetainedFileCount, collection.OmittedFileCount, collection.OmittedReportCount)
+		fmt.Println("Reported counts cover retained reports only; omitted files are unavailable.")
+		for _, file := range collection.OmittedFiles {
+			fmt.Printf("  omitted: %s (%d bytes; %s)\n", sanitizeRunLogsSummaryText(file.Path), file.SizeBytes, sanitizeRunLogsSummaryText(file.Reason))
+		}
+		if collection.OmissionsTruncated {
+			fmt.Println("The omitted-file list is shortened; omission counts include all selected files.")
+		}
+	}
 	fmt.Printf("reported_tests: %d passed, %d failed, %d errors, %d skipped\n", result.Counts.Passed, result.Counts.Failed, result.Counts.Errors, result.Counts.Skipped)
 	for _, test := range result.Results {
 		duration := "duration unavailable"
@@ -65,7 +76,7 @@ func printRunTestResults(result preflightapi.RunTestResults) {
 		}
 	}
 	if result.Truncated {
-		fmt.Println("Result index is partial; inspect the retained original reports.")
+		fmt.Println("Result index is partial; inspect retained original reports for additional details.")
 	}
 	if result.HasMore {
 		fmt.Println("More reported failures are available through readyci runs tests.")

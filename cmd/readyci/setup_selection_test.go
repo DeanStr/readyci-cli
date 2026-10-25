@@ -162,8 +162,21 @@ func TestSetupSelectionDoesNotGuessPastUpstreamRequirements(t *testing.T) {
 			repo := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(repo, "go.mod"), "module example.test/fixture\n")
 			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/ci.yml"), "jobs:\n  test:\n    runs-on: ubuntu-latest\n"+tc.job+"    steps:\n"+tc.steps)
-			if template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, "")); err == nil || template != "" {
-				t.Fatalf("guessed a command past upstream requirements: template=%q err=%v", template, err)
+			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.ParseProjectConfig([]byte(template), "generated")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The language default is proposed, but the upstream job is never
+			// imported past its requirements and remains visibly uncovered.
+			if _, imported := cfg.Checks["test"]; imported || cfg.Checks["go"].Command != "go test ./..." || strings.Contains(template, "# Selected:") {
+				t.Fatalf("guessed a command past upstream requirements:\n%s", template)
+			}
+			if !strings.Contains(template, "# Ready CI setup scope: language default only") || !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:test"`) {
+				t.Fatalf("uncovered upstream job was not reported:\n%s", template)
 			}
 		})
 	}

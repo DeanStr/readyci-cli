@@ -66,19 +66,23 @@ func TestSetupImportSelectionAcceptsExactIDsWithoutImportingAggregateParent(t *t
 	}
 }
 
-func TestSetupImportSelectionAutomaticAmbiguityRepromptsWithoutDroppingScope(t *testing.T) {
+func TestSetupImportSelectionAutomaticAmbiguityUsesLanguageDefaultWithoutDroppingScope(t *testing.T) {
 	candidates := setupImportSelectionCandidates()
 	var output bytes.Buffer
-	selected, err := selectSetupImport(setupOptions{}, candidates, bufio.NewReader(strings.NewReader("\n1\n")), &output, false)
-	if err != nil || selected == nil || selected.ID != candidates[1].ID {
-		t.Fatalf("automatic ambiguity prevented explicit selection: selected=%+v err=%v", selected, err)
+	selected, err := selectSetupImport(setupOptions{}, candidates, bufio.NewReader(strings.NewReader("\n")), &output, false)
+	if err != nil || selected != nil {
+		t.Fatalf("automatic ambiguity imported an upstream job: selected=%+v err=%v", selected, err)
 	}
-	if !strings.Contains(output.String(), "multiple upstream test jobs") || strings.Count(output.String(), "Choose an existing command") != 2 {
-		t.Fatalf("automatic selection silently narrowed upstream scope:\n%s", output.String())
+	if !strings.Contains(output.String(), "Automatic selection uses the detected language default") || !strings.Contains(output.String(), "multiple upstream test jobs") {
+		t.Fatalf("automatic selection did not report the uncovered upstream scope:\n%s", output.String())
 	}
 	selected, err = selectSetupImport(setupOptions{}, candidates, nil, &output, true)
-	if err == nil || selected != nil || !strings.Contains(err.Error(), "multiple upstream test jobs") {
+	if err != nil || selected != nil {
 		t.Fatalf("noninteractive setup silently chose a matrix child: selected=%+v err=%v", selected, err)
+	}
+	selection := automaticSetupSelection(candidates)
+	if len(selection.NotImported) != 2 || selection.NotImported[0].ID != candidates[0].ID || selection.NotImported[1].ID != candidates[3].ID {
+		t.Fatalf("language default did not report each upstream job once: %+v", selection.NotImported)
 	}
 }
 

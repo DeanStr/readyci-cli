@@ -111,6 +111,7 @@ func checkCommand(args []string) error {
 			SummaryOutput: *summaryOutput,
 			Why:           *why,
 			Inferred:      loaded.Inferred,
+			Warnings:      loaded.Warnings,
 			Signals:       verificationSignalsWithRepoMap(".", cfg, path, loaded.Signals, *why),
 			Watch:         *watch,
 			WatchInterval: *watchInterval,
@@ -143,6 +144,7 @@ func checkCommand(args []string) error {
 		SummaryOutput:  *summaryOutput,
 		Why:            *why,
 		Inferred:       loaded.Inferred,
+		Warnings:       loaded.Warnings,
 		Signals:        verificationSignalsWithRepoMap(".", cfg, path, loaded.Signals, *why),
 		SelectionMode:  "explicit_check",
 		SelectedReason: "Explicit check requested.",
@@ -393,6 +395,9 @@ func affectedLikeCommand(args []string) error {
 		SummaryOutput: *summaryOutput,
 		Watch:         *watch,
 		WatchInterval: *watchInterval,
+		Inferred:      loaded.Inferred,
+		Signals:       loaded.Signals,
+		Warnings:      loaded.Warnings,
 	}
 	if shouldUseAffectedRules(cfg, *checkName) {
 		printInferredConfigNotice(loaded, "affected checks")

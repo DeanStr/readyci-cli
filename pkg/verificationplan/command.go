@@ -19,6 +19,15 @@ type commandPhases struct {
 	Always                   []string
 }
 
+// CommandFailureScopeLogFunction records the first nonzero scope before later
+// always steps run. It is diagnostic metadata, not a terminal attestation.
+const CommandFailureScopeLogFunction = `__readyci_log_failure_scope() {
+  if [ "$1" -ne 0 ]; then
+    printf '\036READYCI_FAILURE:%s\036\n' "$1" >&2
+  fi
+}
+`
+
 // CommandForRunSpec assembles the single shell command a run executes,
 // wrapping prepare/post/always phases and steps as needed.
 func CommandForRunSpec(options RunSpec) (string, error) {
@@ -96,6 +105,7 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 		script.WriteString("\n__preflight_setup_cache_paths\n")
 		script.WriteString("__preflight_setup_status=$?\n")
 		script.WriteString("if [ $__preflight_setup_status -ne 0 ]; then exit $__preflight_setup_status; fi\n")
+		script.WriteString("__preflight_cache_interrupted=0\n")
 	}
 	if envScript != "" {
 		script.WriteString(envScript)
@@ -154,6 +164,7 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 	if cacheScript != "" {
 		writeCachePublication(&script, "__preflight_status")
 	}
+	script.WriteString("__readyci_log_failure_scope \"$__preflight_status\"\n")
 	if len(phases.Steps) > 0 {
 		for index, step := range phases.Steps {
 			if !step.Always {
@@ -167,7 +178,7 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 			if cacheScript != "" {
 				writeCachePublication(&script, "__preflight_always_step_status")
 			}
-			script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_step_status -ne 0 ]; then __preflight_status=$__preflight_always_step_status; fi\n")
+			script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_step_status -ne 0 ]; then __readyci_log_failure_scope \"$__preflight_always_step_status\"; __preflight_status=$__preflight_always_step_status; fi\n")
 		}
 	}
 	if len(phases.Always) > 0 {
@@ -176,12 +187,18 @@ func buildCommand(phases commandPhases, cachePaths, cacheKeyFiles []string, keep
 		if cacheScript != "" {
 			writeCachePublication(&script, "__preflight_always_status")
 		}
-		script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_status -ne 0 ]; then __preflight_status=$__preflight_always_status; fi\n")
+		script.WriteString("if [ $__preflight_status -eq 0 ] && [ $__preflight_always_status -ne 0 ]; then __readyci_log_failure_scope \"$__preflight_always_status\"; __preflight_status=$__preflight_always_status; fi\n")
 	}
 	if cacheScript != "" {
-		script.WriteString("if [ $__preflight_status -eq 0 ]; then\n")
-		script.WriteString("  if __preflight_finalize_cache_paths; then :; else __preflight_status=$?; fi\n")
-		script.WriteString("fi\n")
+		// A completed test failure is not an interrupted cache write. Publish
+		// and sync the final cache state without changing that test's outcome;
+		// otherwise its pending markers erase an already warmed SDK on the next
+		// offline run. A step timeout/signal may leave this outer wrapper alive;
+		// its sticky phase latch and failed persistence keep the cache pending.
+		script.WriteString("if [ $__preflight_cache_interrupted -eq 0 ]; then\n")
+		script.WriteString("  if __preflight_finalize_cache_paths; then\n")
+		script.WriteString("    __preflight_cache_finalize_status=0\n  else\n    __preflight_cache_finalize_status=$?\n  fi\n")
+		script.WriteString("  if [ $__preflight_status -eq 0 ] && [ $__preflight_cache_finalize_status -ne 0 ]; then __preflight_status=$__preflight_cache_finalize_status; fi\nfi\n")
 	}
 	if keepFailed {
 		script.WriteString(failedWorkspaceRetentionScript())
@@ -225,6 +242,7 @@ func writeRemoteLogPhaseMarkerFunction(script *strings.Builder) {
 	script.WriteString("  printf '\\036READYCI_STEP:%s\\036\\n' \"$1\"\n")
 	script.WriteString("  printf '\\036READYCI_STEP:%s\\036\\n' \"$1\" >&2\n")
 	script.WriteString("}\n")
+	script.WriteString(CommandFailureScopeLogFunction)
 }
 
 func writeCommandFunction(script *strings.Builder, label string, commands []string, publishCache bool) {
@@ -246,6 +264,11 @@ func writeCommandFunction(script *strings.Builder, label string, commands []stri
 // the authored command status. A failed command keeps its original exit code;
 // a successful command cannot hide a failed persistence handoff.
 func writeCachePublication(script *strings.Builder, status string) {
+	// Observe each phase result before an earlier failure can mask it (notably
+	// always steps). Treat timeout and shell signal statuses conservatively;
+	// neither may publish a completed cache generation. Callers outside the
+	// phase subshell repeat this observation so the finalizer retains the latch.
+	fmt.Fprintf(script, "  if [ $%s -eq 124 ] || [ $%s -ge 128 ]; then __preflight_cache_interrupted=1; fi\n", status, status)
 	script.WriteString("  if __preflight_publish_cache_paths; then\n    __preflight_cache_publish_status=0\n  else\n    __preflight_cache_publish_status=$?\n  fi\n")
 	fmt.Fprintf(script, "  if [ $%s -eq 0 ] && [ $__preflight_cache_publish_status -ne 0 ]; then %s=$__preflight_cache_publish_status; fi\n", status, status)
 }

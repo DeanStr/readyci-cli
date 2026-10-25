@@ -219,6 +219,7 @@ func setupImportCandidates(cwd, source string, runtimePins ...map[string]string)
 					candidate.AutomaticUnsupported = appendUniqueString(candidate.AutomaticUnsupported, "package-script test scope could not be inspected; review package selectors, directories, and manifests explicitly")
 				}
 			}
+			candidate.DeclaredTests = declaredTests
 			if declaredTests && !candidate.TestEntrypoint {
 				// Static script inspection must not silently prune a declared test
 				// job. Runtime configuration and earlier steps may alter scripts;
@@ -285,7 +286,7 @@ func selectSetupImport(options setupOptions, candidates []repoImportCandidate, r
 		if options.ImportSource != "" {
 			return nil, cliConfigError("--yes with --import requires --candidate ID; inspect setup --preview --json first", nil)
 		}
-		return automaticSetupImport(candidates)
+		return automaticSetupSelection(candidates).Imported, nil
 	}
 	if reader == nil {
 		return nil, cliConfigError("setup input ended before command selection", io.EOF)
@@ -298,15 +299,13 @@ func selectSetupImport(options setupOptions, candidates []repoImportCandidate, r
 		}
 		answer = strings.TrimSpace(answer)
 		if answer == "" {
-			selected, err := automaticSetupImport(candidates)
-			if err != nil {
-				fmt.Fprintln(output, err)
-				continue
+			selection := automaticSetupSelection(candidates)
+			if selection.Imported != nil {
+				printSetupImportSelection(output, *selection.Imported, candidates)
+			} else if selection.Reason != "" {
+				fmt.Fprintf(output, "\nAutomatic selection uses the detected language default; upstream jobs are not imported: %s\n", selection.Reason)
 			}
-			if selected != nil {
-				printSetupImportSelection(output, *selected, candidates)
-			}
-			return selected, nil
+			return selection.Imported, nil
 		}
 		index, err := strconv.Atoi(answer)
 		var candidate *repoImportCandidate

@@ -22,7 +22,7 @@ type BrowserDownloadFailure struct {
 // phase, step or invocation means an earlier download error was non-terminal.
 // It preserves chunk boundaries within each output source and bounds inspection.
 func BrowserDownloadFailureFromEvents(events []preflightapi.RunEvent) *BrowserDownloadFailure {
-	start, end := finalCommandFailureScope(events)
+	events = FinalCommandFailureEvents(events)
 	type source struct{ stream, phase, step string }
 	type context struct{ phase, step string }
 	type pendingLine struct {
@@ -50,10 +50,9 @@ func BrowserDownloadFailureFromEvents(events []preflightapi.RunEvent) *BrowserDo
 			transport[ctx] = where
 		}
 	}
-	for index := start; index < end; index++ {
-		event := events[index]
+	for index, event := range events {
 		stream, log := EventStream(event)
-		if !log || event.Service != "" || (event.Phase != "" && event.Phase != "command" && event.Phase != "prepare") {
+		if !log || event.Service != "" {
 			continue
 		}
 		key := source{stream, event.Phase, event.Step}

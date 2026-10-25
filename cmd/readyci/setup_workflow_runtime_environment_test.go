@@ -23,8 +23,8 @@ func TestWorkflowRuntimeEnvironmentCannotOmitTests(t *testing.T) {
 	if len(candidates) != 1 || len(candidates[0].RunSteps) != 2 || !strings.Contains(candidates[0].Command, "pytest tests/integration") {
 		t.Fatalf("runtime-dependent condition removed upstream test scope: %+v", candidates)
 	}
-	if selected, err := automaticSetupImport(candidates); err == nil || selected != nil {
-		t.Fatalf("runtime-dependent job became an automatic import: %+v, %v", selected, err)
+	if selected := automaticSetupSelection(candidates).Imported; selected != nil {
+		t.Fatalf("runtime-dependent job became an automatic import: %+v", selected)
 	}
 }
 

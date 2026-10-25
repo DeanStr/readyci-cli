@@ -85,7 +85,15 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 	if cfg.Sync.RespectGitignore != nil && !*cfg.Sync.RespectGitignore {
 		return cfg, configError(fmt.Errorf("%s: sync.respect_gitignore=false is not supported yet", source))
 	}
+	cfg.EnvironmentRequirements, err = preflightapi.NormalizeEnvironmentRequirements(cfg.EnvironmentRequirements)
+	if err != nil {
+		return cfg, configError(fmt.Errorf("%s: environment_requirements: %w", source, err))
+	}
 	for name, check := range cfg.Checks {
+		check.EnvironmentRequirements, err = preflightapi.NormalizeEnvironmentRequirements(check.EnvironmentRequirements)
+		if err != nil {
+			return cfg, configError(fmt.Errorf("%s: checks.%s.environment_requirements: %w", source, name, err))
+		}
 		check.RuntimeRequirements, err = preflightapi.NormalizeRuntimeRequirements(check.RuntimeRequirements)
 		if err != nil {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.runtime_requirements: %w", source, name, err))
@@ -109,6 +117,7 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 }
 
 func (cfg *ProjectConfig) merge(loaded ProjectConfig) {
+	cfg.EnvironmentRequirements = preflightapi.CloneEnvironmentRequirements(loaded.EnvironmentRequirements)
 	if loaded.Version != 0 {
 		cfg.Version = loaded.Version
 	}
