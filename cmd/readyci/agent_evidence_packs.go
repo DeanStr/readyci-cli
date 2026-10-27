@@ -112,7 +112,7 @@ func evidencePackKindForPath(path string) (string, string, bool) {
 		return "screenshot", "Screenshot evidence captured during verification.", true
 	case strings.Contains(lower, "video") || hasAnySuffix(lower, ".webm", ".mp4", ".mov"):
 		return "video", "Video evidence captured during verification.", true
-	case strings.Contains(lower, "junit") || hasAnySuffix(lower, ".junit.xml") || strings.HasSuffix(lower, "test-results.xml"):
+	case strings.Contains(lower, "junit") || hasAnySuffix(lower, ".junit.xml", ".xml.gz") || strings.HasSuffix(lower, "test-results.xml"):
 		return "junit", "JUnit-compatible test report.", true
 	case strings.Contains(lower, "coverage") || strings.Contains(lower, "lcov"):
 		return "coverage", "Coverage output retained for inspection.", true

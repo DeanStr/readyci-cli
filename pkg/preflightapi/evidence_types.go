@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
@@ -74,6 +75,7 @@ type StructuredTestResult struct {
 	Attempt          int    `json:"attempt"`
 	Message          string `json:"message,omitempty"`
 	ReportPath       string `json:"report_path,omitempty"`
+	ReportMemberPath string `json:"report_member_path,omitempty"`
 	MessageTruncated bool   `json:"message_truncated,omitempty"`
 }
 
@@ -195,6 +197,16 @@ func NormalizeStructuredTestResult(result StructuredTestResult) (StructuredTestR
 			return result, fmt.Errorf("invalid test report path %q", result.ReportPath)
 		}
 		result.ReportPath = path
+	}
+	if result.ReportMemberPath != "" {
+		path, err := syncbundle.ValidateRelativePath(result.ReportMemberPath)
+		container := strings.ToLower(result.ReportPath)
+		if err != nil || !utf8.ValidString(path) || path != result.ReportMemberPath || syncbundle.IsGitControlPath(path) ||
+			!strings.HasSuffix(strings.ToLower(path), ".xml") ||
+			!strings.HasSuffix(container, ".junit.tar.gz") && !strings.HasSuffix(container, ".junit.tgz") {
+			return result, fmt.Errorf("invalid test report member path %q", result.ReportMemberPath)
+		}
+		result.ReportMemberPath = path
 	}
 	return result, nil
 }

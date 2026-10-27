@@ -260,7 +260,7 @@ func TestLocalIncompleteArtifactCollectionRequestsReducedScope(t *testing.T) {
 		{ID: 2, Type: preflightapi.EventCommandExited, ExitCode: &exit},
 	}
 	got := localAnalyzeRunFailureWithNetworkMode(preflightapi.StatusFailed, "go test ./...", &exit, events, reason, "")
-	if got.Classification != preflightapi.ClassificationSyncTooLarge || got.AgentAction != preflightapi.AgentActionReduceScope || got.Retryable {
-		t.Fatalf("incomplete artifact collection analysis=%+v, want sync_too_large/reduce_scope", got)
+	if got.Classification != preflightapi.ClassificationArtifactLimitExceeded || got.AgentAction != preflightapi.AgentActionReduceScope || got.Retryable {
+		t.Fatalf("incomplete artifact collection analysis=%+v, want artifact_limit_exceeded/reduce_scope", got)
 	}
 }

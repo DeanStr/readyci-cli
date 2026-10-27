@@ -279,6 +279,7 @@ func normalizeCodedAPIError(responseErr api.ResponseError, cause error) (cliErro
 		"resource_gone":                                 {preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
 		"precondition_failed":                           {preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
 		"request_too_large":                             {preflightapi.ClassificationSyncTooLarge, cliExitRemoteFailure, false},
+		"artifact_limit_exceeded":                       {preflightapi.ClassificationArtifactLimitExceeded, cliExitRemoteFailure, false},
 		"platform_internal":                             {preflightapi.ClassificationPlatformInternalError, cliExitInternal, true},
 		"operation_unsupported":                         {preflightapi.ClassificationPlatformInternalError, cliExitInternal, false},
 		"prepaid_checkout_pending":                      {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},

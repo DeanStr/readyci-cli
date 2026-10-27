@@ -17,10 +17,26 @@ type TestReportIndex struct {
 }
 
 type TestReportSummary struct {
-	Path    string `json:"path"`
-	State   string `json:"state"`
-	Message string `json:"message,omitempty"`
-	Tests   int    `json:"tests"`
+	Path       string `json:"path"`
+	MemberPath string `json:"member_path,omitempty"`
+	State      string `json:"state"`
+	Message    string `json:"message,omitempty"`
+	Tests      int    `json:"tests"`
+	// ContentSHA256 and SizeBytes identify complete uncompressed XML bytes.
+	// Path is the retained artifact file; MemberPath identifies XML inside an
+	// explicitly named JUnit archive. Tests counts retained indexed cases only.
+	ContentSHA256 string                   `json:"content_sha256,omitempty"`
+	SizeBytes     int64                    `json:"size_bytes,omitempty"`
+	CountMismatch *TestReportCountMismatch `json:"count_mismatch,omitempty"`
+}
+
+// TestReportCountMismatch describes the first disagreeing suite, not the whole
+// report or run. Observed testcase outcomes remain diagnostic; no cases are
+// invented to match untrusted declared totals.
+type TestReportCountMismatch struct {
+	DeclaredTests    int `json:"declared_tests"`
+	ObservedTests    int `json:"observed_tests"`
+	MismatchedSuites int `json:"mismatched_suites"`
 }
 
 type TestResultCounts struct {

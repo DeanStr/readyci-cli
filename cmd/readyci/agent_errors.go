@@ -84,6 +84,7 @@ func agentReportProcessExitCode(report agentVerifyReport) int {
 		preflightapi.ClassificationServiceSetupFailed,
 		preflightapi.ClassificationSyncFailed,
 		preflightapi.ClassificationSyncTooLarge,
+		preflightapi.ClassificationArtifactLimitExceeded,
 		preflightapi.ClassificationCacheStorageExceeded,
 		preflightapi.ClassificationWorkerCapabilityMismatch:
 		return cliExitRemoteFailure

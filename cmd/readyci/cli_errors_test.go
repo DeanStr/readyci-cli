@@ -205,6 +205,8 @@ func TestNormalizeCLIErrorUsesStableAPICodesBeforeStatus(t *testing.T) {
 		{"plan_entitlement_required", http.StatusPaymentRequired, preflightapi.ClassificationBillingRequired, cliExitAuthOrPolicy, false},
 		{"plan_entitlement_required", http.StatusForbidden, preflightapi.ClassificationPolicyDenied, cliExitAuthOrPolicy, false},
 		{"plan_resource_limit_exceeded", http.StatusForbidden, preflightapi.ClassificationPolicyDenied, cliExitAuthOrPolicy, false},
+		{"artifact_limit_exceeded", http.StatusRequestEntityTooLarge, preflightapi.ClassificationArtifactLimitExceeded, cliExitRemoteFailure, false},
+		{"request_too_large", http.StatusRequestEntityTooLarge, preflightapi.ClassificationSyncTooLarge, cliExitRemoteFailure, false},
 		{"privacy_case_conflict", http.StatusConflict, preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		{"privacy_case_blocked", http.StatusLocked, preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		{"action_velocity_limit_exceeded", http.StatusTooManyRequests, preflightapi.ClassificationRateLimited, cliExitTemporaryUnavailable, true},

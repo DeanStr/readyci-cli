@@ -58,7 +58,8 @@ func (r *Retention) RequiredOmissions() bool {
 func IsTestReportPath(name string) bool {
 	lower := strings.ToLower(name)
 	base := path.Base(lower)
-	return strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".trx") ||
+	return strings.HasSuffix(lower, ".xml") || strings.HasSuffix(lower, ".xml.gz") ||
+		strings.HasSuffix(lower, ".junit.tar.gz") || strings.HasSuffix(lower, ".junit.tgz") || strings.HasSuffix(lower, ".trx") ||
 		strings.HasSuffix(lower, ".junit") || base == "junit.json" || base == "test-results.json"
 }
 
@@ -84,6 +85,11 @@ func DecodeRetention(data []byte) (*Retention, error) {
 		len(r.OmittedFiles) < 1 || len(r.OmittedFiles) > min(r.OmittedFileCount, MaxRetentionOmissions) ||
 		r.OmissionsTruncated != (r.OmittedFileCount > len(r.OmittedFiles)) {
 		return nil, fmt.Errorf("artifact retention manifest has invalid counts or version")
+	}
+	// Indexes and API responses use the normalized JSON form. Unescaped input
+	// must not bypass its byte contract by expanding during JSON serialization.
+	if encoded, err := json.Marshal(r); err != nil || len(encoded) > MaxRetentionManifestBytes {
+		return nil, fmt.Errorf("artifact retention manifest exceeds its normalized byte limit: %w", ErrTooLarge)
 	}
 	seen := map[string]bool{}
 	reports, workspace := 0, false

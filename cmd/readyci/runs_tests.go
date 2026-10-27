@@ -69,10 +69,20 @@ func printRunTestResults(result preflightapi.RunTestResults) {
 			fmt.Printf("    %s\n", sanitizeRunLogsSummaryText(test.Message))
 		}
 		fmt.Printf("    report: %s\n", sanitizeRunLogsSummaryText(test.ReportPath))
+		if test.ReportMemberPath != "" {
+			fmt.Printf("    member: %s\n", sanitizeRunLogsSummaryText(test.ReportMemberPath))
+		}
 	}
 	for _, report := range result.Reports {
 		if report.State != "parsed" {
 			fmt.Printf("  report %s: %s · %s\n", sanitizeRunLogsSummaryText(report.Path), report.State, report.Message)
+			if report.MemberPath != "" {
+				fmt.Printf("    member: %s\n", sanitizeRunLogsSummaryText(report.MemberPath))
+			}
+			if report.CountMismatch != nil {
+				counts := report.CountMismatch
+				fmt.Printf("    first inconsistent suite: declared=%d observed=%d disagreeing_suites=%d\n", counts.DeclaredTests, counts.ObservedTests, counts.MismatchedSuites)
+			}
 		}
 	}
 	if result.Truncated {

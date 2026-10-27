@@ -60,7 +60,7 @@ func AgentActionForClassification(kind string) string {
 		return preflightapi.AgentActionAskForCredentials
 	case preflightapi.ClassificationTimeout:
 		return preflightapi.AgentActionRetryOrSplit
-	case preflightapi.ClassificationSyncTooLarge, preflightapi.ClassificationCacheStorageExceeded:
+	case preflightapi.ClassificationSyncTooLarge, preflightapi.ClassificationArtifactLimitExceeded, preflightapi.ClassificationCacheStorageExceeded:
 		return preflightapi.AgentActionReduceScope
 	case preflightapi.ClassificationSyncFailed, preflightapi.ClassificationDependencyDownloadFailed:
 		return preflightapi.AgentActionRetry

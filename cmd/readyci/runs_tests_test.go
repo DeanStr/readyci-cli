@@ -5,11 +5,29 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
+
+func TestRunsTestsRetainsCompressedReportMemberAndCountDiagnostics(t *testing.T) {
+	result := preflightapi.RunTestResults{TestReportIndex: preflightapi.TestReportIndex{
+		State: "partial", Truncated: true,
+		Results: []preflightapi.StructuredTestResult{{Test: "case", Status: "failed", ReportPath: "reports.junit.tar.gz", ReportMemberPath: "nested/TEST-case.xml"}},
+		Reports: []preflightapi.TestReportSummary{{Path: "reports.junit.tar.gz", MemberPath: "nested/TEST-case.xml", State: "partial", CountMismatch: &preflightapi.TestReportCountMismatch{DeclaredTests: 860, ObservedTests: 1300, MismatchedSuites: 1}}},
+	}}
+	output, err := captureStdoutForCLITest(t, func() error { printRunTestResults(result); return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"report: reports.junit.tar.gz", "member: nested/TEST-case.xml", "declared=860 observed=1300 disagreeing_suites=1", "Result index is partial"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("output=%q missing %q", output, expected)
+		}
+	}
+}
 
 func TestRunsTestsUsesScopedEndpointAndRetainsDiagnosticState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

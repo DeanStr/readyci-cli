@@ -52,10 +52,17 @@ func TestNodeAliasImportChangesMajorOnlyWithObservedLTSRelease(t *testing.T) {
 }
 
 func TestNodeAliasImportRequiresReviewAcrossScheduledTransition(t *testing.T) {
-	transition := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
 	catalog := NodeRuntimeAliasCatalogMetadata()
+	transition := nextUnobservedNodeLTSTransition(t, catalog)
 	if catalog.ValidBefore.After(transition.Add(-24 * time.Hour)) {
 		t.Fatalf("catalog validity %s reaches an unreviewed LTS transition", catalog.ValidBefore)
+	}
+	// A new timestamp cannot skip a transition that the manifest still does
+	// not establish. Only observing a newer stable LTS release moves the guard.
+	laterReview := catalog
+	laterReview.ReviewedAt = transition.Add(72 * time.Hour)
+	if got := nextUnobservedNodeLTSTransition(t, laterReview); !got.Equal(transition) {
+		t.Fatalf("later review skipped an unobserved transition: %s -> %s", transition, got)
 	}
 	for _, tc := range []struct {
 		name string
@@ -64,7 +71,7 @@ func TestNodeAliasImportRequiresReviewAcrossScheduledTransition(t *testing.T) {
 		{"before transition", transition.Add(-24 * time.Hour)},
 		{"transition day", transition.Add(12 * time.Hour)},
 		{"three days later", transition.Add(72 * time.Hour)},
-		{"months later", time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC)},
+		{"months later", transition.AddDate(0, 6, 0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			record, err := ResolveRuntimeAlias("node", "lts/*", tc.now)
@@ -73,6 +80,34 @@ func TestNodeAliasImportRequiresReviewAcrossScheduledTransition(t *testing.T) {
 			}
 		})
 	}
+}
+
+func nextUnobservedNodeLTSTransition(t *testing.T, catalog NodeRuntimeAliasCatalog) time.Time {
+	t.Helper()
+	observedMajor := 0
+	for _, release := range catalog.Releases {
+		if release.Stable && release.LTS != "" {
+			version, err := parseRuntimeVersion(release.Version)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observedMajor = max(observedMajor, version.parts[0])
+		}
+	}
+	var transition time.Time
+	for _, series := range catalog.Series {
+		start, err := time.Parse("2006-01-02", series.LTSStart)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if series.Major > observedMajor && (transition.IsZero() || start.Before(transition)) {
+			transition = start
+		}
+	}
+	if transition.IsZero() {
+		t.Fatal("reviewed schedule must bound the next unobserved LTS transition")
+	}
+	return transition
 }
 
 func TestNodeAliasImportUsesOrdinaryNumericRuntimePolicy(t *testing.T) {

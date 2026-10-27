@@ -140,7 +140,7 @@ func TestLocalDiagnosisEvidencePriorities(t *testing.T) {
 		Type:     preflightapi.EventCommandExited,
 		ExitCode: &commandExitCode,
 	}}, tooLargeReason)
-	if tooLargeArtifact.Classification != preflightapi.ClassificationSyncTooLarge || tooLargeArtifact.Retryable || tooLargeArtifact.AgentAction != preflightapi.AgentActionReduceScope || tooLargeArtifact.Summary != tooLargeReason {
+	if tooLargeArtifact.Classification != preflightapi.ClassificationArtifactLimitExceeded || tooLargeArtifact.Retryable || tooLargeArtifact.AgentAction != preflightapi.AgentActionReduceScope || tooLargeArtifact.Summary != tooLargeReason {
 		t.Fatalf("too-large artifact analysis = %+v, want reduce-scope diagnosis", tooLargeArtifact)
 	}
 	reachableRegistry := localAnalyzeRunFailureWithNetworkMode(preflightapi.StatusFailed, "docker pull missing/image", &exitCode, []preflightapi.RunEvent{{

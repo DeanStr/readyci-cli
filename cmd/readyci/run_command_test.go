@@ -390,8 +390,8 @@ func TestEffectiveRunNetworkModeHandlesDockerModes(t *testing.T) {
 	if got, err := effectiveRunNetworkMode("default", true, true); err != nil || got != "default" {
 		t.Fatalf("explicit default docker network mode = %q, %v; want default, nil", got, err)
 	}
-	if _, err := effectiveRunNetworkMode("allowlist", true, true); err == nil {
-		t.Fatal("explicit allowlist docker network mode succeeded")
+	if got, err := effectiveRunNetworkMode("allowlist", true, true); err != nil || got != "allowlist" {
+		t.Fatalf("explicit allowlist docker network mode = %q, %v; want allowlist, nil", got, err)
 	}
 	if got, err := effectiveRunNetworkMode("default", false, false); err != nil || got != "default" {
 		t.Fatalf("non-docker network mode = %q, %v; want default, nil", got, err)

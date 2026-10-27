@@ -545,3 +545,12 @@ func TestAgentArtifactsApplyPreviewsByDefaultAndConfirmsWrites(t *testing.T) {
 		t.Fatalf("confirmed fixture content = %q, want remote fixture", data)
 	}
 }
+
+func TestEvidencePacksRecognizeExplicitCompressedJUnit(t *testing.T) {
+	for _, path := range []string{"reports/TEST-api.xml.gz", "reports/api.junit.tar.gz", "reports/api.junit.tgz"} {
+		kind, _, ok := evidencePackKindForPath(path)
+		if !ok || kind != "junit" {
+			t.Errorf("compressed report %q kind=%q accepted=%v", path, kind, ok)
+		}
+	}
+}

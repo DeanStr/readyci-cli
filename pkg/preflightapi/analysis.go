@@ -20,6 +20,7 @@ const (
 	ClassificationProjectNotFound          = "project_not_found"
 	ClassificationSyncFailed               = "sync_failed"
 	ClassificationSyncTooLarge             = "sync_too_large"
+	ClassificationArtifactLimitExceeded    = "artifact_limit_exceeded"
 	ClassificationCacheStorageExceeded     = "cache_storage_exceeded"
 	ClassificationWorkerUnavailable        = "worker_unavailable"
 	ClassificationWorkerCapabilityMismatch = "worker_capability_mismatch"

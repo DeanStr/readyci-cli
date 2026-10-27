@@ -11,15 +11,25 @@ import (
 )
 
 func checkCatalog(now time.Time, minimumValidity time.Duration) error {
-	if minimumValidity < 0 {
-		return fmt.Errorf("minimum validity must be non-negative")
+	catalog := preflightapi.NodeRuntimeAliasCatalogMetadata()
+	if err := checkCatalogWindow(now, minimumValidity, catalog.ReviewedAt, catalog.ValidBefore); err != nil {
+		return err
 	}
 	if _, err := preflightapi.ResolveRuntimeAlias("node", "lts/*", now); err != nil {
 		return err
 	}
-	catalog := preflightapi.NodeRuntimeAliasCatalogMetadata()
-	if !now.Add(minimumValidity).Before(catalog.ValidBefore) {
-		return fmt.Errorf("Node alias import catalog expires at %s, within %s; review a fresh official snapshot and publish an updated CLI for new alias imports", catalog.ValidBefore.Format(time.RFC3339), minimumValidity)
+	return nil
+}
+
+func checkCatalogWindow(now time.Time, minimumValidity time.Duration, reviewedAt, validBefore time.Time) error {
+	if minimumValidity < 0 {
+		return fmt.Errorf("minimum validity must be non-negative")
+	}
+	if !reviewedAt.Before(validBefore) || now.Before(reviewedAt) || !now.Before(validBefore) {
+		return fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the CLI import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), reviewedAt.Format(time.RFC3339), validBefore.Format(time.RFC3339))
+	}
+	if !now.Add(minimumValidity).Before(validBefore) {
+		return fmt.Errorf("Node alias import catalog expires at %s, within %s; review a fresh official snapshot and publish an updated CLI for new alias imports", validBefore.Format(time.RFC3339), minimumValidity)
 	}
 	return nil
 }

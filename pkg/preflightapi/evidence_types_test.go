@@ -51,3 +51,30 @@ func TestNormalizeStructuredTestResult(t *testing.T) {
 		t.Fatal("accepted escaping structured test path")
 	}
 }
+
+func TestNormalizeStructuredTestResultReportArchiveMember(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, member string
+		valid              bool
+	}{
+		{"nested report", "reports.junit.tar.gz", "nested/TEST-one.xml", true},
+		{"missing container", "", "nested/TEST-one.xml", false},
+		{"not a report container", "junit.xml", "nested/TEST-one.xml", false},
+		{"not XML", "reports.junit.tar.gz", "nested/member.json", false},
+		{"invalid encoding", "reports.junit.tar.gz", "nested/\xff.xml", false},
+		{"noncanonical member", "reports.junit.tar.gz", "nested/../TEST-one.xml", false},
+		{"traversal", "reports.junit.tar.gz", "../TEST-one.xml", false},
+		{"absolute", "reports.junit.tar.gz", "/TEST-one.xml", false},
+		{"control path", "reports.junit.tar.gz", ".git/TEST-one.xml", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := NormalizeStructuredTestResult(StructuredTestResult{Adapter: "junit", Test: "one", Status: "passed", Attempt: 1, ReportPath: tc.path, ReportMemberPath: tc.member})
+			if (err == nil) != tc.valid {
+				t.Fatalf("result=%+v error=%v", got, err)
+			}
+			if tc.valid && (got.ReportPath != tc.path || got.ReportMemberPath != tc.member) {
+				t.Fatalf("archive identity changed: %+v", got)
+			}
+		})
+	}
+}

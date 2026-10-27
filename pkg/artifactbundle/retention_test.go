@@ -3,7 +3,10 @@ package artifactbundle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -87,5 +90,35 @@ func TestRetentionManifestDecoderIsBoundedAndStrict(t *testing.T) {
 	decoded, err := DecodeRetention(data)
 	if err != nil || decoded.RequiredOmissions() {
 		t.Fatalf("optional omission changed: %+v %v", decoded, err)
+	}
+}
+
+func TestCompressedJUnitArtifactCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		report bool
+	}{{"reports/TEST-one.xml.gz", true}, {"results.junit.tar.gz", true}, {"results.junit.tgz", true}, {"source.tar.gz", false}, {"trace.zip", false}} {
+		if got := IsTestReportPath(tc.name); got != tc.report {
+			t.Errorf("IsTestReportPath(%q)=%v", tc.name, got)
+		}
+	}
+}
+
+func TestRetentionNormalizedJSONCannotExceedByteContract(t *testing.T) {
+	r := Retention{SchemaVersion: RetentionSchemaVersion, MatchedFileCount: MaxRetentionOmissions + 1, RetainedFileCount: 1, OmittedFileCount: MaxRetentionOmissions, OmittedReportCount: MaxRetentionOmissions}
+	for i := 0; i < MaxRetentionOmissions; i++ {
+		r.OmittedFiles = append(r.OmittedFiles, OmittedFile{Path: "reports/" + strings.Repeat("<", 4000) + fmt.Sprintf("-%03d.xml", i), SizeBytes: 1, Reason: "bundle_limit"})
+	}
+	var raw bytes.Buffer
+	encoder := json.NewEncoder(&raw)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(r); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Len() >= MaxRetentionManifestBytes {
+		t.Fatalf("fixture source already too large: %d", raw.Len())
+	}
+	if _, err := DecodeRetention(raw.Bytes()); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("normalized oversized metadata accepted: %v", err)
 	}
 }

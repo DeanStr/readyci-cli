@@ -150,9 +150,6 @@ func EffectiveRunNetworkMode(networkMode string, docker, networkModeProvided boo
 	if !networkModeProvided && networkMode == "default" {
 		return "none", nil
 	}
-	if networkMode == "allowlist" {
-		return "", fmt.Errorf("docker runs do not support network mode allowlist yet")
-	}
 	return networkMode, nil
 }
 

@@ -61,6 +61,9 @@
     "report_path": {
       "type": "string"
     },
+    "report_member_path": {
+      "type": "string"
+    },
     "message_truncated": {
       "type": "boolean"
     },

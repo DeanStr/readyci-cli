@@ -18,8 +18,8 @@ func localTerminalArtifactUploadFailureClassification(failureReason string, even
 			if *event.ExitCode != 0 {
 				return ""
 			}
-			if localSyncTooLargeFailureText(strings.ToLower(failureReason)) {
-				return preflightapi.ClassificationSyncTooLarge
+			if localArtifactLimitFailureText(strings.ToLower(failureReason)) {
+				return preflightapi.ClassificationArtifactLimitExceeded
 			}
 			return preflightapi.ClassificationSyncFailed
 		}
@@ -52,6 +52,18 @@ func localFailedCommandExitEvent(events []preflightapi.RunEvent) bool {
 		}
 	}
 	return false
+}
+
+func localArtifactLimitFailureText(lower string) bool {
+	if localContainsAny(lower,
+		"artifact collection incomplete",
+		"artifact bundle too large",
+		"required artifacts omitted during bounded collection",
+		"required artifacts were omitted during bounded collection",
+	) {
+		return true
+	}
+	return strings.Contains(lower, "artifact upload failed:") && localSyncTooLargeFailureText(lower)
 }
 
 func localSyncTooLargeFailureText(lower string) bool {
@@ -400,6 +412,8 @@ func localDefaultSummary(kind string) string {
 		return "Workspace sync failed."
 	case preflightapi.ClassificationSyncTooLarge:
 		return "Workspace sync exceeded the size limit."
+	case preflightapi.ClassificationArtifactLimitExceeded:
+		return "Selected run artifacts exceeded an artifact collection or upload limit."
 	case preflightapi.ClassificationWorkerCapabilityMismatch:
 		return "No worker matched the run requirements."
 	case preflightapi.ClassificationNetworkNotAllowed:

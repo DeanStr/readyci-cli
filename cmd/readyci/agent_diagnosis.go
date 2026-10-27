@@ -103,6 +103,8 @@ func rootCauseForClassification(kind string) string {
 		return "Workspace upload or materialization failed before command execution completed."
 	case preflightapi.ClassificationSyncTooLarge:
 		return "The workspace bundle exceeded Ready CI sync limits."
+	case preflightapi.ClassificationArtifactLimitExceeded:
+		return "Selected run artifacts exceeded Ready CI artifact limits; inspect .readyci/artifact-retention.json and reduce or compress the selected output."
 	case preflightapi.ClassificationCacheStorageExceeded:
 		return "The run exceeded the configured cache storage policy."
 	case preflightapi.ClassificationWorkerUnavailable:

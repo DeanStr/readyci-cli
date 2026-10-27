@@ -35,6 +35,7 @@ func TestClassificationPolicy(t *testing.T) {
 		{preflightapi.ClassificationNetworkNotAllowed, false, preflightapi.AgentActionReportSetup},
 		{preflightapi.ClassificationTimeout, true, preflightapi.AgentActionRetryOrSplit},
 		{preflightapi.ClassificationSyncTooLarge, false, preflightapi.AgentActionReduceScope},
+		{preflightapi.ClassificationArtifactLimitExceeded, false, preflightapi.AgentActionReduceScope},
 		{preflightapi.ClassificationCacheStorageExceeded, false, preflightapi.AgentActionReduceScope},
 		{preflightapi.ClassificationSyncFailed, true, preflightapi.AgentActionRetry},
 		{preflightapi.ClassificationDependencyDownloadFailed, true, preflightapi.AgentActionRetry},

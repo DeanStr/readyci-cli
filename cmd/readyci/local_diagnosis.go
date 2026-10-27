@@ -115,8 +115,8 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	// failure retains the existing delivery classification, even with prep logs.
 	if strings.HasPrefix(strings.ToLower(primaryFailureReason), "artifact upload failed:") {
 		kind := preflightapi.ClassificationSyncFailed
-		if localSyncTooLargeFailureText(strings.ToLower(primaryFailureReason)) {
-			kind = preflightapi.ClassificationSyncTooLarge
+		if localArtifactLimitFailureText(strings.ToLower(primaryFailureReason)) {
+			kind = preflightapi.ClassificationArtifactLimitExceeded
 		}
 		analysis := localFailureAnalysis(kind, 0.6, localDefaultSummary(kind), primaryFailureReason)
 		analysis.Evidence = evidence
@@ -214,8 +214,8 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	if strings.HasPrefix(strings.ToLower(primaryFailureReason), "artifact upload failed:") {
 		kind = preflightapi.ClassificationSyncFailed
 		confidence = 0.6
-		if localSyncTooLargeFailureText(strings.ToLower(primaryFailureReason)) {
-			kind = preflightapi.ClassificationSyncTooLarge
+		if localArtifactLimitFailureText(strings.ToLower(primaryFailureReason)) {
+			kind = preflightapi.ClassificationArtifactLimitExceeded
 		}
 	}
 	if (kind == preflightapi.ClassificationDependencyDownloadFailed || kind == preflightapi.ClassificationTestFailed) &&

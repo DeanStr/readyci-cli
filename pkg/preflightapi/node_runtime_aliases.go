@@ -50,19 +50,19 @@ type NodeRuntimeAliasCatalog struct {
 // manifest at review. The schedule bounds validity before the next transition;
 // it cannot establish that a release was published or entered the manifest.
 func NodeRuntimeAliasCatalogMetadata() NodeRuntimeAliasCatalog {
-	return nodeRuntimeAliasCatalog20261024()
+	return nodeRuntimeAliasCatalog20261025()
 }
 
-func nodeRuntimeAliasCatalog20261024() NodeRuntimeAliasCatalog {
+func nodeRuntimeAliasCatalog20261025() NodeRuntimeAliasCatalog {
 	return NodeRuntimeAliasCatalog{
 		Schema: "readyci.node_runtime_alias_catalog.v2", Policy: RuntimeResolutionPolicySetupNodeLTSImport,
-		SourceURL:         "https://raw.githubusercontent.com/actions/node-versions/c5f220c78c527ccc4bea4bbc2a5d78d2fc035972/versions-manifest.json",
-		SourceSHA256:      "70d6102a80ec4a7e1f0e54673d37981887e17d74fa5e2f0f9a1947f88d86bb1f",
+		SourceURL:         "https://raw.githubusercontent.com/actions/node-versions/810ef37cb22ad2b0d8da543e1644e4afc366f496/versions-manifest.json",
+		SourceSHA256:      "c99b512c5a0d27b742d420625dea067e4c608fd64dc7834dd615b9e8d8010812",
 		ScheduleURL:       "https://raw.githubusercontent.com/nodejs/Release/de0b20f409ba90dcde129b4bfb85b47c3c422ecb/schedule.json",
 		ScheduleSHA256:    "26c8e4743fc3a76d686a038c2df40426bc3bdc7a018cb83f3b88bbf89f45436f",
 		ReviewedActionRef: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1",
-		ReviewedAt:        time.Date(2026, 10, 24, 3, 48, 40, 0, time.UTC), ValidBefore: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
-		Releases: []NodeRuntimeAliasRelease{{Version: "26.12.0", Stable: true}, {Version: "24.22.0", Stable: true, LTS: "Krypton"}, {Version: "22.23.3", Stable: true, LTS: "Jod"}, {Version: "20.20.2", Stable: true, LTS: "Iron"}},
+		ReviewedAt:        time.Date(2026, 10, 25, 22, 53, 34, 0, time.UTC), ValidBefore: time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC),
+		Releases: []NodeRuntimeAliasRelease{{Version: "26.12.1", Stable: true}, {Version: "24.22.1", Stable: true, LTS: "Krypton"}, {Version: "22.23.4", Stable: true, LTS: "Jod"}, {Version: "20.20.2", Stable: true, LTS: "Iron"}},
 		Series:   []NodeRuntimeAliasSeries{{Major: 20, LTSStart: "2023-10-24"}, {Major: 22, LTSStart: "2024-10-29"}, {Major: 24, LTSStart: "2025-10-28"}, {Major: 26, LTSStart: "2026-10-28"}, {Major: 27, LTSStart: "2027-10-20"}},
 	}
 }
