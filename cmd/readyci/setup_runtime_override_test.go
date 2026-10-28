@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -32,9 +34,14 @@ func writeSetupRuntimeOverrideFixture(t *testing.T, version, inputs string) {
 func TestSetupExplicitRuntimeSurvivesCatalogExpiry(t *testing.T) {
 	withReviewedAliasClock(t, preflightapi.NodeRuntimeAliasCatalogMetadata().ValidBefore.Add(time.Hour))
 	writeSetupRuntimeOverrideFixture(t, "lts/*", "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "runtime alias catalog needs review", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	t.Setenv("READYCI_API_URL", server.URL)
 	if _, err := captureStdoutForCLITest(t, func() error {
 		return setupCommand([]string{"--print", "--project", "fixture"})
-	}); err == nil || !strings.Contains(err.Error(), "catalog is not valid") {
+	}); err == nil || !strings.Contains(err.Error(), "catalog needs review") {
 		t.Fatal("expired catalog must still block an implicit alias import")
 	}
 	printed, err := captureStdoutForCLITest(t, func() error {

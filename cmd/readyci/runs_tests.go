@@ -56,6 +56,14 @@ func printRunTestResults(result preflightapi.RunTestResults) {
 		}
 	}
 	fmt.Printf("reported_tests: %d passed, %d failed, %d errors, %d skipped\n", result.Counts.Passed, result.Counts.Failed, result.Counts.Errors, result.Counts.Skipped)
+	if selection := result.Selection; selection != nil && (selection.ReportsOmitted > 0 || selection.ResultsOmitted > 0 || !selection.ScanComplete) {
+		fmt.Printf("test_index_selection: observed_reports=%d omitted_reports=%d observed_tests=%d omitted_tests=%d scan_complete=%t\n", selection.ReportsObserved, selection.ReportsOmitted, selection.ResultsObserved, selection.ResultsOmitted, selection.ScanComplete)
+		counts := selection.ObservedCounts
+		fmt.Printf("observed_tests: %d passed, %d failed, %d errors, %d skipped\n", counts.Passed, counts.Failed, counts.Errors, counts.Skipped)
+		if !selection.ScanComplete {
+			fmt.Println("Observed and omitted counts are lower bounds; invalid or limited reports could not be fully inspected.")
+		}
+	}
 	for _, test := range result.Results {
 		duration := "duration unavailable"
 		if test.DurationMS != nil {

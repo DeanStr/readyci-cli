@@ -51,7 +51,7 @@ func setupCommand(args []string) error {
 	networkAllowlist := fs.String("network-allowlist", "", "replace generated network policy with this reviewed comma-separated allowlist for the entire check")
 	var runtimeSelections stringSliceFlag
 	fs.Var(&runtimeSelections, "runtime", "pin an imported workflow runtime numerically, e.g. node=24 or python=3.12; repeatable for node, go, python, pnpm")
-	printConfig := fs.Bool("print", false, "print starter configuration locally without authentication or writes")
+	printConfig := fs.Bool("print", false, "print starter configuration without authentication or writes; moving runtime aliases use the API")
 	preview := fs.Bool("preview", false, "inspect setup without writing files, signing in, or running checks")
 	yes := fs.Bool("yes", false, "save configuration and run the first check without prompts; requires authentication")
 	runCheck := fs.Bool("run", false, "preview and run the selected remote check")
@@ -116,6 +116,9 @@ func setupCommand(args []string) error {
 	if *runCheck && (*jsonOutput || *makefile || *helper != "" || *writeHelper) {
 		return cliConfigError("--run cannot be combined with --json or helper output; use readyci check --json for execution", nil)
 	}
+	previousAliasResolver := setupRuntimeAliasResolve
+	setupRuntimeAliasResolve = setupAPIRuntimeAliasResolver(*apiURL)
+	defer func() { setupRuntimeAliasResolve = previousAliasResolver }()
 	if *printConfig {
 		if *runCheck || *writeConfig || *writeMakefile || *writeHelpers || *writeHelper || *makefile || *helper != "" || *jsonOutput {
 			return cliConfigError("--print cannot be combined with execution, writes, helper output, or --json", nil)

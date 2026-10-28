@@ -10,6 +10,21 @@ import (
 
 const RuntimeResolutionPolicySetupNodeLTSImport = "setup_node_lts_import_v1"
 
+// RuntimeAliasRequest is a setup-only request. Moving selectors never enter a
+// run specification or authorize runtime downloads.
+type RuntimeAliasRequest struct {
+	Runtime   string `json:"runtime"`
+	Selector  string `json:"selector"`
+	ActionRef string `json:"action_ref"`
+}
+
+func ResolveSetupRuntimeAlias(request RuntimeAliasRequest, now time.Time) (RuntimeResolution, error) {
+	if request.ActionRef != NodeRuntimeAliasCatalogMetadata().ReviewedActionRef {
+		return RuntimeResolution{}, fmt.Errorf("moving LTS selector requires the reviewed pinned setup-node action; choose an explicit numeric runtime for other action references")
+	}
+	return ResolveRuntimeAlias(request.Runtime, request.Selector, now)
+}
+
 // RuntimeResolution is setup-import provenance for a reviewed moving declaration.
 // It is never configuration or execution input; the saved numeric requirement
 // uses the ordinary server-owned runtime and archive policy.
@@ -113,7 +128,7 @@ func canonicalRuntimeAliasFromCatalog(runtime, selector string, catalog NodeRunt
 func ResolveRuntimeAlias(runtime, selector string, now time.Time) (RuntimeResolution, error) {
 	catalog := NodeRuntimeAliasCatalogMetadata()
 	if now.Before(catalog.ReviewedAt) || !now.Before(catalog.ValidBefore) {
-		return RuntimeResolution{}, fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the CLI import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), catalog.ReviewedAt.Format(time.RFC3339), catalog.ValidBefore.Format(time.RFC3339))
+		return RuntimeResolution{}, fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the service import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), catalog.ReviewedAt.Format(time.RFC3339), catalog.ValidBefore.Format(time.RFC3339))
 	}
 	return canonicalRuntimeAliasFromCatalog(runtime, selector, catalog)
 }

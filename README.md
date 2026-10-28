@@ -406,7 +406,7 @@ network access.
 
 The reviewed `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1`
 import supports `node-version: lts/*` with omitted or false `check-latest`.
-Setup resolves the selector once to a numeric major (currently `24`) and
+Setup asks the service to resolve the selector once to a reviewed numeric major and
 reports the original selector and reviewed catalog under the selected import
 candidate. The generated configuration states that the saved check does not
 track future LTS changes. It uses ordinary numeric runtime selection, and
@@ -420,8 +420,10 @@ Alias provenance is report-only. Configuration and execution accept numeric
 runtime requirements and reject `runtime_resolutions`. The dedicated Runtime
 Catalog Freshness workflow checks for expiry daily; unrelated builds and
 releases do not depend on the catalog's clock. Refreshing the import catalog
-requires an updated CLI, while the API and worker keep their numeric runtime
-and approved archive policy. See the
+requires a reviewed service deployment. Installed clients use the updated service
+catalog without another CLI release; historical clients with a compiled catalog
+need a one-time upgrade. The API and worker keep their numeric execution and
+approved archive policy. See the
 [runtime configuration contract](../docs/user/configuration.md#checks).
 
 Choose a numeric runtime explicitly with `readyci setup --runtime node=24`

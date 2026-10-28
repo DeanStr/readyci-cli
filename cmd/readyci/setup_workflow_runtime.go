@@ -22,6 +22,11 @@ func setupSupportedRuntimeAction(action string) bool {
 // Runtime actions are requirements on an installed runner toolchain, rather
 // than an execution of third-party actions or a download during detection.
 var setupRuntimeResolutionNow = time.Now
+var setupRuntimeAliasResolve = func(preflightapi.RuntimeAliasRequest, time.Time) (preflightapi.RuntimeResolution, error) {
+	// Offline inventory cannot establish a moving alias. Setup installs the
+	// service resolver for its invocation; other discovery stays source-only.
+	return preflightapi.RuntimeResolution{}, fmt.Errorf("moving runtime aliases require readyci setup with the service catalog or an explicit numeric runtime")
+}
 
 func setupRuntimePinNotices(resolutions map[string]preflightapi.RuntimeResolution) []string {
 	var notices []string
@@ -113,17 +118,13 @@ func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runt
 				problems = append(problems, "a moving Node selector combined with multiple setup-node steps requires explicit configuration; sequential runtime changes are not imported")
 				continue
 			}
-			if pins[runtime] == "" && step.Uses != preflightapi.NodeRuntimeAliasCatalogMetadata().ReviewedActionRef {
-				problems = append(problems, action+" moving LTS selector requires the reviewed pinned setup-node action; other action references need explicit numeric configuration")
-				continue
-			}
 			if pin := pins[runtime]; pin != "" {
 				// An explicit user choice replaces this moving selector, not
 				// the source's independent numeric compatibility requirements.
 				version = pin
 			} else {
 				var record preflightapi.RuntimeResolution
-				record, err = preflightapi.ResolveRuntimeAlias(runtime, version, setupRuntimeResolutionNow())
+				record, err = setupRuntimeAliasResolve(preflightapi.RuntimeAliasRequest{Runtime: runtime, Selector: version, ActionRef: step.Uses}, setupRuntimeResolutionNow())
 				if err != nil {
 					err = fmt.Errorf("%w; choose an explicit numeric version with readyci setup --runtime node=VERSION", err)
 				}

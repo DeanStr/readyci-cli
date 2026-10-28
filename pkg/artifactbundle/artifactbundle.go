@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/DeanStr/readyci-cli/pkg/guestcontract"
 )
@@ -429,7 +430,9 @@ func validatePatternSyntax(pattern string) error {
 }
 
 func ValidateArchivePath(value string) (string, error) {
-	if strings.Contains(value, "\\") {
+	// Manifest paths must survive a JSON round trip without replacement or
+	// collisions. Unix filenames and GNU tar headers can contain arbitrary bytes.
+	if !utf8.ValidString(value) || strings.Contains(value, "\\") {
 		return "", fmt.Errorf("invalid artifact path %q", value)
 	}
 	rel := slashPath(value)

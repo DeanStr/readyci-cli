@@ -409,3 +409,26 @@ func equalStrings(left, right []string) bool {
 	}
 	return true
 }
+
+func TestArtifactPathsRejectInvalidUTF8BeforeSerialization(t *testing.T) {
+	for _, name := range []string{"report-\xff.txt", "report-\xfe.txt"} {
+		if _, err := ValidateArchivePath(name); err == nil {
+			t.Fatalf("accepted invalid UTF-8 path %q", name)
+		}
+		var output bytes.Buffer
+		if _, err := WriteArchive(&output, []ArchiveFile{{Path: name, Data: []byte("report")}}); err == nil {
+			t.Fatalf("writer accepted invalid UTF-8 path %q", name)
+		}
+		archive := tarGzipArchive(t, func(t *testing.T, w *tar.Writer) {
+			if err := w.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Format: tar.FormatGNU}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if _, err := Validate(bytes.NewReader(archive)); err == nil {
+			t.Fatalf("reader accepted invalid UTF-8 path %q", name)
+		}
+	}
+	if _, err := ValidateArchivePath("reports/日本語-�.txt"); err != nil {
+		t.Fatalf("valid Unicode rejected: %v", err)
+	}
+}

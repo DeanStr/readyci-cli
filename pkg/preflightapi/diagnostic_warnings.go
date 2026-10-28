@@ -19,7 +19,11 @@ type DiagnosticWarning struct {
 }
 
 func TestReportExecutionWarnings(status string, results *RunTestResults) []DiagnosticWarning {
-	if status != StatusSucceeded || results == nil || results.Counts.Failed <= 0 && results.Counts.Errors <= 0 {
+	if status != StatusSucceeded || results == nil {
+		return nil
+	}
+	observedFailure := results.Selection != nil && (results.Selection.ObservedCounts.Failed > 0 || results.Selection.ObservedCounts.Errors > 0)
+	if results.Counts.Failed <= 0 && results.Counts.Errors <= 0 && !observedFailure {
 		return nil
 	}
 	return []DiagnosticWarning{{

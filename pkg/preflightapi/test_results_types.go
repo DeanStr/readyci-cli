@@ -14,6 +14,22 @@ type TestReportIndex struct {
 	// OmittedReportCount counts path-based candidates, not confirmed JUnit files
 	// or tests. Counts describes retained indexed test results only.
 	Collection *artifactbundle.Retention `json:"collection,omitempty"`
+	// Selection describes bounded discovery and omissions from this index.
+	// Counts still describes only the retained Results.
+	Selection *TestReportSelection `json:"selection,omitempty"`
+}
+
+// TestReportSelection distinguishes observed report contents from retained
+// summaries/results. Case observations include only fully parsed valid reports
+// (including declared-count mismatches). Invalid or limited reports make the
+// observed values lower bounds; omitted values then cover only those observed.
+type TestReportSelection struct {
+	ReportsObserved int              `json:"reports_observed"`
+	ReportsOmitted  int              `json:"reports_omitted"`
+	ResultsObserved int              `json:"results_observed"`
+	ResultsOmitted  int              `json:"results_omitted"`
+	ObservedCounts  TestResultCounts `json:"observed_counts"`
+	ScanComplete    bool             `json:"scan_complete"`
 }
 
 type TestReportSummary struct {

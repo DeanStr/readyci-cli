@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -60,6 +62,26 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 	// New imports use the current reviewed catalog; native proof retains its
 	// original catalog. Refreshes within the same series do not rewrite proof.
 	withReviewedAliasClock(t, preflightapi.NodeRuntimeAliasCatalogMetadata().ReviewedAt.Add(time.Minute))
+	aliasServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/runtime-aliases/resolve" {
+			t.Errorf("unexpected setup request: %s", r.URL.Path)
+			http.NotFound(w, r)
+			return
+		}
+		var request preflightapi.RuntimeAliasRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			http.Error(w, "invalid request", 400)
+			return
+		}
+		resolution, err := preflightapi.ResolveSetupRuntimeAlias(request, setupRuntimeResolutionNow())
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		writeCLITestJSON(w, http.StatusOK, resolution)
+	}))
+	defer aliasServer.Close()
 	root, err := filepath.Abs("testdata/setup-matched-jobs")
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +128,7 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 			}
 
 			printed, err := captureStdoutForCLITest(t, func() error {
-				return setupCommand([]string{"--print", "--project", "matched-fixture", "--candidate", fixture.CandidateID,
+				return setupCommand([]string{"--api-url", aliasServer.URL, "--print", "--project", "matched-fixture", "--candidate", fixture.CandidateID,
 					"--image", "ubuntu-24.04-ci", "--network-allowlist", strings.Join(fixture.ReviewedNetworkAllowlist, ",")})
 			})
 			if err != nil {

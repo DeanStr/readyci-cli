@@ -26,10 +26,10 @@ func checkCatalogWindow(now time.Time, minimumValidity time.Duration, reviewedAt
 		return fmt.Errorf("minimum validity must be non-negative")
 	}
 	if !reviewedAt.Before(validBefore) || now.Before(reviewedAt) || !now.Before(validBefore) {
-		return fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the CLI import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), reviewedAt.Format(time.RFC3339), validBefore.Format(time.RFC3339))
+		return fmt.Errorf("reviewed Node alias catalog is not valid at %s (valid from %s before %s); update the service import catalog or choose an explicit numeric runtime", now.UTC().Format(time.RFC3339), reviewedAt.Format(time.RFC3339), validBefore.Format(time.RFC3339))
 	}
 	if !now.Add(minimumValidity).Before(validBefore) {
-		return fmt.Errorf("Node alias import catalog expires at %s, within %s; review a fresh official snapshot and publish an updated CLI for new alias imports", validBefore.Format(time.RFC3339), minimumValidity)
+		return fmt.Errorf("Node alias import catalog expires at %s, within %s; review a fresh official snapshot and deploy the reviewed service catalog for new alias imports", validBefore.Format(time.RFC3339), minimumValidity)
 	}
 	return nil
 }

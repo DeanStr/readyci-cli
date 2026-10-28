@@ -19,8 +19,10 @@ import (
 func withReviewedAliasClock(t *testing.T, now time.Time) {
 	t.Helper()
 	prior := setupRuntimeResolutionNow
+	priorResolver := setupRuntimeAliasResolve
 	setupRuntimeResolutionNow = func() time.Time { return now }
-	t.Cleanup(func() { setupRuntimeResolutionNow = prior })
+	setupRuntimeAliasResolve = preflightapi.ResolveSetupRuntimeAlias
+	t.Cleanup(func() { setupRuntimeResolutionNow = prior; setupRuntimeAliasResolve = priorResolver })
 }
 
 func TestPinnedVueAliasImportPreservesAuthenticCommandAndScope(t *testing.T) {

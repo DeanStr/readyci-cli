@@ -24,6 +24,28 @@
     }
   ],
   "$defs": {
+    "testReportSelection": {
+      "type": "object", "additionalProperties": false,
+      "description": "Observed and omitted diagnostics from bounded report discovery. When scan_complete is false, observations and omissions are lower bounds; counts elsewhere still describe retained indexed cases only.",
+      "required": ["reports_observed", "reports_omitted", "results_observed", "results_omitted", "observed_counts", "scan_complete"],
+      "properties": {
+        "reports_observed": {"type": "integer", "minimum": 0},
+        "reports_omitted": {"type": "integer", "minimum": 0},
+        "results_observed": {"type": "integer", "minimum": 0},
+        "results_omitted": {"type": "integer", "minimum": 0},
+        "observed_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["passed", "failed", "errors", "skipped"],
+          "properties": {
+            "passed": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0},
+            "errors": {"type": "integer", "minimum": 0},
+            "skipped": {"type": "integer", "minimum": 0}
+          }
+        },
+        "scan_complete": {"type": "boolean"}
+      }
+    },
     "artifactRetention": {
       "type": "object",
       "additionalProperties": false,
@@ -733,8 +755,11 @@
       "properties": {
         "test_results": {
           "type": "object",
-          "description": "Service-derived retained results with snapshot/archive bindings and explicit collection omissions; not a coverage verdict.",
-          "properties": {"collection": {"$ref": "#/$defs/artifactRetention"}}
+          "description": "Service-derived retained results with snapshot/archive bindings, explicit collection omissions and bounded selection observations; not a coverage verdict.",
+          "properties": {
+            "collection": {"$ref": "#/$defs/artifactRetention"},
+            "selection": {"$ref": "#/$defs/testReportSelection"}
+          }
         },
         "runtime_diagnostics": {"$ref": "#/$defs/runtimeDiagnostics"},
         "timings": {"type": "object", "description": "Server-observed lifecycle timings, with explicit nulls for unavailable metrics."},
