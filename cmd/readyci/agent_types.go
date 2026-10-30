@@ -86,12 +86,13 @@ type agentNextAction struct {
 }
 
 type agentDiagnosis struct {
-	Kind        string  `json:"kind"`
-	Confidence  float64 `json:"confidence"`
-	Summary     string  `json:"summary"`
-	Retryable   bool    `json:"retryable"`
-	Action      string  `json:"agent_action"`
-	PrimaryFile string  `json:"primary_file,omitempty"`
+	Evidence    []preflightapi.RunFailureEvidence `json:"-"`
+	Kind        string                            `json:"kind"`
+	Confidence  float64                           `json:"confidence"`
+	Summary     string                            `json:"summary"`
+	Retryable   bool                              `json:"retryable"`
+	Action      string                            `json:"agent_action"`
+	PrimaryFile string                            `json:"primary_file,omitempty"`
 }
 
 type agentEvidence struct {

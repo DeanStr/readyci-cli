@@ -56,7 +56,7 @@ Verify the installer signature before running it:
 ```bash
 (
   set -eu
-  export READYCI_RELEASE_BASE_URL="https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.20"
+  export READYCI_RELEASE_BASE_URL="https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.21"
   export READYCI_RELEASE_MINISIGN_PUBKEY="RWSiWC6F4tE+M458zvmqGzOcQZvYD/Y6ww1/eo3Q88S+d3HuiXGK5wAE"
   installer_dir="$(mktemp -d)"
   trap 'rm -rf "$installer_dir"' EXIT
@@ -75,8 +75,8 @@ installer from the same release directory:
 ```powershell
 & {
     $ErrorActionPreference = 'Stop'
-    $env:READYCI_VERSION = 'v0.1.0-beta.20'
-    $env:READYCI_RELEASE_BASE_URL = 'https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.20'
+    $env:READYCI_VERSION = 'v0.1.0-beta.21'
+    $env:READYCI_RELEASE_BASE_URL = 'https://github.com/DeanStr/readyci-cli/releases/download/v0.1.0-beta.21'
     $readyciMinisignPublicKey = 'RWSiWC6F4tE+M458zvmqGzOcQZvYD/Y6ww1/eo3Q88S+d3HuiXGK5wAE'
     $bootstrapDir = Join-Path ([IO.Path]::GetTempPath()) ('readyci-bootstrap-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $bootstrapDir | Out-Null

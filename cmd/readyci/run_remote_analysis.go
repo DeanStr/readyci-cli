@@ -88,16 +88,25 @@ func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) 
 			Summary:        summary,
 			PrimaryFile:    strings.TrimSpace(result.PrimaryFile),
 		}
-		if result.Classification == preflightapi.ClassificationTestFailed {
+		if result.Classification == preflightapi.ClassificationTestFailed || result.Classification == preflightapi.ClassificationEnvironmentSetupFailed {
 			events := result.Events
 			if len(events) == 0 {
 				events = result.AnalysisEvents
 			}
-			events = repositoryTestOutputEvents(events)
+			if result.Classification == preflightapi.ClassificationTestFailed {
+				events = repositoryTestOutputEvents(events)
+			}
 			exitCode := runFailureExitCode(result, result.Status)
 			observed := localAnalyzeRunFailureWithNetworkMode(result.Status, command, exitCode, events, result.FailureReason, result.NetworkMode)
-			if refined, ok := refinedObservedTestFailureSummary(analysis.Classification, summary, observed); ok {
-				analysis.Summary, analysis.PrimaryFile = refined, observed.PrimaryFile
+			if observed.Classification == analysis.Classification {
+				// Hosted verdict and guidance stay authoritative. Carry locally
+				// selected evidence only when its classification agrees with them.
+				analysis.Evidence = append([]preflightapi.RunFailureEvidence(nil), observed.Evidence...)
+			}
+			if result.Classification == preflightapi.ClassificationTestFailed {
+				if refined, ok := refinedObservedTestFailureSummary(analysis.Classification, summary, observed); ok {
+					analysis.Summary, analysis.PrimaryFile = refined, observed.PrimaryFile
+				}
 			}
 		}
 		return analysis

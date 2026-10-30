@@ -122,13 +122,11 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		analysis.Evidence = evidence
 		return analysis
 	}
-	if failure := diagnosiscommon.EnvironmentPrerequisiteFailureFromEvents(events, exitCode); failure != nil {
+	if failure := diagnosiscommon.EnvironmentPrerequisiteFailureFromEvents(events, exitCode); failure != nil &&
+		(len(failure.SupportingEvidence) == 0 || primaryFailureReason == "") {
 		analysis := localFailureAnalysis(preflightapi.ClassificationEnvironmentSetupFailed, 0.7,
 			localDefaultSummary(preflightapi.ClassificationEnvironmentSetupFailed), failure.Summary)
-		analysis.Evidence = append([]preflightapi.RunFailureEvidence{failure.Evidence}, evidence...)
-		if len(analysis.Evidence) > 12 {
-			analysis.Evidence = analysis.Evidence[:12]
-		}
+		analysis.Evidence = failure.MergeEvidence(evidence, 12)
 		return analysis
 	}
 	if failure := diagnosiscommon.PreparationFailureFromEvents(events, exitCode); failure != nil {

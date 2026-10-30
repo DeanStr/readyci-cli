@@ -22,8 +22,33 @@ var (
 // EnvironmentPrerequisiteFailure records a concrete prerequisite diagnostic from
 // the final observed failed output scope. It assigns no hosted classification.
 type EnvironmentPrerequisiteFailure struct {
-	Summary  string
-	Evidence preflightapi.RunFailureEvidence
+	Summary            string
+	Evidence           preflightapi.RunFailureEvidence
+	SupportingEvidence []preflightapi.RunFailureEvidence
+}
+
+// MergeEvidence keeps the prerequisite and its corroboration ahead of ordinary
+// bounded diagnostics, without duplicating locations already selected there.
+func (failure *EnvironmentPrerequisiteFailure) MergeEvidence(ordinary []preflightapi.RunFailureEvidence, limit int) []preflightapi.RunFailureEvidence {
+	var selected []preflightapi.RunFailureEvidence
+	for _, group := range [][]preflightapi.RunFailureEvidence{{failure.Evidence}, failure.SupportingEvidence, ordinary} {
+		for _, item := range group {
+			if len(selected) >= limit {
+				return selected
+			}
+			duplicate := false
+			for _, previous := range selected {
+				if item.Seq == previous.Seq && item.Text == previous.Text {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
+				selected = append(selected, item)
+			}
+		}
+	}
+	return selected
 }
 
 // EnvironmentPrerequisiteFailureFromEvents recognizes explicit prerequisite failures in
@@ -33,6 +58,7 @@ func EnvironmentPrerequisiteFailureFromEvents(events []preflightapi.RunEvent, ex
 	if exitCode == nil || *exitCode == 0 {
 		return nil
 	}
+	allEvents := events
 	events = FinalCommandFailureEvents(events)
 	type source struct{ stream, phase, step string }
 	type pendingLine struct {
@@ -95,7 +121,7 @@ func EnvironmentPrerequisiteFailureFromEvents(events []preflightapi.RunEvent, ex
 			}
 		}
 	}
-	return nil
+	return wrappedScratchStorageFailure(allEvents)
 }
 
 func environmentPrerequisiteFailureFromLine(text, phase string, exitCode int, evidence preflightapi.RunFailureEvidence) *EnvironmentPrerequisiteFailure {
@@ -105,7 +131,8 @@ func environmentPrerequisiteFailureFromLine(text, phase string, exitCode int, ev
 	}
 	summary := ""
 	switch {
-	case goCompilerVersionMismatch.MatchString(line), nodeVersionUnavailable.MatchString(line), rustVersionUnavailable.MatchString(line):
+	case goCompilerVersionMismatch.MatchString(line), nodeVersionUnavailable.MatchString(line), rustVersionUnavailable.MatchString(line),
+		line == "go: cannot install cross-compiled binaries when GOBIN is set":
 		summary = line
 	case phase == "prepare" && (mesonExecutableMissing.MatchString(line) || shellRuntimeMissing.MatchString(line)):
 		summary = line

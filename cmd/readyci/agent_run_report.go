@@ -95,6 +95,7 @@ func agentDiagnosisFromAnalysis(analysis preflightapi.RunFailureAnalysis) agentD
 		Retryable:   analysis.Retryable,
 		Action:      analysis.AgentAction,
 		PrimaryFile: analysis.PrimaryFile,
+		Evidence:    append([]preflightapi.RunFailureEvidence(nil), analysis.Evidence...),
 	}
 }
 
@@ -158,6 +159,14 @@ func remoteRunResultFromDetailDiagnosis(detail preflightapi.RunDetail, status, f
 		FailureSummary: detail.Summary.FailureSummary,
 		PrimaryFile:    detail.Summary.PrimaryFile,
 		Events:         events,
+	}
+	// The display helper has a synthetic fallback for unknown failed exits.
+	// Only explicitly recorded values can authorize exit-sensitive diagnosis.
+	if terminalExitCode(events) != nil || detail.Summary.ExitCode != nil {
+		if exitCode := exitCodeForRunDetail(detail, events); exitCode != nil {
+			value := *exitCode
+			result.ExitCode = value
+		}
 	}
 	if exitCode := nonZeroCommandExitCode(events); exitCode != nil {
 		result.CommandExited = true

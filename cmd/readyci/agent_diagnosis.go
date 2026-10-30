@@ -26,6 +26,7 @@ func diagnoseRun(status, command string, events []preflightapi.RunEvent, runErr 
 		Retryable:   analysis.Retryable,
 		Action:      analysis.AgentAction,
 		PrimaryFile: analysis.PrimaryFile,
+		Evidence:    append([]preflightapi.RunFailureEvidence(nil), analysis.Evidence...),
 	}
 }
 
@@ -35,7 +36,16 @@ func classifyCommandError(err error) string {
 
 func evidenceFromEvents(events []preflightapi.RunEvent, limit int) []agentEvidence {
 	analysis := localAnalyzeRunFailure(preflightapi.StatusFailed, "", nil, events, "")
-	items := selectRunLogsFailureEvidence(analysis.Evidence, limit)
+	return agentEvidenceFromAnalysis(selectRunLogsFailureEvidence(analysis.Evidence, limit), limit)
+}
+
+func agentEvidenceFromAnalysis(items []preflightapi.RunFailureEvidence, limit int) []agentEvidence {
+	if limit <= 0 {
+		return nil
+	}
+	if len(items) > limit {
+		items = items[:limit]
+	}
 	evidence := make([]agentEvidence, 0, len(items))
 	for _, item := range items {
 		evidence = append(evidence, agentEvidence{
@@ -56,6 +66,14 @@ func evidenceForDiagnosis(diagnosis agentDiagnosis, events []preflightapi.RunEve
 	case preflightapi.ClassificationSuccess, preflightapi.ClassificationPending:
 		return nil
 	default:
+		if diagnosis.Kind == preflightapi.ClassificationEnvironmentSetupFailed && len(diagnosis.Evidence) > 0 {
+			// This order includes prerequisite corroboration selected with the
+			// actual status and exit; generic log filtering can discard it.
+			return agentEvidenceFromAnalysis(diagnosis.Evidence, limit)
+		}
+		// Ordinary failure evidence keeps its established warning-aware log
+		// selection. Event-only or disagreeing prerequisite observations use
+		// that same fallback rather than inventing correlated evidence.
 		return evidenceFromEvents(events, limit)
 	}
 }
