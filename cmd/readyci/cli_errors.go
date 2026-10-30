@@ -29,6 +29,7 @@ type cliError struct {
 	Classification    string
 	Retryable         bool
 	RetryAfterSeconds *int
+	Request           *preflightapi.APIRequestDiagnostics
 	Message           string
 	NextActions       []cliNextAction
 	Cause             error
@@ -59,14 +60,15 @@ type cliErrorEnvelope struct {
 }
 
 type cliErrorJSON struct {
-	Code                     string          `json:"code"`
-	Classification           string          `json:"classification"`
-	Retryable                bool            `json:"retryable"`
-	RetryAfterSeconds        *int            `json:"retry_after_seconds,omitempty"`
-	Message                  string          `json:"message"`
-	ResourceID               string          `json:"resource_id,omitempty"`
-	CancellationAcknowledged *bool           `json:"cancellation_acknowledged,omitempty"`
-	NextActions              []cliNextAction `json:"next_actions"`
+	Code                     string                              `json:"code"`
+	Classification           string                              `json:"classification"`
+	Retryable                bool                                `json:"retryable"`
+	RetryAfterSeconds        *int                                `json:"retry_after_seconds,omitempty"`
+	Request                  *preflightapi.APIRequestDiagnostics `json:"request,omitempty"`
+	Message                  string                              `json:"message"`
+	ResourceID               string                              `json:"resource_id,omitempty"`
+	CancellationAcknowledged *bool                               `json:"cancellation_acknowledged,omitempty"`
+	NextActions              []cliNextAction                     `json:"next_actions"`
 }
 
 type cliInterruptedError struct {
@@ -110,6 +112,14 @@ func cliAuthMissingError(message string, cause error) cliError {
 }
 
 func normalizeCLIError(err error) cliError {
+	normalized := normalizeCLIErrorDetails(err)
+	if normalized.Request == nil {
+		normalized.Request = api.RequestDiagnosticsFromError(err)
+	}
+	return normalized
+}
+
+func normalizeCLIErrorDetails(err error) cliError {
 	var redacted redactedCLIError
 	if errors.As(err, &redacted) {
 		normalized := normalizeCLIError(redacted.cause)
@@ -194,6 +204,10 @@ func normalizeCLIError(err error) cliError {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return cliError{Code: "transport_timeout", ExitCode: cliExitVerificationUnknown, Classification: preflightapi.ClassificationTransportFailure, Retryable: true, Message: err.Error(), Cause: err}
+	}
+	var requestErr api.RequestError
+	if errors.As(err, &requestErr) {
+		return cliError{Code: "transport_failure", ExitCode: cliExitVerificationUnknown, Classification: preflightapi.ClassificationTransportFailure, Retryable: true, Message: err.Error(), Cause: err}
 	}
 	var netErr net.Error
 	var urlErr *url.Error
@@ -334,6 +348,7 @@ func renderCLIError(args []string, err error) int {
 				Classification:    normalized.Classification,
 				Retryable:         normalized.Retryable,
 				RetryAfterSeconds: normalized.RetryAfterSeconds,
+				Request:           normalized.Request,
 				Message:           normalized.Message,
 				NextActions:       nextActions,
 			},

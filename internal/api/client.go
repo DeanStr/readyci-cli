@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 const requestTimeout = 30 * time.Second
@@ -52,6 +54,7 @@ type ResponseError struct {
 	Body          string
 	RetryAfter    time.Duration
 	HasRetryAfter bool
+	Request       *preflightapi.APIRequestDiagnostics
 }
 
 func responseErrorCode(body []byte) string {
@@ -220,24 +223,33 @@ func (c *Client) doJSONWithResponseLimitAndTimeout(ctx context.Context, method, 
 	}
 	req.Header.Set("Accept", "application/json")
 	c.authorize(req)
-
-	resp, err := c.httpClient.Do(req)
+	req, observation, err := observeJSONRequest(req, timeout)
 	if err != nil {
 		return err
 	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return observation.failure(err)
+	}
 	defer resp.Body.Close()
+	observation.receivedHeaders(resp)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			observation.incompleteBody()
+		}
 		retryAfter, hasRetryAfter := responseRetryAfter(resp)
 		return ResponseError{
-			Operation:     method + " " + path,
+			Operation:     method + " " + observation.snapshot().Path,
 			Status:        resp.Status,
 			StatusCode:    resp.StatusCode,
 			Code:          responseErrorCode(respBody),
 			Body:          sanitizeAPIErrorText(string(respBody), c.token),
 			RetryAfter:    retryAfter,
 			HasRetryAfter: hasRetryAfter,
+			Request:       observation.snapshot(),
 		}
 	}
 
@@ -246,10 +258,11 @@ func (c *Client) doJSONWithResponseLimitAndTimeout(ctx context.Context, method, 
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxResponseBytes)+1))
 	if err != nil {
-		return err
+		observation.incompleteBody()
+		return observation.failure(err)
 	}
 	if len(data) > maxResponseBytes {
-		return fmt.Errorf("%s %s response exceeded %d bytes", method, path, maxResponseBytes)
+		return fmt.Errorf("%s %s response exceeded %d bytes", method, observation.snapshot().Path, maxResponseBytes)
 	}
 	return json.Unmarshal(data, out)
 }

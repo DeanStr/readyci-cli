@@ -52,8 +52,9 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 	if artifactErr != nil {
 		artifactsResp.Artifacts = nil
 		warnings = append(warnings, agentWarning{
-			Section: "artifacts",
-			Message: "artifact listing failed: " + artifactErr.Error(),
+			Section:     "artifacts",
+			Message:     "artifact listing failed: " + artifactErr.Error(),
+			ClientError: verificationClientErrorFromCLIError(normalizeCLIError(artifactErr)),
 		})
 	}
 	failureReason := terminalFailureReason(eventsResp.Events)
@@ -86,8 +87,9 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 	evidencePacks, evidencePackErr := evidencePacksFromRunArtifactFiles(ctx, client, apiURL, runID, detail.Spec.ArtifactPaths, artifactsResp.Artifacts)
 	if evidencePackErr != nil {
 		warnings = append(warnings, agentWarning{
-			Section: "artifacts",
-			Message: "artifact evidence inspection failed: " + evidencePackErr.Error(),
+			Section:     "artifacts",
+			Message:     "artifact evidence inspection failed: " + evidencePackErr.Error(),
+			ClientError: verificationClientErrorFromCLIError(normalizeCLIError(evidencePackErr)),
 		})
 	}
 	repair := buildAgentRepairPacket(diagnosis, detail.Spec.Command, rerunCommand, logsCommand, evidence, evidencePacks, detail.PolicyReasons)

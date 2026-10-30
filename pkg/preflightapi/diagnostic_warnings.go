@@ -9,13 +9,14 @@ const (
 // DiagnosticWarning requests follow-up without changing an execution verdict.
 // Report-derived warnings describe retained diagnostics, not proven code defects.
 type DiagnosticWarning struct {
-	Code           string `json:"code,omitempty"`
-	Section        string `json:"section,omitempty"`
-	Message        string `json:"message"`
-	Action         string `json:"action,omitempty"`
-	RunID          string `json:"run_id,omitempty"`
-	ArtifactID     string `json:"artifact_id,omitempty"`
-	ArtifactSHA256 string `json:"artifact_sha256,omitempty"`
+	Code           string                   `json:"code,omitempty"`
+	Section        string                   `json:"section,omitempty"`
+	Message        string                   `json:"message"`
+	Action         string                   `json:"action,omitempty"`
+	RunID          string                   `json:"run_id,omitempty"`
+	ArtifactID     string                   `json:"artifact_id,omitempty"`
+	ArtifactSHA256 string                   `json:"artifact_sha256,omitempty"`
+	ClientError    *VerificationClientError `json:"client_error,omitempty"`
 }
 
 func TestReportExecutionWarnings(status string, results *RunTestResults) []DiagnosticWarning {

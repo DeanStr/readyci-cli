@@ -24,6 +24,37 @@
     }
   ],
   "$defs": {
+    "apiRequestDiagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Client observations, not a diagnosis or authorization. Contains no origin, query, headers, body or network addresses.",
+      "required": ["method", "path", "request_id", "phase", "elapsed_ms", "timeout_ms"],
+      "properties": {
+        "method": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "request_id": {"type": "string", "pattern": "^cli_[0-9a-f]{32}$"},
+        "server_request_id": {"type": "string", "pattern": "^req_[0-9a-f]{32}$"},
+        "phase": {"enum": ["request", "connection_acquisition", "dns", "connect", "tls_handshake", "request_write", "response_headers", "response_body"]},
+        "elapsed_ms": {"type": "integer", "minimum": 0},
+        "timeout_ms": {"type": "integer", "minimum": 0},
+        "status_code": {"type": "integer", "minimum": 100, "maximum": 599},
+        "connection_reused": {"type": "boolean"},
+        "response_body_incomplete": {"type": "boolean"}
+      }
+    },
+    "verificationClientError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "classification", "retryable", "message"],
+      "properties": {
+        "code": {"type": "string", "minLength": 1},
+        "classification": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "retry_after_seconds": {"type": "integer", "minimum": 0},
+        "request": {"$ref": "#/$defs/apiRequestDiagnostics"},
+        "message": {"type": "string", "minLength": 1}
+      }
+    },
     "testReportSelection": {
       "type": "object", "additionalProperties": false,
       "description": "Observed and omitted diagnostics from bounded report discovery. When scan_complete is false, observations and omissions are lower bounds; counts elsewhere still describe retained indexed cases only.",
@@ -296,18 +327,7 @@
             "cancel_command": {"type": "string", "minLength": 1}
           }
         },
-        "client_error": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["code", "classification", "retryable", "message"],
-          "properties": {
-            "code": {"type": "string", "minLength": 1},
-            "classification": {"type": "string", "minLength": 1},
-            "retryable": {"type": "boolean"},
-            "retry_after_seconds": {"type": "integer", "minimum": 0},
-            "message": {"type": "string", "minLength": 1}
-          }
-        }
+        "client_error": {"$ref": "#/$defs/verificationClientError"}
       }
     },
     "verificationRecipe": {
@@ -1505,6 +1525,7 @@
         "run_id": {"type": "string"},
         "artifact_id": {"type": "string"},
         "artifact_sha256": {"type": "string"},
+        "client_error": {"$ref": "#/$defs/verificationClientError"},
         "section": {
           "type": "string"
         },

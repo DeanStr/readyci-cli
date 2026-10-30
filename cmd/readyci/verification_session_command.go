@@ -97,15 +97,21 @@ func applyVerificationCommandError(session *preflightapi.VerificationSession, er
 	classification := classifyVerificationCommandError(err)
 	normalized := normalizeCLIError(err)
 	if session != nil {
-		session.ClientError = &preflightapi.VerificationClientError{
-			Code:              normalized.Code,
-			Classification:    classification,
-			Retryable:         normalized.Retryable,
-			RetryAfterSeconds: normalized.RetryAfterSeconds,
-			Message:           normalized.Message,
-		}
+		session.ClientError = verificationClientErrorFromCLIError(normalized)
+		session.ClientError.Classification = classification
 	}
 	return normalized.ExitCode
+}
+
+func verificationClientErrorFromCLIError(normalized cliError) *preflightapi.VerificationClientError {
+	return &preflightapi.VerificationClientError{
+		Code:              normalized.Code,
+		Classification:    normalized.Classification,
+		Retryable:         normalized.Retryable,
+		RetryAfterSeconds: normalized.RetryAfterSeconds,
+		Request:           normalized.Request,
+		Message:           normalized.Message,
+	}
 }
 
 func classifyVerificationCommandError(err error) string {

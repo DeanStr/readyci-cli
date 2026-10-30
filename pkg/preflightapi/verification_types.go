@@ -344,11 +344,12 @@ type VerificationClientInterruption struct {
 // VerificationClientError describes a failure in the local observation path.
 // It must not replace the service-owned verdict or classification.
 type VerificationClientError struct {
-	Code              string `json:"code"`
-	Classification    string `json:"classification"`
-	Retryable         bool   `json:"retryable"`
-	RetryAfterSeconds *int   `json:"retry_after_seconds,omitempty"`
-	Message           string `json:"message"`
+	Code              string                 `json:"code"`
+	Classification    string                 `json:"classification"`
+	Retryable         bool                   `json:"retryable"`
+	RetryAfterSeconds *int                   `json:"retry_after_seconds,omitempty"`
+	Request           *APIRequestDiagnostics `json:"request,omitempty"`
+	Message           string                 `json:"message"`
 }
 
 type VerificationSession struct {
