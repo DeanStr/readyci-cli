@@ -122,6 +122,11 @@ func guidedSetup(options setupOptions, input io.Reader, output io.Writer, yes bo
 	if err := setupCheck(options, report, true); err != nil {
 		return err
 	}
+	// Running the check is how setup establishes test feedback; restate what
+	// is still unconfirmed next to the question.
+	if readiness := setupMilestoneSummary(report); readiness != "" {
+		fmt.Fprintf(output, "\nReadiness: %s\n", readiness)
+	}
 	if !yes {
 		approved, err := confirmSetup(reader, output, "Run this check remotely?")
 		if err != nil || !approved {

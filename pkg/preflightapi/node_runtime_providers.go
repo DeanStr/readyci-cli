@@ -62,3 +62,19 @@ func NodeRuntimeProviderCapability() string {
 func PnpmRuntimeProviderCapability() string {
 	return PnpmArchiveRuntimeProvider + ":sha256:" + PnpmRuntimeCatalogDigest()
 }
+
+// ApprovedPnpmIntegrityArchive reports whether a reviewed pnpm archive matches
+// a Corepack integrity pin. Installed image inventory can never prove such a
+// pin, so this catalog is the only way a worker can satisfy one.
+func ApprovedPnpmIntegrityArchive(requirement string) bool {
+	version, digest, ok := PackageManagerIntegrityRequirement(requirement)
+	if !ok {
+		return false
+	}
+	for _, artifact := range pnpmRuntimeCatalog {
+		if artifact.Runtime == "pnpm" && artifact.Version == version && artifact.SHA512 == digest {
+			return true
+		}
+	}
+	return false
+}

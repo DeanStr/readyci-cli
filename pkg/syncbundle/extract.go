@@ -100,6 +100,7 @@ func readBundleFilesWithLimits(reader io.Reader, limits bundleReadLimits) (Manif
 	limiter := decompressedSizeLimiter{limit: limits.MaxExpandedBytes, remaining: limits.MaxExpandedBytes}
 	var manifest Manifest
 	manifestSeen := false
+	manifestLeading := false
 	entriesSeen := 0
 	for {
 		header, err := tarReader.Next()
@@ -126,6 +127,7 @@ func readBundleFilesWithLimits(reader io.Reader, limits bundleReadLimits) (Manif
 				return Manifest{}, nil, fmt.Errorf("bundle contains multiple manifest.json entries")
 			}
 			manifestSeen = true
+			manifestLeading = entriesSeen == 1
 			if header.Typeflag != tar.TypeReg {
 				return Manifest{}, nil, fmt.Errorf("manifest.json is not a regular file")
 			}
@@ -166,6 +168,11 @@ func readBundleFilesWithLimits(reader io.Reader, limits bundleReadLimits) (Manif
 	}
 	if manifest.IsZero() {
 		return Manifest{}, nil, ErrMissingManifest
+	}
+	// The service projects each scope in one forward pass over the canonical
+	// upload, which needs the manifest before any file entry.
+	if manifest.SourcePolicy != nil && len(manifest.SourcePolicy.Scopes) > 0 && !manifestLeading {
+		return Manifest{}, nil, fmt.Errorf("multi-scope source: %w", ErrManifestNotLeading)
 	}
 	if err := validateManifest(manifest); err != nil {
 		return Manifest{}, nil, err

@@ -11,85 +11,77 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/verificationplan"
 )
 
-// Requests at 611c6162cbc4ac2020a2f91c7cfa4f3abf9bbb60 declares dependency preparation separately
-// from its test target. The selected tests must remain unchanged.
-func TestSetupPreparesPythonMakeDependenciesWithoutChangingTests(t *testing.T) {
-	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
-	writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "-e .[socks]\npytest>=2.8.0,<10\npytest-httpbin==2.1.0\n")
-	template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.ParseProjectConfig([]byte(template), "detected")
-	if err != nil {
-		t.Fatal(err)
-	}
-	check := cfg.Checks["test"]
-	if check.Command != "make -f Makefile -- test" {
-		t.Fatalf("changed selected tests: %q", check.Command)
-	}
-	preparation := strings.Join(check.Prepare, "\n")
-	for _, want := range []string{"python3 -m venv", "mktemp -d", "export VIRTUAL_ENV", "export PATH", "python -m pip install -r requirements-dev.txt"} {
-		if !strings.Contains(preparation, want) {
-			t.Fatalf("missing preparation %q:\n%s", want, preparation)
-		}
-	}
-	for _, want := range []string{"pypi.org", "files.pythonhosted.org", "~/.cache/pip"} {
-		if !strings.Contains(template, want) {
-			t.Fatalf("missing declared dependency support %q:\n%s", want, template)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(repo, ".venv")); !os.IsNotExist(err) {
-		t.Fatalf("detection executed dependency preparation: %v", err)
-	}
-}
-
-func TestSetupMakeSymlinkPreparationUsesLogicalDirectory(t *testing.T) {
-	for _, command := range []string{"make -f Makefile -- test", "make test"} {
-		t.Run(command, func(t *testing.T) {
+// Setup does not evaluate Makefiles to infer runtimes or dependency setup. A
+// selected Make target is an opaque harness, so includes, evaluated rules,
+// custom recipe prefixes and setup targets neither change nor block it.
+func TestSetupTreatsMakeRecipesAsOpaque(t *testing.T) {
+	for _, tc := range []struct{ name, makefile string }{
+		{"python dependency target", "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n"},
+		{"unsupported setup target", "init:\n\t./custom-bootstrap\ntest:\n\tpython -m pytest tests\n"},
+		{"dynamic prerequisite", "test: $(REQUIRED)\n\tpython -m pytest tests\n"},
+		{"included rules", "include setup.mk\ntest:\n\tpython -m pytest tests\n"},
+		{"evaluated rule", "$(eval init: ; ./custom-bootstrap)\ntest:\n\tpython -m pytest tests\n"},
+		{"custom recipe prefix", ".RECIPEPREFIX := >\ntest:\n>python -m pytest tests\n"},
+		{"gradle", "test:\n\t./gradlew test\n"},
+		{"maven", "test:\n\tmvn -B test\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			repo := t.TempDir()
-			writeFileForRepoMapTest(t, filepath.Join(repo, "build", "entry.mk"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
+			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "PROBE := $(shell touch detection-executed)\n"+tc.makefile)
 			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, ".python-version"), "3.12\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, "build", ".python-version"), "3.11\n")
-			if err := os.Symlink("build/entry.mk", filepath.Join(repo, "Makefile")); err != nil {
+			writeFileForRepoMapTest(t, filepath.Join(repo, "setup.mk"), "init:\n\t./custom-bootstrap\n")
+			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
+			if err != nil {
+				t.Fatalf("opaque Make target blocked setup: %v", err)
+			}
+			cfg, err := config.ParseProjectConfig([]byte(template), "detected")
+			if err != nil {
 				t.Fatal(err)
 			}
-			check := setupPrepareDetectedCheck(repo, detectedCheck{Command: command})
-			if check.Command != command || !containsString(check.Runtimes, "python") || check.RuntimeRequirements["python"] != "3.12" {
-				t.Fatalf("logical Make runtime scope was lost: %+v", check)
+			check := cfg.Checks["test"]
+			if check.Command != "make -f Makefile -- test" || len(check.Prepare) != 0 || len(check.RuntimeRequirements) != 0 || strings.Contains(template, "pypi.org") {
+				t.Fatalf("Make recipes were evaluated for runtime or dependency setup: %+v\n%s", check, template)
 			}
-			if !containsString(check.Prepare, "python -m pip install -r requirements-dev.txt") {
-				t.Fatalf("logical dependency preparation was lost: %v", check.Prepare)
-			}
-			if problems := setupDependencyReviewRequirements(repo, append([]string{command}, check.Prepare...)); len(problems) != 0 {
-				t.Fatalf("internal Make source was rejected: %v", problems)
+			if _, err := os.Stat(filepath.Join(repo, "detection-executed")); !os.IsNotExist(err) {
+				t.Fatalf("detection executed repository code: %v", err)
 			}
 		})
 	}
 }
 
-func TestSetupMakeSymlinkCannotBypassHigherPrioritySource(t *testing.T) {
+func TestSetupPythonDependencyPreparationIsAReviewNote(t *testing.T) {
 	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "test:\n\tgo test ./...\n")
-	external := filepath.Join(t.TempDir(), "outside.mk")
-	writeFileForRepoMapTest(t, external, "test:\n\tpython -m pytest private-tests\n")
-	if err := os.Symlink(external, filepath.Join(repo, "GNUmakefile")); err != nil {
-		t.Fatal(err)
+	writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
+	check := setupPrepareDetectedCheck(repo, detectedCheck{Command: "python -m pytest tests"})
+	if len(check.Prepare) != 1 || check.Prepare[0] != setupPythonVenvPreparation {
+		t.Fatalf("setup guessed dependency preparation: %v", check.Prepare)
 	}
-	for _, command := range []string{"make test", "make -f GNUmakefile -- test"} {
-		selections, problems := setupInspectMakeSelections(repo, command)
-		if len(selections) != 0 || len(problems) == 0 {
-			t.Fatalf("uninspectable source selected a different Makefile for %q: selections=%+v problems=%v", command, selections, problems)
-		}
+	if review := strings.Join(setupUnresolvedNotes(check.Unresolved), ";"); !strings.Contains(review, "Preparation review: Python tests") || !strings.Contains(review, "requirements-dev.txt") {
+		t.Fatalf("missing Python dependency preparation was not reported: %v", check.Unresolved)
+	}
+	if len(check.Unresolved) != 1 || check.Unresolved[0].Kind != setupUnresolvedDependencyPreparationUnknown || check.Unresolved[0].Subject != "python" || check.Unresolved[0].Source != "requirements-dev.txt" {
+		t.Fatalf("dependency preparation item lost its structure: %+v", check.Unresolved)
+	}
+	installed := setupPrepareDetectedCheck(repo, detectedCheck{Command: "python -m pip install -r requirements-dev.txt && python -m pytest tests"})
+	if len(installed.Unresolved) != 0 {
+		t.Fatalf("explicit dependency installation was reported as missing: %v", installed.Unresolved)
+	}
+	bare := setupPrepareDetectedCheck(t.TempDir(), detectedCheck{Command: "python -m pytest tests"})
+	if len(bare.Unresolved) != 0 {
+		t.Fatalf("a repository without Python manifests was reported: %v", bare.Unresolved)
+	}
+	// Explicit preparation or a dependency check is the repository's choice.
+	if items := setupPythonDependencyReview(repo, []string{"python -m pytest tests"}, []string{setupPythonVenvPreparation, "make deps"}, false); len(items) != 0 {
+		t.Fatalf("explicit preparation was reported as missing: %v", items)
+	}
+	if items := setupPythonDependencyReview(repo, []string{"python -m pytest tests"}, []string{setupPythonVenvPreparation}, true); len(items) != 0 {
+		t.Fatalf("a dependency check was reported as missing preparation: %v", items)
 	}
 }
 
 func TestSetupPythonPreparationRunsWithNoSystemPythonAlias(t *testing.T) {
 	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m unittest discover -s tests\n")
-	writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "")
+	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "test:\n\tpython -m unittest discover -s tests\n")
 	writeFileForRepoMapTest(t, filepath.Join(repo, "tests/test_preparation.py"), "import os, sys, unittest\nclass Prepared(unittest.TestCase):\n    def test_venv(self):\n        self.assertNotEqual(sys.prefix, sys.base_prefix)\n        self.assertEqual(sys.prefix, os.environ['VIRTUAL_ENV'])\n")
 	path := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(path, 0o755); err != nil {
@@ -123,7 +115,8 @@ func TestSetupPythonPreparationRunsWithNoSystemPythonAlias(t *testing.T) {
 	if output, err := run("make -f Makefile -- test"); err == nil || !strings.Contains(string(output), "python: No such file or directory") {
 		t.Fatalf("missing-python reproduction failed: %v\n%s", err, output)
 	}
-	check := setupPrepareDetectedCheck(repo, detectedCheck{Command: "make -f Makefile -- test"})
+	// A setup-python workflow selects Python for an opaque Make target.
+	check := setupPrepareDetectedCheck(repo, detectedCheck{Command: "make -f Makefile -- test", Runtimes: []string{"python"}})
 	command, err := verificationplan.CommandForRunSpec(verificationplan.RunSpec{Command: check.Command, PrepareCommands: check.Prepare})
 	if err != nil {
 		t.Fatal(err)
@@ -133,168 +126,66 @@ func TestSetupPythonPreparationRunsWithNoSystemPythonAlias(t *testing.T) {
 	}
 }
 
-func TestSetupPythonDependenciesRejectUnsafeOrAmbiguousDeclarations(t *testing.T) {
-	for _, tc := range []struct{ name, setup string }{
-		{"other setup action", "init:\n\tpython -m pip install -r requirements-dev.txt\n\t./custom-bootstrap\n"},
-		{"prerequisite", "init: download\n\tpython -m pip install -r requirements-dev.txt\n"},
-		{"conditional", "ifdef ENABLE\ninit:\n\tpython -m pip install -r requirements-dev.txt\nendif\n"},
-		{"multiple setup targets", "init:\n\tpython -m pip install -r requirements-dev.txt\nbootstrap:\n\tpython -m pip install -r requirements-dev.txt\n"},
-		{"dynamic requirement", "init:\n\tpython -m pip install -r $(REQUIREMENTS)\n"},
-		{"shell execution", "init:\n\tpython -m pip install -r requirements-dev.txt && touch detection-executed\n"},
-		{"redirect", "init:\n\tpython -m pip install -r requirements-dev.txt >setup.log\n"},
-		{"missing requirement", "init:\n\tpython -m pip install -r absent.txt\n"},
-		{"outside requirement", "init:\n\tpython -m pip install -r ../requirements-dev.txt\n"},
-		{"no declaration", ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			repo := t.TempDir()
-			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "PROBE := $(shell touch detection-executed)\n"+tc.setup+"test:\n\tpython -m pytest tests\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
-			check := setupPrepareDetectedCheck(repo, detectedCheck{Command: "make -f Makefile -- test"})
-			if len(check.Prepare) != 1 {
-				t.Fatalf("translated unsupported dependency setup: %v", check.Prepare)
-			}
-			if requirements := setupDependencyReviewRequirements(repo, []string{check.Command}); len(requirements) == 0 {
-				t.Fatal("unsupported dependency setup omitted its review requirement")
-			}
-			if _, err := os.Stat(filepath.Join(repo, "detection-executed")); !os.IsNotExist(err) {
-				t.Fatalf("detection executed repository code: %v", err)
-			}
-		})
-	}
-}
-
-func TestSetupPythonDependenciesKeepSelectedMakefileAndDirectory(t *testing.T) {
+func TestSetupRuntimeInferenceIgnoresScriptArguments(t *testing.T) {
 	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\t./wrong-setup\ntest:\n\t./wrong-tests\n")
-	writeFileForRepoMapTest(t, filepath.Join(repo, "sub dir/Makefile"), "init:\n\tpip3 install --requirement 'requirements test.txt'\ntest:\n\tpython -m pytest tests\n")
-	writeFileForRepoMapTest(t, filepath.Join(repo, "sub dir/requirements test.txt"), "pytest\n")
-	command := "make -C 'sub dir' -f Makefile -- test"
-	check := setupPrepareDetectedCheck(repo, detectedCheck{Command: command})
-	if check.Command != command || len(check.Prepare) != 2 || check.Prepare[1] != "(cd 'sub dir' && python -m pip install -r 'requirements test.txt')" {
-		t.Fatalf("selected source scope changed: %+v", check)
-	}
-	if requirements := setupDependencyReviewRequirements(repo, []string{command}); len(requirements) != 0 {
-		t.Fatalf("wrong Makefile affected preparation: %v", requirements)
-	}
-}
-
-func TestSetupPythonDependenciesDoNotFollowManifestSymlinks(t *testing.T) {
-	repo := t.TempDir()
-	outside := filepath.Join(t.TempDir(), "requirements-dev.txt")
-	writeFileForRepoMapTest(t, outside, "pytest\n")
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
-	if err := os.Symlink(outside, filepath.Join(repo, "requirements-dev.txt")); err != nil {
-		t.Fatal(err)
-	}
-	if requirements := setupDependencyReviewRequirements(repo, []string{"make -f Makefile -- test"}); len(requirements) == 0 {
-		t.Fatal("symlinked dependency declaration was translated")
-	}
-}
-
-func TestSetupRuntimeInferenceReadsOnlyTheSelectedMakeScope(t *testing.T) {
-	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "test: prepare\n\tpython -m unittest discover\nprepare:\n\tpython3 -m venv .venv\nloop: loop\n\tmake loop\nunrelated:\n\tgo test ./...\n")
-	for _, command := range []string{"make -f Makefile -- test", "CI=true bash -e -c 'make -f Makefile -- test'", "CI=true bash --noprofile --norc -eo pipefail -c 'make -f Makefile -- test'"} {
-		runtimes := setupCommandRuntimes(repo, command)
-		if len(runtimes) != 1 || runtimes[0] != "python" {
-			t.Fatalf("wrong runtime scope for %q: %v", command, runtimes)
+	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "test:\n\tpython -m unittest discover\n")
+	for _, command := range []string{"make -f Makefile -- test", "CI=true bash -e -c 'make -f Makefile -- test'"} {
+		if runtimes := setupCommandRuntimes(repo, command); len(runtimes) != 0 {
+			t.Fatalf("Make recipe generated runtime evidence for %q: %v", command, runtimes)
 		}
 	}
-	if runtimes := setupCommandRuntimes(repo, "make -f Makefile -- loop"); len(runtimes) != 0 {
-		t.Fatalf("recursive Make generated runtime evidence: %v", runtimes)
+	if runtimes := setupCommandRuntimes(repo, "CI=true bash --noprofile --norc -eo pipefail -c 'python -m pytest'"); len(runtimes) != 1 || runtimes[0] != "python" {
+		t.Fatalf("literal wrapper payload lost its runtime: %v", runtimes)
 	}
 	if runtimes := setupCommandRuntimes(repo, "bash ignored-script.sh -c 'go test ./...'"); len(runtimes) != 0 {
 		t.Fatalf("script arguments became commands: %v", runtimes)
 	}
 }
 
-func TestSetupPythonDynamicPrerequisitesRequireExplicitPreparation(t *testing.T) {
-	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "test: $(REQUIRED)\n\tpython -m pytest tests\n")
-	if requirements := setupDependencyReviewRequirements(repo, []string{"make -f Makefile -- test"}); len(requirements) == 0 {
-		t.Fatal("dynamic prerequisites hid the Python preparation requirement")
-	}
-}
-
-func TestSetupDependencyInferencePreservesExplicitPreparation(t *testing.T) {
-	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\t./custom-bootstrap\ntest:\n\tpython -m pytest tests\n")
-	for _, commands := range [][]string{
-		{"make -f Makefile -- test", "scripts/prepare-tests.sh"},
-		{"make -f Makefile -- test", setupPythonVenvPreparation, "python -m pip install -r requirements-ci.txt"},
-		{"CI=true bash -e -c 'python -m pip install -r requirements-ci.txt' && CI=true bash -e -c 'make -f Makefile -- test'"},
-	} {
-		if requirements := setupDependencyReviewRequirements(repo, commands, commands[1:]...); len(requirements) != 0 {
-			t.Fatalf("inferred setup overrode explicit preparation: %v", requirements)
-		}
-	}
-}
-
-func TestSetupStructuredStepsDoNotBypassDependencyReview(t *testing.T) {
-	repo := t.TempDir()
-	writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\t./custom-bootstrap\ntest:\n\tpython -m pytest tests\n")
-	for _, template := range []string{
-		"version: 1\nchecks:\n  test:\n    steps:\n      - command: echo prerequisite\n      - command: make test\n",
-		"version: 1\nchecks:\n  test:\n    prepare: [scripts/prepare-tests.sh]\n    steps:\n      - command: make -n test\n",
-		"version: 1\nchecks:\n  test:\n    steps:\n      - command: python -m pip install pytest\n      - command: make -n test\n",
-	} {
-		if err := validateSetupRuntimeTemplate(repo, template); err == nil {
-			t.Fatalf("execution steps or preparation bypassed dependency review: %s", template)
-		}
-	}
-}
-
-func TestSetupUnsupportedDependencyPreparationDoesNotWriteConfiguration(t *testing.T) {
+func TestSetupMissingPythonPreparationDoesNotBlockConfiguration(t *testing.T) {
 	for _, candidate := range []string{"", "make:Makefile:test"} {
 		t.Run(defaultString(candidate, "automatic"), func(t *testing.T) {
 			repo := chdirCLITestRepo(t, "unsupported-setup")
+			t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
+			t.Setenv("READYCI_API_TOKEN", "")
 			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\t./custom-bootstrap\ntest:\n\tpython -m pytest tests\n")
+			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
 			args := []string{"--write-config", "--api-url", "http://127.0.0.1:1"}
 			if candidate != "" {
 				args = append(args, "--candidate", candidate)
 			}
-			_, err := captureStdoutForCLITest(t, func() error { return setupCommand(args) })
-			if err == nil || !strings.Contains(err.Error(), "explicit dependency preparation") {
-				t.Fatalf("unsupported setup was not rejected: %v", err)
+			if _, err := captureStdoutForCLITest(t, func() error { return setupCommand(args) }); err != nil {
+				t.Fatalf("setup refused a Make test target without inferred preparation: %v", err)
 			}
-			if _, err := os.Stat(filepath.Join(repo, ".readyci.yml")); !os.IsNotExist(err) {
-				t.Fatalf("unsupported setup wrote a runnable configuration: %v", err)
-			}
-		})
-	}
-}
-
-func TestSetupPythonPreparationRejectsTabbedConditionalAndAmbiguousRules(t *testing.T) {
-	for _, tc := range []struct{ name, makefile string }{
-		{"tabbed conditional", "ifdef\tENABLE\ninit:\n\tpython -m pip install -r requirements-dev.txt\nendif\ntest:\n\tpython -m pytest tests\n"},
-		{"dynamic nested prerequisite", "init:\n\tpython -m pip install -r requirements-dev.txt\ntest: unit\nunit: $(EXTRA)\n\tpython -m pytest tests\n"},
-		{"included override", "init:\n\tpython -m pip install -r requirements-dev.txt\ninclude setup.mk\ntest:\n\tpython -m pytest tests\n"},
-		{"evaluated rule", "init:\n\tpython -m pip install -r requirements-dev.txt\n$(eval init: ; ./custom-bootstrap)\ntest:\n\tpython -m pytest tests\n"},
-		{"custom recipe prefix", ".RECIPEPREFIX := >\ninit:\n>python -m pip install -r requirements-dev.txt\ntest:\n>python -m pytest tests\n"},
-		{"override recipe prefix", "override .RECIPEPREFIX := >\ninit:\n>python -m pip install -r requirements-dev.txt\ntest:\n>python -m pytest tests\n"},
-		{"export recipe prefix", "export .RECIPEPREFIX := >\ninit:\n>python -m pip install -r requirements-dev.txt\ntest:\n>python -m pytest tests\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			repo := t.TempDir()
-			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), tc.makefile)
-			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, "setup.mk"), "init:\n\t./custom-bootstrap\n")
-			if template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, "")); err == nil || template != "" {
-				t.Fatalf("ambiguous Make preparation was accepted: %q %v", template, err)
+			saved, err := os.ReadFile(filepath.Join(repo, ".readyci.yml"))
+			if err != nil || !strings.Contains(string(saved), `make -f Makefile -- test`) {
+				t.Fatalf("configuration was not written: %v\n%s", err, saved)
 			}
 		})
 	}
 }
 
-func TestSetupMakeJobsFlagsPreservePythonPreparationAndCommand(t *testing.T) {
+func TestSetupMakeDryRunIsNotATestEntrypoint(t *testing.T) {
+	for _, command := range []string{"make -n test", "make --dry-run test", "make -q test", "make -kn test", "make --touch test"} {
+		if setupCommandRunsTests(command) {
+			t.Fatalf("%q runs no recipes but was treated as a test entrypoint", command)
+		}
+	}
+	for _, command := range []string{"make test", "make -j2 test", "make -C tests test", "make -k test"} {
+		if !setupCommandRunsTests(command) {
+			t.Fatalf("%q was not treated as a test entrypoint", command)
+		}
+	}
+}
+
+func TestSetupImportedMakeJobUsesWorkflowRuntimeOnly(t *testing.T) {
 	for _, command := range []string{"make -j2 test", "make -j 2 test", "make --jobs=2 test", "make --jobs 2 test", "make -j test"} {
 		t.Run(command, func(t *testing.T) {
 			repo := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
 			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, ".python-version"), "3.12\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "+command+"\n")
+			writeFileForRepoMapTest(t, filepath.Join(repo, "pyproject.toml"), "[project]\nrequires-python = '>=3.10'\n")
+			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-python@v5\n        with:\n          python-version: '3.12'\n      - run: "+command+"\n")
 			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
 			if err != nil {
 				t.Fatal(err)
@@ -304,25 +195,8 @@ func TestSetupMakeJobsFlagsPreservePythonPreparationAndCommand(t *testing.T) {
 				t.Fatal(err)
 			}
 			check := cfg.Checks["tests"]
-			if check.Command != "" || len(check.Steps) != 1 || check.Steps[0].Command != "bash -e -c "+shellQuoteArg(command) || check.Steps[0].Env["CI"] != "true" || len(check.Prepare) != 2 || check.RuntimeRequirements["python"] != "3.12" || !strings.Contains(template, "pypi.org") {
-				t.Fatalf("Make jobs flag hid runtime or dependencies: %+v\n%s", check, template)
-			}
-		})
-	}
-}
-
-func TestSetupUninspectableMakeArgumentsRequireExplicitConfiguration(t *testing.T) {
-	for _, command := range []string{"make CI=true test", "make --eval='test:;echo wrong' test", "make -n test", "make -I custom test", "make -j\"$JOBS\" test", "MAKEFILES=setup.mk make test", "env MAKEFILES=setup.mk make test", "MAKEFLAGS=-n make test", "export MAKEFLAGS=-n; make test", "MAKEFLAGS=-n bash -c 'make test'"} {
-		t.Run(command, func(t *testing.T) {
-			repo := t.TempDir()
-			writeFileForRepoMapTest(t, filepath.Join(repo, "Makefile"), "init:\n\tpython -m pip install -r requirements-dev.txt\ntest:\n\tpython -m pytest tests\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, "requirements-dev.txt"), "pytest\n")
-			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - run: "+command+"\n")
-			// Either explicit configuration is required, or the repository's own
-			// Make target is proposed without importing the upstream invocation.
-			template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, ""))
-			if err == nil && (strings.Contains(template, shellQuoteArg(command)) || strings.Contains(template, "# Selected:") || !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:tests"`)) {
-				t.Fatalf("uninspectable Make invocation was accepted:\n%s", template)
+			if len(check.Steps) != 1 || check.Steps[0].Command != "bash -e -c "+shellQuoteArg(command) || len(check.Prepare) != 1 || check.RuntimeRequirements["python"] != "3.12,>=3.10" || !strings.Contains(template, "Preparation review: Python tests") {
+				t.Fatalf("Make invocation changed the workflow runtime or preparation: %+v\n%s", check, template)
 			}
 		})
 	}

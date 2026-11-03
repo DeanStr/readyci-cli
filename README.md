@@ -327,8 +327,9 @@ Automatic setup imports an unambiguous supported root workflow test job.
 Package scripts are inspected statically; placeholder scripts such as
 `test: echo TODO` do not establish a test entrypoint. Explicit workflow or
 configured runtime versions override version-manager defaults such as `.nvmrc`
-and `.go-version`, while package engine bounds, language minimums and
-package-manager integrity declarations still apply.
+and `.go-version`, while compatible package engine bounds, language minimums and
+approved package-manager integrity pins still apply. A declaration that
+conflicts with the explicit version is reported as a review note instead.
 Multiple jobs and matrix variants require explicit selection and review:
 
 ```bash
@@ -343,7 +344,8 @@ With no configuration file, an unambiguous automatic preview includes
 and capability preflight when authenticated. It writes no files and starts no
 runs. Imported previews also include `import_scope`: the selected
 candidate plus other discovered verification jobs and variants that it does not
-cover. Generated YAML comments retain those omitted IDs and blockers. Selecting
+cover. The saved check records the selected candidate in `imported_from`, and
+generated YAML comments retain the omitted IDs and blockers. Selecting
 one candidate does not establish complete upstream or repository test coverage.
 Printing a selected configuration requires no sign-in and writes no files.
 
@@ -404,46 +406,58 @@ Runtime versions must be supported by the selected runner or its approved
 providers; translating a matrix does not install arbitrary toolchains or grant
 network access.
 
-The reviewed `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1`
-import supports `node-version: lts/*` with omitted or false `check-latest`.
-Setup asks the service to resolve the selector once to a reviewed numeric major and
-reports the original selector and reviewed catalog under the selected import
-candidate. The generated configuration states that the saved check does not
-track future LTS changes. It uses ordinary numeric runtime selection, and
-continues working after the import catalog expires. Review and regenerate the
-configuration when you want to change the major. This does not guarantee the
-latest patch or reproduce setup-node's moving runtime selection on every run.
-New alias imports require a fresh catalog. Other moving aliases, action
-revisions and `check-latest: true` require explicit configuration.
-
-Alias provenance is report-only. Configuration and execution accept numeric
-runtime requirements and reject `runtime_resolutions`. The dedicated Runtime
-Catalog Freshness workflow checks for expiry daily; unrelated builds and
-releases do not depend on the catalog's clock. Refreshing the import catalog
-requires a reviewed service deployment. Installed clients use the updated service
-catalog without another CLI release; historical clients with a compiled catalog
-need a one-time upgrade. The API and worker keep their numeric execution and
-approved archive policy. See the
+Runtime declarations are advisory. Setup seals supported numeric declarations
+from workflow setup actions and repository files, including when
+`check-latest: true` is set. It retains the numeric constraint and reports that
+latest-release freshness is not guaranteed; it selects a matching installed
+toolchain or approved provider archive without remote release resolution.
+It does not resolve moving or named selectors such as `node-version: lts/*`
+or an action's implicit default, and it does not emit unsupported families (Java, Ruby,
+.NET, Bun), unsupported syntax, unmatched pnpm integrity pins or conflicting
+declarations. Each skipped declaration becomes a `Runtime review:` comment in
+the generated configuration and an `environment.unresolved` item in
+`setup --preview --json`; the runner image's installed toolchain is used. See the
 [runtime configuration contract](../docs/user/configuration.md#checks).
 
+Setup separates three milestones: configuration generated, runner compatible,
+and test feedback from the intended command in the intended environment. Static
+inspection and the capability preflight establish only the first two. The
+preview's `environment.unresolved` list names what remains unconfirmed, with a
+`kind` (`runtime_declaration_not_applied`, `runtime_family_unsupported`,
+`opaque_entrypoint` or `dependency_preparation_unknown`), `check`, `subject`,
+`source`, optional `declared` value and `detail`. The same item produces the
+configuration comment and preview note, and selected import candidates carry
+it as `unresolved`. `environment.status` is `ready` only when the runner is
+compatible and nothing is unresolved; otherwise it is `review_required`, while
+`runtime_status` keeps describing runner compatibility. Human output ends with
+a `readiness:` line, and guided setup restates it before offering the first
+run, which is how unresolved items are confirmed.
+
 Choose a numeric runtime explicitly with `readyci setup --runtime node=24`
-to replace a workflow's `lts/*` selector, including after the import catalog
-expires. Setup discloses this as a user-selected pin and preserves source
-compatibility constraints. Repeat `--runtime` for supported workflow declarations
-of `node`, `go`, `python`, or `pnpm`; values must be numeric versions or series.
-Numeric workflow requirements are intersected with the choice. Unsupported
-selectors, action inputs and sequential runtime changes still require explicit
-configuration. Preview first with `--preview --json`, then use the same flags
+to replace a workflow's `lts/*` or other untranslated selector. Setup discloses
+this as a user-selected pin and preserves source compatibility constraints.
+Repeat `--runtime` for supported workflow declarations of `node`, `go`,
+`python`, or `pnpm`; values must be numeric versions or series. Numeric
+workflow requirements are intersected with the choice; a conflicting choice,
+an unused choice, unsupported action inputs and sequential runtime changes
+still stop setup. Preview first with `--preview --json`, then use the same flags
 with `--candidate ID --write-config` to save the selected workflow. Existing
 configuration requires `--force` to regenerate it.
 
 Root Make targets retain their exact Makefile, while nested
-targets are offered only as component imports. Unknown projects stop before
+targets are offered only as component imports. Setup does not read Make recipes
+or repository scripts: a selected Make target gets a `Runtime review:` comment
+and an `opaque_entrypoint` item, because its runtimes and dependency preparation
+are unconfirmed until it runs. Declare them with `runtime_requirements`,
+`prepare:` commands or a `dependency_check`. Setup prepares a Python virtual
+environment only when the selected command runs `python`, `pytest`, `tox` or
+`nox` directly, and reports `dependency_preparation_unknown` when nothing in the
+check installs dependencies. Unknown projects stop before
 configuration writes or uploads. `readyci setup --print --detect=false` supplies
 an empty scaffold without an invented command. Node detection prefers declared
 test scripts and does not substitute a build or typecheck for tests.
 
-Ordinary `run`, `check`, and `affected` executions exclude project secrets unless `--request-secrets` is supplied; server scope and secret-release policy still apply, and automatic dependency preparation always excludes secrets. Human execution displays live test stdout/stderr; `--json` emits only the final result document and `--detach` does not watch. Project secrets are write-only in API/dashboard responses and are injected into the worker environment only for claimed runs in that project. Use `readyci login` for human CLI access; it prints the login URL and opens a browser when possible. Use `readyci login --no-browser` when you want to copy the URL into another browser on the same workstation, including WSL setups where the Windows browser can reach the WSL localhost callback. For SSH or remote terminals, use `readyci login --device` and approve its matching code from your normal browser, or supply an explicit scoped token via `READYCI_API_TOKEN`. Use explicit scoped `READYCI_API_TOKEN` values for automation or AI coding agents.
+Ordinary `run`, `check`, and `affected` executions exclude project secrets unless `--request-secrets` is supplied; server scope and secret-release policy still apply, and automatic dependency preparation always excludes secrets. Human execution displays live test stdout/stderr; `--json` emits only the final result document and `--detach` does not watch. Project secrets are write-only in API/dashboard responses and are injected into the worker environment only for claimed runs in that project. Use `readyci login` for human CLI access; it prints the login URL and opens a browser when possible. Use `readyci login --no-browser` when you want to copy the URL into another browser on the same workstation, including WSL setups where the Windows browser can reach the WSL localhost callback. For SSH or remote terminals, use `readyci login --device`, then open the printed URL in your normal browser and type the printed code; device logins get a narrower credential that cannot create tokens or manage members, secrets or cache purges. Otherwise supply an explicit scoped token via `READYCI_API_TOKEN`. Use explicit scoped `READYCI_API_TOKEN` values for automation or AI coding agents.
 
 Operator tokens can manage worker inventory with `readyci admin workers`,
 `readyci admin workers drain`, `readyci admin workers undrain`, and

@@ -223,6 +223,22 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 		kind = preflightapi.ClassificationNetworkNotAllowed
 		confidence = 0.65
 	}
+	fallbackSummary := localDefaultSummary(kind)
+	if kind == preflightapi.ClassificationTestFailed && !localAnalysisTextLooksTestFailure(analysisText, analysisLower) {
+		// Match hosted diagnosis: without failed-test output, a command that
+		// stops on missing environment configuration needs setup. An empty
+		// primary failure reason also means a reported Maven test failure
+		// already returned above.
+		if primaryFailureReason == "" {
+			if failure := diagnosiscommon.MissingEnvironmentConfigurationFromEvents(events, exitCode); failure != nil {
+				analysis := localFailureAnalysis(preflightapi.ClassificationEnvironmentSetupFailed, 0.7,
+					localDefaultSummary(preflightapi.ClassificationEnvironmentSetupFailed), failure.Summary)
+				analysis.Evidence = failure.MergeEvidence(evidence, 12)
+				return analysis
+			}
+		}
+		fallbackSummary = "The test command failed without reporting a test failure."
+	}
 	failureSummary := strings.TrimSpace(primaryFailureReason)
 	summary := failureSummary
 	evidenceSummary := localPreferredEvidenceText(kind, primaryEvidence)
@@ -242,7 +258,7 @@ func localAnalyzeRunFailureWithNetworkMode(status, command string, exitCode *int
 	if summary == "" {
 		summary = failureSummary
 	}
-	analysis := localFailureAnalysis(kind, confidence, localDefaultSummary(kind), summary)
+	analysis := localFailureAnalysis(kind, confidence, fallbackSummary, summary)
 	analysis.PrimaryFile = localPrimaryFileFromEvidence(primaryEvidence)
 	if kind == preflightapi.ClassificationTestFailed {
 		if _, path := diagnosiscommon.PytestFailureSummary(primaryEvidence); path != "" {

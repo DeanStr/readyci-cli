@@ -203,10 +203,20 @@ type CheckConfig struct {
 	KeepFailed              bool               `yaml:"keep_failed"`
 	ArtifactPaths           []string           `yaml:"artifact_paths"`
 	Outputs                 CheckOutputsConfig `yaml:"outputs"`
+	ImportedFrom            *CheckImportConfig `yaml:"imported_from"`
 }
 
 type CheckOutputsConfig struct {
 	Reviewable []string `yaml:"reviewable"`
+}
+
+// CheckImportConfig records the setup import that generated a check: the
+// import candidate ID and the --runtime pins chosen for it. It is setup
+// provenance only. readyci setup re-reads that candidate's current workflow
+// selectors when it previews the saved check; execution ignores the field.
+type CheckImportConfig struct {
+	Candidate   string            `yaml:"candidate"`
+	RuntimePins map[string]string `yaml:"runtime_pins"`
 }
 
 type StepConfig struct {

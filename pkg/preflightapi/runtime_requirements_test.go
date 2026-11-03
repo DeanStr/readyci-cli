@@ -69,6 +69,21 @@ func TestRuntimeRequirementMergingAndSelection(t *testing.T) {
 		t.Fatalf("unrequested runtimes require inventory: %v", err)
 	}
 }
+
+func TestRuntimeRequirementMergingDeduplicatesRepeatedBounds(t *testing.T) {
+	for _, test := range []struct{ left, right, want string }{
+		{"9.15.0", "9.15.0", "9.15.0"},
+		{"24,>=24", ">=24", "24,>=24"},
+		{">=20", "24 || >=20", ">=20,24 || >=20"},
+		{"20 || 24", "20 || 24", "20 || 20,24 || 24,20 || 24"},
+	} {
+		merged, err := MergeRuntimeRequirements(map[string]string{"node": test.left}, map[string]string{"node": test.right})
+		if err != nil || merged["node"] != test.want {
+			t.Fatalf("merge %q with %q = %q, %v; want %q", test.left, test.right, merged["node"], err, test.want)
+		}
+	}
+}
+
 func TestRuntimeInventoryCopiesAreIndependent(t *testing.T) {
 	original := map[string]RuntimeInventory{"image": {"node": {"24.18.0"}}}
 	copy := CloneImageRuntimeInventory(original)

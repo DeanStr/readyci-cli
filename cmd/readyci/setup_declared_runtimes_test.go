@@ -16,11 +16,11 @@ func TestSetupDeclaredRuntimesPreserveSourceSemantics(t *testing.T) {
 	cases := []struct {
 		command string
 		want    map[string]string
-	}{{"go test ./...", map[string]string{"go": ">=1.24,>=1.25.0"}}, {"npm test", map[string]string{"node": "24.18.0,>=22.12", "pnpm": "11.15.1", "npm": "installed"}}, {"make -f Makefile -- test", map[string]string{"python": ">=3.9,<4"}}}
+	}{{"go test ./...", map[string]string{"go": ">=1.24,>=1.25.0"}}, {"npm test", map[string]string{"node": "24.18.0,>=22.12", "pnpm": "11.15.1", "npm": "installed"}}, {"python -m pytest tests", map[string]string{"python": ">=3.9,<4"}}}
 	for _, test := range cases {
-		got, err := setupDeclaredRuntimeRequirements(root, []string{test.command})
-		if err != nil {
-			t.Fatal(err)
+		got, notes := setupDeclaredRuntimeRequirements(root, []string{test.command})
+		if len(notes) != 0 {
+			t.Fatal(notes)
 		}
 		if len(got) != len(test.want) {
 			t.Fatalf("%s got%v want%v", test.command, got, test.want)
@@ -35,17 +35,19 @@ func TestSetupDeclaredRuntimesPreserveSourceSemantics(t *testing.T) {
 func TestSetupDeclaredRuntimesRejectMovingVersionsAndMergeSelectedDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeFileForRepoMapTest(t, filepath.Join(root, ".nvmrc"), "lts/*\n")
-	if _, err := setupDeclaredRuntimeRequirements(root, []string{"npm test"}); err == nil || !strings.Contains(err.Error(), ".nvmrc") {
-		t.Fatalf("moving alias accepted: %v", err)
+	if _, notes := setupDeclaredRuntimeRequirements(root, []string{"npm test"}); len(notes) == 0 || !strings.Contains(strings.Join(notes, "; "), ".nvmrc") {
+		t.Fatalf("moving alias accepted: %v", notes)
 	}
-	if requirements, err := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."}); err != nil || len(requirements) != 1 || requirements["go"] != "installed" {
-		t.Fatalf("unrelated Node declaration constrained Go: %v %v", requirements, err)
+	if requirements, notes := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."}); len(notes) != 0 || len(requirements) != 1 || requirements["go"] != "installed" {
+		t.Fatalf("unrelated Node declaration constrained Go: %v %v", requirements, notes)
 	}
 	writeFileForRepoMapTest(t, filepath.Join(root, "sub/Makefile"), "test:\n\tpython -m pytest tests\n")
 	writeFileForRepoMapTest(t, filepath.Join(root, "sub/pyproject.toml"), "[project]\nrequires-python = '>=3.11'\n")
-	got, err := setupDeclaredRuntimeRequirements(root, []string{"make -C sub -f Makefile -- test"})
-	if err != nil || !preflightapi.RuntimeVersionSatisfies("3.12.3", got["python"]) {
-		t.Fatalf("selected Make directory declaration lost: %v %v", got, err)
+	// Make is an opaque harness in its -C working directory: a selected
+	// runtime (for example from setup-python) reads that directory's declarations.
+	got, notes := setupDeclaredRuntimeRequirements(root, []string{"make -C sub -f Makefile -- test"}, "python")
+	if len(notes) != 0 || got["python"] != ">=3.11" {
+		t.Fatalf("selected Make directory declaration lost: %v %v", got, notes)
 	}
 }
 
@@ -64,9 +66,9 @@ func TestSetupTOMLRuntimeDeclarationsUseActualTablesAndStrings(t *testing.T) {
 	} {
 		root := t.TempDir()
 		writeFileForRepoMapTest(t, filepath.Join(root, "pyproject.toml"), test.source)
-		requirements, err := setupDeclaredRuntimeRequirements(root, []string{"python3 -m pytest"})
-		if (err != nil) != test.bad {
-			t.Fatalf("source%q requirements%v error%v", test.source, requirements, err)
+		requirements, notes := setupDeclaredRuntimeRequirements(root, []string{"python3 -m pytest"})
+		if (len(notes) != 0) != test.bad {
+			t.Fatalf("source%q requirements%v error%v", test.source, requirements, notes)
 		}
 		if !test.bad && requirements["python"] != test.want {
 			t.Fatalf("source%q got%q want%q", test.source, requirements["python"], test.want)
@@ -78,25 +80,26 @@ func TestSetupRuntimeDeclarationCommentsAndUnrelatedUnsafeMetadata(t *testing.T)
 	root := t.TempDir()
 	writeFileForRepoMapTest(t, filepath.Join(root, "go.mod"), "module example.com/test\ngo 1.26.0 // minimum\ntoolchain go1.26.1 // preferred\n")
 	writeFileForRepoMapTest(t, filepath.Join(root, ".nvmrc"), "$(touch NEVER_EXECUTE)\n")
-	got, err := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."})
-	if err != nil || got["go"] != ">=1.26.0,>=1.26.1" {
-		t.Fatalf("commented Go declarations lost or unrelated Node applied: %v %v", got, err)
+	got, notes := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."})
+	if len(notes) != 0 || got["go"] != ">=1.26.0,>=1.26.1" {
+		t.Fatalf("commented Go declarations lost or unrelated Node applied: %v %v", got, notes)
 	}
 	writeFileForRepoMapTest(t, filepath.Join(root, "pyproject.toml"), "[project]\nrequires-python = '>=3.9,!=3.12.0'\n")
-	got, err = setupDeclaredRuntimeRequirements(root, []string{"python3 -m pytest"})
-	if err != nil || got["python"] != ">=3.9,!=3.12.0" {
-		t.Fatalf("Python exclusion lost: %v %v", got, err)
+	got, notes = setupDeclaredRuntimeRequirements(root, []string{"python3 -m pytest"})
+	if len(notes) != 0 || got["python"] != ">=3.9,!=3.12.0" {
+		t.Fatalf("Python exclusion lost: %v %v", got, notes)
 	}
 }
 func TestSetupSelectedUnsupportedRuntimeDeclarationsDoNotDisappear(t *testing.T) {
 	for _, test := range []struct{ command, path, value string }{{"bundle exec rake test", ".ruby-version", "3.4.0\n"}, {"mvn test", ".java-version", "21.0.0\n"}, {"dotnet test", "global.json", `{"sdk":{"version":"9.0.100"}}`}} {
 		root := t.TempDir()
 		writeFileForRepoMapTest(t, filepath.Join(root, test.path), test.value)
-		if _, err := setupDeclaredRuntimeRequirements(root, []string{test.command}); err == nil || !strings.Contains(err.Error(), "unsupported runtime") {
-			t.Fatalf("selected runtime declaration vanished for%s: %v", test.command, err)
+		requirements, notes := setupDeclaredRuntimeRequirements(root, []string{test.command})
+		if len(requirements) != 0 || len(notes) != 1 || !strings.Contains(notes[0], test.path) || !strings.Contains(notes[0], "not a supported runtime requirement family") {
+			t.Fatalf("selected unsupported runtime declaration vanished or was emitted for %s: %v %v", test.command, requirements, notes)
 		}
-		if got, err := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."}); err != nil || len(got) != 1 || got["go"] != "installed" {
-			t.Fatalf("unrelated%s metadata constrained Go: %v %v", test.path, got, err)
+		if got, notes := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."}); len(notes) != 0 || len(got) != 1 || got["go"] != "installed" {
+			t.Fatalf("unrelated%s metadata constrained Go: %v %v", test.path, got, notes)
 		}
 	}
 }
@@ -104,8 +107,8 @@ func TestSetupSelectedUnsupportedRuntimeDeclarationsDoNotDisappear(t *testing.T)
 func TestSetupPackageManagerIntegrityIsNotSilentlyDiscarded(t *testing.T) {
 	root := t.TempDir()
 	writeFileForRepoMapTest(t, filepath.Join(root, "package.json"), `{"packageManager":"pnpm@11.15.1+sha512.abcd"}`)
-	if _, err := setupDeclaredRuntimeRequirements(root, []string{"pnpm test"}); err == nil || !strings.Contains(err.Error(), "integrity") {
-		t.Fatalf("unverified package manager integrity was discarded: %v", err)
+	if _, notes := setupDeclaredRuntimeRequirements(root, []string{"pnpm test"}); len(notes) == 0 || !strings.Contains(strings.Join(notes, "; "), "integrity") {
+		t.Fatalf("unverified package manager integrity was discarded: %v", notes)
 	}
 }
 
@@ -120,7 +123,7 @@ func TestSetupRuntimeSymlinkAndEmptyDeclarationsFailInspection(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := setupDeclaredRuntimeRequirements(root, []string{"node --test"}); err == nil {
+		if _, notes := setupDeclaredRuntimeRequirements(root, []string{"node --test"}); len(notes) == 0 {
 			t.Fatalf("%s runtime declaration silently became installed-default", kind)
 		}
 	}
@@ -136,9 +139,9 @@ func TestSetupTOMLDescriptionsCannotCreateOrHideRuntimeDeclarations(t *testing.T
 	for _, test := range cases {
 		root := t.TempDir()
 		writeFileForRepoMapTest(t, filepath.Join(root, test.path), test.body)
-		requirements, err := setupDeclaredRuntimeRequirements(root, []string{test.command})
-		if err != nil || requirements[test.runtime] != test.want {
-			t.Fatalf("source%q requirements%v err%v", test.body, requirements, err)
+		requirements, notes := setupDeclaredRuntimeRequirements(root, []string{test.command})
+		if len(notes) != 0 || requirements[test.runtime] != test.want {
+			t.Fatalf("source%q requirements%v notes%v", test.body, requirements, notes)
 		}
 	}
 }
@@ -147,9 +150,9 @@ func TestSetupGoVersionFilePreservesExactToolchainAlongsideModuleMinimum(t *test
 	root := t.TempDir()
 	writeFileForRepoMapTest(t, filepath.Join(root, "go.mod"), "module example.com/tests\ngo 1.27.0\n")
 	writeFileForRepoMapTest(t, filepath.Join(root, ".go-version"), "1.27.2\n")
-	requirements, err := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."})
-	if err != nil {
-		t.Fatal(err)
+	requirements, notes := setupDeclaredRuntimeRequirements(root, []string{"go test ./..."})
+	if len(notes) != 0 {
+		t.Fatal(notes)
 	}
 	if !preflightapi.RuntimeVersionSatisfies("1.27.2", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.27.3", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.27.1", requirements["go"]) {
 		t.Fatalf("exact .go-version constraint disappeared %v", requirements)

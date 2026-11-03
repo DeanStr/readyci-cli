@@ -64,7 +64,7 @@ func workflowImportRequirements(workflow repoWorkflowYAML, job repoWorkflowJobYA
 	for _, step := range job.Steps {
 		_, environmentProblems := effectiveWorkflowEnvironment(workflow, job, step)
 		unsupported = append(unsupported, environmentProblems...)
-		if step.If != "" || step.ContinueOnError {
+		if step.If != "" || step.ContinueOnError != nil && step.ContinueOnError != false {
 			unsupported = append(unsupported, "step conditions or continue-on-error require manual translation")
 		}
 		_, timeoutProblems := staticWorkflowTimeout(step.TimeoutMinutes, "step")
@@ -228,6 +228,12 @@ func setupImportCandidates(cwd, source string, runtimePins ...map[string]string)
 			}
 		}
 		if candidate.ID != "" && (source == "" || candidate.Source == source) {
+			if candidate.Command != "" {
+				// The same analysis that renders the candidate's configuration
+				// reports what importing it leaves unconfirmed.
+				check := setupImportedCheck(cwd, candidate)
+				candidate.Unresolved = mergeSetupUnresolved(setupUnresolvedForCheck(candidate.Unresolved, check.Name), check.Unresolved)
+			}
 			out = append(out, candidate)
 		}
 	}
@@ -267,6 +273,9 @@ func selectSetupImport(options setupOptions, candidates []repoImportCandidate, r
 		for _, requirement := range candidate.Requirements {
 			fmt.Fprintf(output, "   Review: %s\n", requirement)
 		}
+		for _, item := range candidate.Unresolved {
+			fmt.Fprintf(output, "   Unresolved (%s): %s\n", item.Kind, item.Detail)
+		}
 		for _, unsupported := range candidate.Unsupported {
 			fmt.Fprintf(output, "   Requires manual configuration: %s\n", unsupported)
 		}
@@ -284,7 +293,7 @@ func selectSetupImport(options setupOptions, candidates []repoImportCandidate, r
 	}
 	if yes {
 		if options.ImportSource != "" {
-			return nil, cliConfigError("--yes with --import requires --candidate ID; inspect setup --preview --json first", nil)
+			return nil, cliConfigError("--import requires --candidate ID without interactive selection; list candidate IDs with readyci setup --preview --json", nil)
 		}
 		return automaticSetupSelection(candidates).Imported, nil
 	}
@@ -374,7 +383,7 @@ func printSetupImportSelection(output io.Writer, selected repoImportCandidate, c
 
 func validateSetupImport(candidate repoImportCandidate) (*repoImportCandidate, error) {
 	if len(candidate.Unsupported) > 0 {
-		return nil, cliConfigError("this candidate requires manual configuration: "+strings.Join(candidate.Unsupported, "; "), nil)
+		return nil, cliConfigError("this candidate requires manual configuration: "+strings.Join(candidate.Unsupported, "; ")+"; configure it with readyci setup --print --detect=false", nil)
 	}
 	return &candidate, nil
 }
@@ -384,22 +393,29 @@ func setupImportedTemplate(options setupOptions, projectID string, candidate rep
 }
 
 func setupImportedTemplateForRoot(root string, options setupOptions, projectID string, candidate repoImportCandidate) string {
-	name := candidate.Check
-	if name == "" {
-		name = sanitizeCheckName(candidate.Name)
-	}
-	if name == "" {
-		name = "test"
-	}
-	runtimes := setupImportRuntimes(root, candidate)
-	// Moving selectors are resolved once during import. Their catalog records
-	// remain in the import report; the saved check uses ordinary numeric policy.
-	check := setupPrepareDetectedCheck(root, detectedCheck{Name: name, Command: candidate.Command, Steps: importedWorkflowSteps(candidate.RunSteps), Timeout: defaultString(candidate.Timeout, "20m"), Runtimes: runtimes, RuntimeRequirements: candidate.RuntimeRequirements, RustTargetPaths: setupImportRustTargetPaths(root, candidate)})
+	check := setupImportedCheck(root, candidate)
 	signals := []string{"Imported command from " + candidate.ID + "; review runtime requirements and the proposed dependency network access."}
-	signals = append(signals, setupRuntimePinNotices(candidate.RuntimeResolutions)...)
+	// Workflow selector items exist only on the candidate; the check's own
+	// items are added (once) when the template is rendered.
+	signals = append(signals, setupUnresolvedNotes(candidate.Unresolved)...)
+	signals = append(signals, candidate.RuntimeNotes...)
 	signals = append(signals, setupUserRuntimePinNotices(candidate.RuntimePins)...)
-	for _, requirement := range setupDependencyReviewRequirements(root, []string{candidate.Command}) {
-		signals = append(signals, "Preparation review required: "+requirement)
-	}
 	return renderDetectedProjectTemplate(projectID, options.Image, options.Profile, []detectedCheck{check}, nil, signals, config.CommandList(nil))
+}
+
+func setupImportCheckName(candidate repoImportCandidate) string {
+	return defaultString(candidate.Check, defaultString(sanitizeCheckName(candidate.Name), "test"))
+}
+
+// setupImportedCheck is the check an import candidate generates. Untranslated
+// workflow selectors stay unresolved items; the saved check uses ordinary
+// numeric policy only and records the candidate and runtime pins it came from,
+// so a later preview can re-read those selectors.
+func setupImportedCheck(root string, candidate repoImportCandidate) detectedCheck {
+	return setupPrepareDetectedCheck(root, detectedCheck{
+		Name: setupImportCheckName(candidate), Command: candidate.Command, Steps: importedWorkflowSteps(candidate.RunSteps),
+		Timeout: defaultString(candidate.Timeout, "20m"), Runtimes: setupImportRuntimes(root, candidate),
+		RuntimeRequirements: candidate.RuntimeRequirements, RustTargetPaths: setupImportRustTargetPaths(root, candidate),
+		ImportedFrom: &config.CheckImportConfig{Candidate: candidate.ID, RuntimePins: copyStringMap(candidate.RuntimePins)},
+	})
 }

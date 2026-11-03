@@ -411,15 +411,8 @@ func validateArchiveEntryPayload(item ArchiveEntry) error {
 }
 
 func writeTarEntry(writer *tar.Writer, prefix string, item ArchiveEntry) error {
-	name := prefix + "/" + item.Entry.Path
 	if item.Entry.Type == entryTypeSymlink {
-		return writer.WriteHeader(&tar.Header{
-			Name:     name,
-			Typeflag: tar.TypeSymlink,
-			Mode:     item.Entry.Mode,
-			Linkname: item.Entry.Linkname,
-			ModTime:  time.Unix(0, 0).UTC(),
-		})
+		return writeTarEntryFrom(writer, prefix, item.Entry, nil)
 	}
 	var reader io.Reader
 	if item.Source != "" {
@@ -435,16 +428,32 @@ func writeTarEntry(writer *tar.Writer, prefix string, item ArchiveEntry) error {
 		}
 		reader = bytes.NewReader(item.Data)
 	}
+	return writeTarEntryFrom(writer, prefix, item.Entry, reader)
+}
+
+// writeTarEntryFrom writes one normalized entry. Headers carry only declared
+// metadata, so every writer produces identical archives for identical inputs.
+func writeTarEntryFrom(writer *tar.Writer, prefix string, entry Entry, data io.Reader) error {
+	name := prefix + "/" + entry.Path
+	if entry.Type == entryTypeSymlink {
+		return writer.WriteHeader(&tar.Header{
+			Name:     name,
+			Typeflag: tar.TypeSymlink,
+			Mode:     entry.Mode,
+			Linkname: entry.Linkname,
+			ModTime:  time.Unix(0, 0).UTC(),
+		})
+	}
 	if err := writer.WriteHeader(&tar.Header{
 		Name:     name,
 		Typeflag: tar.TypeReg,
-		Mode:     item.Entry.Mode,
-		Size:     item.Entry.Size,
+		Mode:     entry.Mode,
+		Size:     entry.Size,
 		ModTime:  time.Unix(0, 0).UTC(),
 	}); err != nil {
 		return err
 	}
-	_, err := io.CopyN(writer, reader, item.Entry.Size)
+	_, err := io.CopyN(writer, data, entry.Size)
 	return err
 }
 

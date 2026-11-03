@@ -24,7 +24,7 @@ func TestSetupWorkflowRejectsPlaceholderPackageTests(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, imported := cfg.Checks["tests"]; imported || strings.Contains(template, "# Selected:") || cfg.Checks["node"].Command != "npm install && npm run check" {
+			if _, imported := cfg.Checks["tests"]; imported || len(setupImportedCandidates(t, template)) != 0 || cfg.Checks["node"].Command != "npm install && npm run check" {
 				t.Fatalf("placeholder workflow became automatic verification:\n%s", template)
 			}
 			if !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:tests"`) {
@@ -216,14 +216,17 @@ func TestSetupWorkflowRuntimeOverridesVersionDefaultsButPreservesEngines(t *test
 			writeFileForRepoMapTest(t, filepath.Join(root, ".nvmrc"), "22.0.0\n")
 			writeFileForRepoMapTest(t, filepath.Join(root, ".github/workflows/ci.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '24.15.0'\n      - run: npm test\n")
 			template, err := setupDetectedTemplate(root, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(root, ""))
-			if engine == ">=26" {
-				if err == nil {
-					t.Fatal("workflow version bypassed the package's compatibility constraint")
-				}
-				return
-			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			if engine == ">=26" {
+				// The workflow's explicit selection is kept; the conflicting
+				// compatibility declaration is disclosed rather than sealed.
+				cfg, err := config.ParseProjectConfig([]byte(template), "proposal")
+				if err != nil || cfg.Checks["tests"].RuntimeRequirements["node"] != "24.15.0" || !strings.Contains(template, `package.json (engines.node) \">=26\" is not emitted as a node runtime requirement (it conflicts`) {
+					t.Fatalf("conflicting compatibility declaration was sealed or hidden: %v\n%s", err, template)
+				}
+				return
 			}
 			cfg, err := config.ParseProjectConfig([]byte(template), "proposal")
 			if err != nil || !preflightapi.RuntimeVersionSatisfies("24.15.0", cfg.Checks["tests"].RuntimeRequirements["node"]) {
@@ -238,15 +241,15 @@ func TestSetupRuntimeSelectionPreservesCompatibilityAndIntegrityDeclarations(t *
 	writeFileForRepoMapTest(t, filepath.Join(root, "go.mod"), "module example.test/runtime\ngo 1.25.0\ntoolchain go1.26.0\n")
 	writeFileForRepoMapTest(t, filepath.Join(root, ".go-version"), "1.24.0\n")
 	selected := map[string]string{"go": "1.25.13"}
-	requirements, err := setupDeclaredRuntimeRequirementsForSelection(root, []string{"go test ./..."}, selected)
-	if err != nil || !preflightapi.RuntimeVersionSatisfies("1.25.13", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.24.0", requirements["go"]) {
-		t.Fatalf("explicit Go selection lost language minimum or retained a default: %v %v", requirements, err)
+	requirements, notes := setupDeclaredRuntimeNotesForSelection(root, []string{"go test ./..."}, selected)
+	if len(notes) != 0 || !preflightapi.RuntimeVersionSatisfies("1.25.13", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.24.0", requirements["go"]) {
+		t.Fatalf("explicit Go selection lost language minimum or retained a default: %v %v", requirements, notes)
 	}
-	if _, err := setupDeclaredRuntimeRequirementsForSelection(root, []string{"go test ./..."}, map[string]string{"go": "installed"}); err == nil {
+	if _, notes := setupDeclaredRuntimeNotesForSelection(root, []string{"go test ./..."}, map[string]string{"go": "installed"}); len(notes) == 0 {
 		t.Fatal("installed-only selection discarded contradictory repository defaults")
 	}
 	writeFileForRepoMapTest(t, filepath.Join(root, "package.json"), `{"packageManager":"pnpm@11.15.1+sha512.invalid"}`)
-	if _, err := setupDeclaredRuntimeRequirementsForSelection(root, []string{"pnpm test"}, map[string]string{"node": "24", "pnpm": "11.15.1"}); err == nil {
+	if _, notes := setupDeclaredRuntimeNotesForSelection(root, []string{"pnpm test"}, map[string]string{"node": "24", "pnpm": "11.15.1"}); len(notes) == 0 {
 		t.Fatal("explicit selection discarded package-manager integrity metadata")
 	}
 }

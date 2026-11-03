@@ -18,6 +18,7 @@ const (
 	ScopeService       FieldScope = "service"
 	ScopeServiceHealth FieldScope = "service.health"
 	ScopeCheck         FieldScope = "check"
+	ScopeImportedFrom  FieldScope = "check.imported_from"
 	ScopeStep          FieldScope = "step"
 	ScopeMatrix        FieldScope = "matrix"
 	ScopeWhen          FieldScope = "when"
@@ -135,6 +136,10 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeCheck, "keep_failed", "checks.<name>.keep_failed", "Retain failed workspaces/artifacts for inspection.", "false"),
 		field(ScopeCheck, "artifact_paths", "checks.<name>.artifact_paths", "Check-level artifact path globs.", ""),
 		field(ScopeCheck, "outputs", "checks.<name>.outputs", "Check outputs that Ready CI should preserve for review.", ""),
+		field(ScopeCheck, "imported_from", "checks.<name>.imported_from", "Setup import that generated this check; setup previews re-read its current workflow selectors and execution ignores it.", ""),
+
+		field(ScopeImportedFrom, "candidate", "checks.<name>.imported_from.candidate", "Import candidate ID from readyci setup --preview --json.", ""),
+		field(ScopeImportedFrom, "runtime_pins", "checks.<name>.imported_from.runtime_pins", "Numeric runtime choices given with setup --runtime for this import.", ""),
 
 		field(ScopeStep, "name", "checks.<name>.steps[].name", "Step name.", ""),
 		field(ScopeStep, "command", "checks.<name>.steps[].command", "Step command.", ""),

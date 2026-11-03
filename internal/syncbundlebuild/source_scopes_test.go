@@ -94,6 +94,16 @@ func TestComponentProjectionsMatchIndependentSourceBuilds(t *testing.T) {
 				if err := syncbundle.Validate(bytes.NewReader(output.Bytes())); err != nil {
 					t.Fatal(err)
 				}
+				// The service streams this projection from the canonical
+				// upload; it must be the same archive as the in-memory one.
+				var streamed bytes.Buffer
+				identity := syncbundle.ProjectionIdentity{SnapshotDigest: projected.Manifest.SnapshotDigest, BaselineKey: projected.Manifest.BaselineKey, ChangedFiles: projected.Manifest.ChangedFiles, ManifestDigest: syncbundle.ManifestDigest(projected.Manifest)}
+				if _, err := syncbundle.StreamProjection(&streamed, bytes.NewReader(raw.Bytes()), policy, identity, nil); err != nil {
+					t.Fatal(err)
+				}
+				if !bytes.Equal(streamed.Bytes(), output.Bytes()) {
+					t.Fatalf("streamed projection (%d bytes) differs from in-memory projection (%d bytes)", streamed.Len(), output.Len())
+				}
 			}
 			snapshot, err := SnapshotWithOptions(context.Background(), repo, options)
 			if err != nil || snapshot.SnapshotDigest != built.Manifest.SnapshotDigest {

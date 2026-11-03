@@ -11,7 +11,8 @@ type setupRuntimeCommand struct {
 	InferRuntimes bool
 }
 
-// Both runtime detection and declaration scoping use this static command graph.
+// Both runtime detection and declaration scoping use this static command graph
+// of literal commands and invoked package scripts; Make recipes are opaque.
 // Lifecycle hooks constrain already selected runtimes conservatively: manager
 // versions and configuration determine whether those hooks actually execute.
 func setupRuntimeCommands(root string, commands []string) ([]setupRuntimeCommand, []string) {
@@ -24,27 +25,12 @@ func setupRuntimeCommands(root string, commands []string) ([]setupRuntimeCommand
 		return pending, []string{"runtime command sources could not be inspected within the repository"}
 	}
 	defer workspace.Close()
-	seenMake := map[setupMakeSelection]bool{}
 	seenScripts := map[string]bool{}
 	var warnings []string
 	for index := 0; index < len(pending); index++ {
 		entry := pending[index]
 		if entry.Command == setupPythonVenvPreparation {
 			continue
-		}
-		for _, selected := range setupMakeSelections(root, entry.Command) {
-			inferred, seen := seenMake[selected]
-			if seen && (inferred || !entry.InferRuntimes) {
-				continue
-			}
-			if !seen && len(seenMake) >= 64 {
-				warnings = append(warnings, "Make runtime scope exceeds the static inspection limit; configure its scope explicitly")
-				continue
-			}
-			seenMake[selected] = entry.InferRuntimes
-			for _, command := range setupMakeSelectionCommands(root, selected) {
-				pending = append(pending, setupRuntimeCommand{Command: command, InferRuntimes: entry.InferRuntimes})
-			}
 		}
 		for _, call := range setupExpandedShellCommands(entry.Command) {
 			invocation := executableShellCommandFromCommand(call)

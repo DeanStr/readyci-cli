@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
@@ -10,6 +11,12 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
+// setupEnvironmentReport is the selected check's environment preview.
+// Status is ready only when the runner is compatible and nothing is
+// unresolved; RuntimeStatus describes runner compatibility alone. Unresolved
+// lists what static inspection could not confirm, which only a run that
+// produces test feedback establishes. It is the only JSON home of those
+// review notes; Warnings holds the remaining review text.
 type setupEnvironmentReport struct {
 	RuntimePreparation     []preflightapi.RuntimeArchive `json:"runtime_preparation,omitempty"`
 	RuntimeRequirements    map[string]string             `json:"runtime_requirements,omitempty"`
@@ -26,6 +33,7 @@ type setupEnvironmentReport struct {
 	RuntimeStatus          string                        `json:"runtime_status"`
 	TemporaryStorageStatus string                        `json:"temporary_storage_status"`
 	Requirements           []setupRuntimeRequirement     `json:"requirements,omitempty"`
+	Unresolved             []setupUnresolvedItem         `json:"unresolved,omitempty"`
 	Warnings               []string                      `json:"warnings,omitempty"`
 	Blockers               []string                      `json:"blockers,omitempty"`
 	WorkerCapability       *workerCapabilityReport       `json:"worker_capability,omitempty"`
@@ -60,53 +68,60 @@ func reconcileSetupEnvironment(options setupOptions, cfg config.ProjectConfig, r
 		environment.CacheLaneSizeBytes = plan.Options.CacheLaneSizeBytes
 		environment.RuntimeRequirements = preflightapi.CloneRuntimeRequirements(plan.Options.RuntimeRequirements)
 	}
-	commands := []string{}
-	var preparation []string
+	commands, tests := []string{}, []string{}
 	if plan != nil {
-		commands = append(commands, setupRuntimeCommandWithEnvironment(plan.Options.Command, plan.Options.Env))
+		tests = append(tests, setupRuntimeCommandWithEnvironment(plan.Options.Command, plan.Options.Env))
+		commands = append(commands, tests[0])
 		for _, command := range plan.Options.PrepareCommands {
 			commands = append(commands, setupRuntimeCommandWithEnvironment(command, plan.Options.Env))
 		}
-		preparation = plan.Options.PrepareCommands
 		for _, step := range plan.Options.Steps {
-			commands = append(commands, setupRuntimeCommandWithEnvironment(step.Command, plan.Options.Env, step.Env))
+			command := setupRuntimeCommandWithEnvironment(step.Command, plan.Options.Env, step.Env)
+			commands, tests = append(commands, command), append(tests, command)
 		}
 	}
-	environment.Requirements, environment.Warnings = setupRuntimeRequirementsForSelection(".", commands, environment.RuntimeRequirements)
+	environment.Requirements, _ = setupRuntimeRequirementsForSelection(".", commands, environment.RuntimeRequirements)
+	// Repository runtime declarations are review material. A configuration
+	// that readyci check accepts is never blocked here; only the requirements
+	// it retains authorize the run, and setup must not claim missing ones are
+	// sealed.
+	declared, declaredItems := setupDeclaredRuntimeRequirementsForSelection(".", commands, environment.RuntimeRequirements)
+	var unsealed []setupUnresolvedItem
+	if plan != nil {
+		for _, runtime := range sortedStringMapKeys(declared) {
+			required, configured := declared[runtime], plan.Options.RuntimeRequirements[runtime]
+			if required == "installed" || preflightapi.RuntimeRequirementImplies(configured, required) {
+				continue
+			}
+			sealed := "does not require " + runtime
+			if configured != "" {
+				sealed = "only requires " + strconv.Quote(configured)
+			}
+			var sources []string
+			for _, requirement := range environment.Requirements {
+				if requirement.Runtime == runtime {
+					sources = appendUniqueString(sources, requirement.Source)
+				}
+			}
+			unsealed = append(unsealed, setupUnresolvedItem{
+				Kind: setupUnresolvedRuntimeDeclarationNotApplied, Subject: runtime, Source: defaultString(strings.Join(sources, ", "), "repository runtime declarations"), Declared: required,
+				Detail: "repository runtime declarations narrow " + runtime + " to " + strconv.Quote(required) + ", but checks." + report.Check + ".runtime_requirements " + sealed + "; add the declaration there or regenerate setup to seal it.",
+			})
+		}
+		dependencyCheck, _ := config.DependencyCheckFor(cfg, report.Check)
+		environment.Unresolved = mergeSetupUnresolved(
+			setupImportedWorkflowUnresolved(".", cfg.Checks[report.Check], report, plan.Options.RuntimeRequirements),
+			setupUnresolvedForCheck(mergeSetupUnresolved(
+				setupPythonDependencyReview(".", tests, plan.Options.PrepareCommands, dependencyCheck != ""),
+				declaredItems,
+				unsealed,
+				setupOpaqueEntrypoints(".", tests),
+			), report.Check),
+		)
+	}
 	environment.NetworkReview = describeSetupNetwork(options, cfg, report, commands)
 	if plan != nil {
 		environment.Warnings = append(environment.Warnings, setupNetworkWarning())
-	}
-	if len(environment.Requirements) > 0 {
-		environment.RuntimeStatus = "not_checked"
-	}
-
-	var explicitRuntimes []string
-	if plan != nil {
-		for runtime := range plan.Options.RuntimeRequirements {
-			explicitRuntimes = append(explicitRuntimes, runtime)
-		}
-	}
-	declared, declarationErr := setupDeclaredRuntimeRequirementsForSelection(".", commands, environment.RuntimeRequirements, explicitRuntimes...)
-	if declarationErr != nil {
-		environment.Status, environment.RuntimeStatus = "blocked", "unsupported"
-		environment.Blockers = append(environment.Blockers, declarationErr.Error())
-		environment.preflightError = cliConfigError(declarationErr.Error(), nil)
-		return
-	}
-	if plan != nil {
-		// Only the requirements retained in the configuration authorize the run.
-		// A setup preview may diagnose an older hand-written configuration, but
-		// it must not claim those missing requirements are sealed for execution.
-		for runtime, required := range declared {
-			if !preflightapi.RuntimeRequirementImplies(plan.Options.RuntimeRequirements[runtime], required) {
-				environment.RuntimeStatus = "requires_configuration"
-				environment.Blockers = append(environment.Blockers, "declare "+runtime+" "+required+" under checks."+report.Check+".runtime_requirements; regenerate setup to seal repository runtime declarations")
-			}
-		}
-	}
-	if blockers := setupDependencyReviewRequirements(".", commands, preparation...); len(blockers) > 0 {
-		environment.Blockers = append(environment.Blockers, blockers...)
 	}
 	if len(environment.Blockers) > 0 {
 		environment.Status = "blocked"
@@ -150,8 +165,12 @@ func reconcileSetupEnvironment(options setupOptions, cfg config.ProjectConfig, r
 	}
 	// Session sources use the service's object-store upload contract, not a
 	// worker-local bundle upload URL. Session creation validates that store.
+	// runtime_status describes runner compatibility only; unresolved items keep
+	// the environment under review without blocking the first run.
 	if capability.Policy.Allowed && capability.Claimable {
-		environment.Status = "ready"
+		if len(environment.Unresolved) == 0 {
+			environment.Status = "ready"
+		}
 		if len(plan.Options.RuntimeRequirements) > 0 {
 			environment.RuntimeStatus = "compatible"
 			if len(environment.RuntimePreparation) > 0 {
@@ -174,6 +193,72 @@ func reconcileSetupEnvironment(options setupOptions, cfg config.ProjectConfig, r
 			environment.Blockers = []string{"no fresh worker currently supports the selected image, region, size, network, and Docker requirements"}
 		}
 	}
+}
+
+// setupImportedWorkflowUnresolved returns what the upstream job a check was
+// imported from declares but the check does not apply. Everything else is
+// derived from the check itself. The job is re-read on every preview instead
+// of being saved, so a proposal and its saved configuration report the same
+// items and a changed workflow reports its current ones.
+func setupImportedWorkflowUnresolved(root string, check config.CheckConfig, report *setupReport, requirements map[string]string) []setupUnresolvedItem {
+	if report.ImportScope != nil {
+		// The configuration is this run's import proposal; its candidate was
+		// just analyzed with the same runtime pins.
+		selected := report.ImportScope.Selected
+		return setupImportedJobUnresolved(selected, selected.RuntimePins, requirements, report.Check)
+	}
+	imported := check.ImportedFrom
+	if imported == nil {
+		return nil // A hand-written check names no upstream job.
+	}
+	// Re-read without the recorded pins: each pin is checked against the
+	// check below instead of being trusted.
+	for _, candidate := range setupImportCandidates(root, "", nil) {
+		if candidate.ID == imported.Candidate {
+			return setupImportedJobUnresolved(candidate, imported.RuntimePins, requirements, report.Check)
+		}
+	}
+	// The workflow or job is gone, was renamed, or no longer looks like a
+	// verification job. The saved check still runs exactly as written and the
+	// rest of its review still applies, so there are no upstream declarations
+	// to report and no reason to fail the preview.
+	return nil
+}
+
+// setupImportedJobUnresolved compares an import candidate's runtime
+// declarations with the runtime requirements the check actually carries.
+//
+// A selector setup cannot translate, such as setup-node lts/*, stays
+// unresolved unless the user pinned that runtime and the check's requirement
+// still applies the pin. The pin is needed because a repository declaration
+// such as package.json engines can give a pinned and an unpinned import the
+// same requirement. A declaration setup does translate is unresolved when the
+// check's requirement does not imply it, for example after the workflow moves
+// to a new version once the configuration is saved.
+func setupImportedJobUnresolved(candidate repoImportCandidate, pins, requirements map[string]string, check string) []setupUnresolvedItem {
+	var items []setupUnresolvedItem
+	for _, item := range candidate.WorkflowUnresolved {
+		if pin := pins[item.Subject]; item.Kind == setupUnresolvedRuntimeDeclarationNotApplied && pin != "" &&
+			preflightapi.RuntimeRequirementImplies(requirements[item.Subject], pin) {
+			continue
+		}
+		items = append(items, item)
+	}
+	for _, runtime := range sortedStringMapKeys(candidate.RuntimeRequirements) {
+		required, configured := candidate.RuntimeRequirements[runtime], requirements[runtime]
+		if required == "installed" || preflightapi.RuntimeRequirementImplies(configured, required) {
+			continue
+		}
+		sealed := "does not require " + runtime
+		if configured != "" {
+			sealed = "only requires " + strconv.Quote(configured)
+		}
+		items = append(items, setupUnresolvedItem{
+			Kind: setupUnresolvedRuntimeDeclarationNotApplied, Subject: runtime, Source: candidate.ID, Declared: required,
+			Detail: "the imported workflow job declares " + runtime + " " + strconv.Quote(required) + ", but checks." + check + ".runtime_requirements " + sealed + "; add the declaration there or regenerate setup to seal it.",
+		})
+	}
+	return setupUnresolvedForCheck(items, check)
 }
 
 func validateSetupEnvironment(environment *setupEnvironmentReport) error {
@@ -225,6 +310,9 @@ func printSetupEnvironment(environment *setupEnvironmentReport) {
 		fmt.Printf("  temporary_storage: %d bytes per-run device capacity (filesystem overhead reduces usable space)\n", environment.ScratchSizeBytes)
 	} else {
 		fmt.Println("  temporary_storage: not advertised")
+	}
+	for _, item := range environment.Unresolved {
+		fmt.Printf("  unresolved (%s): %s\n", item.Kind, item.Detail)
 	}
 	for _, warning := range environment.Warnings {
 		fmt.Printf("  review: %s\n", warning)

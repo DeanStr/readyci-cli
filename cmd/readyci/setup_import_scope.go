@@ -63,8 +63,9 @@ func appendSetupImportScope(template string, scope *setupImportScope) string {
 	}
 	var out strings.Builder
 	out.WriteString(template)
-	out.WriteString("\n# Ready CI import scope: selected candidate only.\n")
-	fmt.Fprintf(&out, "# Selected: %s\n", strconv.Quote(scope.Selected.ID))
+	// The selected candidate is recorded in the check's imported_from field;
+	// these comments only list what the selection leaves out.
+	out.WriteString("\n# Ready CI import scope: selected candidate (imported_from) only.\n")
 	for _, candidate := range scope.Omitted {
 		fmt.Fprintf(&out, "# Not imported: %s", strconv.Quote(candidate.ID))
 		if len(candidate.Unsupported) > 0 {

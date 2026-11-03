@@ -49,12 +49,6 @@ func setupRuntimeDeclarationScopes(root string, commands []string, active map[st
 			// not make the repository root an additional Python project.
 			continue
 		}
-		for _, selected := range setupMakeSelections(root, command) {
-			recipes := setupMakeSelectionCommands(root, selected)
-			if len(recipes) == 0 {
-				opaqueDirectories = appendUniqueString(opaqueDirectories, defaultString(selected.Directory, "."))
-			}
-		}
 		for _, call := range setupExpandedShellCommands(command) {
 			if _, wrapper := setupLiteralBashPayload(call); wrapper {
 				continue // Its expanded payload carries the actual working directory.
@@ -75,6 +69,15 @@ func setupRuntimeDeclarationScopes(root string, commands []string, active map[st
 			}
 			name := filepath.Base(normalizeCommandInvocationToken(args[0].Text))
 			switch name {
+			case "make", "gmake":
+				// Recipes are not evaluated. Active runtimes may run anywhere
+				// below Make's working directory.
+				if makeDirectory, ok := setupMakeWorkingDirectory(directory, args[1:]); ok {
+					opaqueDirectories = appendUniqueString(opaqueDirectories, makeDirectory)
+				} else {
+					warnings = append(warnings, "Make working directory is dynamic or outside the repository; runtime declarations for its recipes were not inspected")
+				}
+				continue
 			case "npm", "npx", "pnpm", "yarn", "bun", "bunx":
 				selection, ok := setupRuntimePackageSelection(name, directory, args[1:])
 				if !ok || setupWorkflowPackageSelectionUnknown(root, selection.Directory, name, command, nil, selection.ExplicitDirectory) {
@@ -153,7 +156,7 @@ func setupRuntimeProjectIndependentInvocation(args []shellWord) bool {
 	}
 	name := normalizeCommandInvocationToken(args[0].Text)
 	switch name {
-	case "make", "echo", "printf", "exit", "true", "false", ":",
+	case "echo", "printf", "exit", "true", "false", ":",
 		"mkdir", "rmdir", "rm", "cp", "mv", "ln", "chmod", "chown", "touch", "pwd", "ls", "grep":
 		return true
 	}

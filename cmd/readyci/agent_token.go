@@ -67,7 +67,7 @@ func agentTokenCreateCommand(args []string) error {
 	})
 	if err != nil {
 		if tokenCreateForbidden(err) {
-			return fmt.Errorf("%w\n\ncreating agent tokens requires a valid logged-in or parent API token with tokens:write; sign in again with an owner/admin account or create a scoped token in the dashboard", err)
+			return fmt.Errorf("%w\n\ncreating agent tokens requires a valid logged-in or parent API token with tokens:write; device logins (readyci login --device) never receive it. Sign in with readyci login on a machine with a browser using an owner/admin account, or create a scoped token in the dashboard", err)
 		}
 		return err
 	}

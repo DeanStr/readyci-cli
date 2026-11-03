@@ -136,7 +136,7 @@ func rootCauseForClassification(kind string) string {
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "The run environment is missing a dependency needed by the command."
 	case preflightapi.ClassificationEnvironmentSetupFailed:
-		return "A runtime, toolchain, platform, or filesystem prerequisite was not met; the command's exit code is preserved."
+		return "A runtime, toolchain, platform, filesystem, or required environment configuration prerequisite was not met; the command's exit code is preserved."
 	case preflightapi.ClassificationServiceSetupFailed:
 		return "A configured service failed before or during verification."
 	case preflightapi.ClassificationTimeout:

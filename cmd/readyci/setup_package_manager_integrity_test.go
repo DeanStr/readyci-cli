@@ -52,9 +52,9 @@ func TestSetupPinnedPackageManagerMetadataSurvivesWorkflowImport(t *testing.T) {
 			if pin == "" {
 				t.Fatalf("unexpected fixture repository %s", fixture.Repository)
 			}
-			requirements, err := setupDeclaredRuntimeRequirements(repo, []string{"pnpm test"})
-			if err != nil || requirements["pnpm"] != pin {
-				t.Fatalf("package manager declaration lost integrity/version: %v err=%v", requirements, err)
+			requirements, notes := setupDeclaredRuntimeRequirements(repo, []string{"pnpm test"})
+			if len(notes) != 0 || requirements["pnpm"] != pin {
+				t.Fatalf("package manager declaration lost integrity/version: %v notes=%v", requirements, notes)
 			}
 			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/tests.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: pnpm/action-setup@v4\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm test\n")
 			candidates := setupImportCandidates(repo, "github-actions")
@@ -73,9 +73,9 @@ func TestSetupPinnedPackageManagerMetadataSurvivesWorkflowImport(t *testing.T) {
 			if err != nil || plan.Run.RuntimeRequirements["pnpm"] != cfg.Checks["tests"].RuntimeRequirements["pnpm"] || len(plan.Run.Steps) != 2 {
 				t.Fatalf("resolved plan lost integrity/version or upstream steps: plan=%+v err=%v", plan, err)
 			}
-			goOnly, err := setupDeclaredRuntimeRequirements(repo, []string{"go test ./..."})
-			if err != nil || len(goOnly) != 1 || goOnly["go"] != "installed" {
-				t.Fatalf("unrelated Node declaration constrained a Go-only scope: %v err=%v", goOnly, err)
+			goOnly, notes := setupDeclaredRuntimeRequirements(repo, []string{"go test ./..."})
+			if len(notes) != 0 || len(goOnly) != 1 || goOnly["go"] != "installed" {
+				t.Fatalf("unrelated Node declaration constrained a Go-only scope: %v notes=%v", goOnly, notes)
 			}
 		})
 	}
@@ -87,7 +87,7 @@ func TestSetupPnpmWorkflowVersionPreservesRepositoryIntegrity(t *testing.T) {
 			repo := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(repo, "package.json"), `{"packageManager":"pnpm@`+setupSveltePnpmIntegrityPin+`"}`)
 			job := repoWorkflowJobYAML{Steps: []repoWorkflowStepYAML{{Uses: "pnpm/action-setup@v4", With: map[string]any{"version": version}}}}
-			workflow, _, problems := setupWorkflowRuntimeRequirements(repo, job)
+			workflow, _, _, problems := setupWorkflowRuntimeRequirements(repo, job)
 			if len(problems) > 0 {
 				t.Fatalf("literal pnpm action was blocked: %v", problems)
 			}
@@ -104,14 +104,25 @@ func TestSetupPnpmWorkflowVersionPreservesRepositoryIntegrity(t *testing.T) {
 	}
 }
 
-func TestSetupPnpmIntegrityConflictsRemainConfigurationErrors(t *testing.T) {
-	for _, version := range []string{"11.15.1", "10.33.4+sha512." + strings.Repeat("f", 128)} {
-		t.Run(version, func(t *testing.T) {
+// Conflicting or unprovable package-manager pins are never sealed; they are
+// disclosed as review notes and the remaining pin stays enforced.
+func TestSetupPnpmIntegrityConflictsAreReviewNotes(t *testing.T) {
+	for _, test := range []struct{ version, want, note string }{
+		{"11.15.1", "11.15.1", "package.json (packageManager)"},
+		{"10.33.4+sha512." + strings.Repeat("f", 128), setupSveltePnpmIntegrityPin, "no approved Ready CI pnpm archive matches"},
+	} {
+		t.Run(test.version, func(t *testing.T) {
 			repo := t.TempDir()
 			writeFileForRepoMapTest(t, filepath.Join(repo, "package.json"), `{"packageManager":"pnpm@`+setupSveltePnpmIntegrityPin+`"}`)
-			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/tests.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: pnpm/action-setup@v4\n        with:\n          version: '"+version+"'\n      - run: pnpm test\n")
-			if template, err := setupDetectedTemplate(repo, "fixture", setupOptions{Profile: "remote-ci"}, setupImportCandidates(repo, "github-actions")); err == nil || template != "" {
-				t.Fatalf("conflicting package manager version or integrity was accepted: version=%s template=%q err=%v", version, template, err)
+			writeFileForRepoMapTest(t, filepath.Join(repo, ".github/workflows/tests.yml"), "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: pnpm/action-setup@v4\n        with:\n          version: '"+test.version+"'\n      - run: pnpm test\n")
+			candidates := setupImportCandidates(repo, "github-actions")
+			if len(candidates) != 1 || len(candidates[0].Unsupported) != 0 {
+				t.Fatalf("package-manager declaration blocked import: %+v", candidates)
+			}
+			template := setupImportedTemplateForRoot(repo, setupOptions{Profile: "remote-ci"}, "fixture", candidates[0])
+			cfg, err := config.ParseProjectConfig([]byte(template), "imported")
+			if err != nil || cfg.Checks["tests"].RuntimeRequirements["pnpm"] != test.want || !strings.Contains(template, test.note) {
+				t.Fatalf("conflicting pin was sealed or hidden: cfg=%+v err=%v\n%s", cfg.Checks["tests"], err, template)
 			}
 		})
 	}
@@ -133,13 +144,13 @@ func TestSetupPackageManagerMetadataRequiresSupportedCompleteIntegrity(t *testin
 			t.Fatal(err)
 		}
 		writeFileForRepoMapTest(t, filepath.Join(repo, "package.json"), string(data))
-		if requirements, err := setupDeclaredRuntimeRequirements(repo, []string{"pnpm test"}); err == nil {
+		if requirements, notes := setupDeclaredRuntimeRequirements(repo, []string{"pnpm test"}); len(notes) == 0 {
 			t.Fatalf("unsupported package manager metadata became version-only selection: value=%s requirements=%v", value, requirements)
 		}
 		if strings.HasPrefix(value, "pnpm@") {
 			version := strings.TrimPrefix(value, "pnpm@")
-			if requirements, _, problems := setupWorkflowRuntimeRequirements(repo, repoWorkflowJobYAML{Steps: []repoWorkflowStepYAML{{Uses: "pnpm/action-setup@v4", With: map[string]any{"version": version}}}}); len(problems) == 0 {
-				t.Fatalf("unsupported action integrity became version-only selection: value=%s requirements=%v", value, requirements)
+			if requirements, unresolved, notes, _ := setupWorkflowRuntimeRequirements(repo, repoWorkflowJobYAML{Steps: []repoWorkflowStepYAML{{Uses: "pnpm/action-setup@v4", With: map[string]any{"version": version}}}}); len(requirements) != 0 || len(unresolved) != 1 || len(notes) != 0 {
+				t.Fatalf("unsupported action integrity became version-only selection: value=%s requirements=%v notes=%v", value, requirements, notes)
 			}
 		}
 	}

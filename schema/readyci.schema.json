@@ -1073,6 +1073,50 @@
                 }
               }
             },
+            "imported_from": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidate"
+              ],
+              "description": "Setup import that generated this check. readyci setup re-reads the candidate's current workflow selectors when previewing; execution ignores it.",
+              "properties": {
+                "candidate": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Import candidate ID from readyci setup --preview --json.",
+                  "allOf": [
+                    {
+                      "pattern": "\\S"
+                    },
+                    {
+                      "not": {
+                        "pattern": "[\\x00-\\x1F\\x7F-\\x9F]"
+                      }
+                    }
+                  ]
+                },
+                "runtime_pins": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Numeric runtime choices given with readyci setup --runtime for this import.",
+                  "properties": {
+                    "go": {
+                      "$ref": "#/$defs/setupRuntimePin"
+                    },
+                    "node": {
+                      "$ref": "#/$defs/setupRuntimePin"
+                    },
+                    "pnpm": {
+                      "$ref": "#/$defs/setupRuntimePin"
+                    },
+                    "python": {
+                      "$ref": "#/$defs/setupRuntimePin"
+                    }
+                  }
+                }
+              }
+            },
             "environment_requirements": {
               "$ref": "#/$defs/environmentRequirements"
             }
@@ -1083,6 +1127,10 @@
     "region": {
       "type": "string",
       "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$"
+    },
+    "setupRuntimePin": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)){0,2}$"
     },
     "commandList": {
       "oneOf": [

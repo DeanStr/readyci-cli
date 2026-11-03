@@ -5,15 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -53,35 +51,13 @@ type matchedJobSource struct {
 // generated configurations run the complete selected upstream job successfully.
 // The offline regression checks the real setup command, the resolved job and
 // the compiled, sealed command; it does not run upstream code during detection.
-// Alias fixtures retain their historical native policy. Current imports
-// deliberately replace that policy with an explicit numeric pin; the native
-// proof establishes the historical job, not a native run of the new policy.
-// Likewise, historical sealed commands do not attest to today's cache wrapper;
-// current manual and automatic commands are compiled and compared separately.
+// Alias fixtures retain their historical native policy. Setup no longer
+// resolves moving selectors, so the reviewed series is supplied explicitly with
+// --runtime; the native proof establishes the historical job, not a native run
+// of the new policy. Likewise, historical sealed commands do not attest to
+// today's cache wrapper; current manual and automatic commands are compiled and
+// compared separately.
 func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
-	// New imports use the current reviewed catalog; native proof retains its
-	// original catalog. Refreshes within the same series do not rewrite proof.
-	withReviewedAliasClock(t, preflightapi.NodeRuntimeAliasCatalogMetadata().ReviewedAt.Add(time.Minute))
-	aliasServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/runtime-aliases/resolve" {
-			t.Errorf("unexpected setup request: %s", r.URL.Path)
-			http.NotFound(w, r)
-			return
-		}
-		var request preflightapi.RuntimeAliasRequest
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Error(err)
-			http.Error(w, "invalid request", 400)
-			return
-		}
-		resolution, err := preflightapi.ResolveSetupRuntimeAlias(request, setupRuntimeResolutionNow())
-		if err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		writeCLITestJSON(w, http.StatusOK, resolution)
-	}))
-	defer aliasServer.Close()
 	root, err := filepath.Abs("testdata/setup-matched-jobs")
 	if err != nil {
 		t.Fatal(err)
@@ -127,10 +103,23 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 				t.Fatalf("selected upstream cell changed: %+v", selected)
 			}
 
-			printed, err := captureStdoutForCLITest(t, func() error {
-				return setupCommand([]string{"--api-url", aliasServer.URL, "--print", "--project", "matched-fixture", "--candidate", fixture.CandidateID,
-					"--image", "ubuntu-24.04-ci", "--network-allowlist", strings.Join(fixture.ReviewedNetworkAllowlist, ",")})
-			})
+			manualData := matchedJobRead(t, filepath.Join(fixtureRoot, "manual.readyci.yml"))
+			if matchedJobSHA256(manualData) != fixture.ManualConfigSHA256 {
+				t.Fatal("independent manual oracle changed")
+			}
+			manualNumeric, manualResolutions := matchedJobNumericOracle(t, manualData, fixture.Check)
+			args := []string{"--api-url", "http://127.0.0.1:9", "--print", "--project", "matched-fixture", "--candidate", fixture.CandidateID,
+				"--image", "ubuntu-24.04-ci", "--network-allowlist", strings.Join(fixture.ReviewedNetworkAllowlist, ",")}
+			for name, historical := range manualResolutions {
+				// A moving selector is never resolved by setup. It stays a review
+				// note until the reviewed series is pinned explicitly.
+				if historical.Policy != "setup_node_lts_cache_first_v1" || selected.RuntimeRequirements[name] != "" ||
+					!strings.Contains(strings.Join(setupUnresolvedNotes(selected.Unresolved), ";"), strconv.Quote(historical.Selector)) {
+					t.Fatalf("moving %s selector was not left as a review note: %+v", name, selected)
+				}
+				args = append(args, "--runtime", name+"="+historical.Requirement)
+			}
+			printed, err := captureStdoutForCLITest(t, func() error { return setupCommand(args) })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,15 +137,10 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 				}
 			}
 			if !reflect.DeepEqual(omitted, fixture.OmittedCandidates) ||
-				!strings.Contains(printed, "# Selected: "+fmt.Sprintf("%q", fixture.CandidateID)) {
+				!reflect.DeepEqual(setupImportedCandidates(t, printed), []string{fixture.CandidateID}) {
 				t.Fatalf("selected/omitted scope changed: %v", omitted)
 			}
 
-			manualData := matchedJobRead(t, filepath.Join(fixtureRoot, "manual.readyci.yml"))
-			if matchedJobSHA256(manualData) != fixture.ManualConfigSHA256 {
-				t.Fatal("independent manual oracle changed")
-			}
-			manualNumeric, manualResolutions := matchedJobNumericOracle(t, manualData, fixture.Check)
 			manual := matchedJobResolve(t, manualNumeric, fixture.Check)
 			automatic := matchedJobResolve(t, []byte(printed), fixture.Check)
 			// Only API-defined defaults and unordered network hosts are
@@ -165,17 +149,6 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 			manualEffective, automaticEffective := manual, automatic
 			matchedJobEffectiveDefaults(&manualEffective.Run)
 			matchedJobEffectiveDefaults(&automaticEffective.Run)
-			if len(manualResolutions) > 0 {
-				if len(manualResolutions) != len(selected.RuntimeResolutions) || !reflect.DeepEqual(manual.Run.RuntimeRequirements, automatic.Run.RuntimeRequirements) {
-					t.Fatal("alias import must change only the historical alias policy to a disclosed numeric pin")
-				}
-				for name, historical := range manualResolutions {
-					current := selected.RuntimeResolutions[name]
-					if current.Selector != historical.Selector || current.Policy != preflightapi.RuntimeResolutionPolicySetupNodeLTSImport || historical.Policy != "setup_node_lts_cache_first_v1" || current.Requirement != historical.Requirement {
-						t.Fatal("alias series changed; review the new execution policy independently of historical native proof")
-					}
-				}
-			}
 			if !reflect.DeepEqual(automaticEffective, manualEffective) {
 				want, _ := json.MarshalIndent(manualEffective, "", "  ")
 				got, _ := json.MarshalIndent(automaticEffective, "", "  ")
@@ -245,11 +218,16 @@ func TestSetupMatchedWholeJobAcceptance(t *testing.T) {
 				// Keep the recorded proof and its hash immutable. Assert its
 				// alias policy before applying the intentional numeric-pin change.
 				recorded, _ := json.Marshal(wantPolicy["runtime_resolutions"])
-				var historical map[string]preflightapi.RuntimeResolution
+				var historical map[string]matchedJobHistoricalResolution
 				if err := json.Unmarshal(recorded, &historical); err != nil || !reflect.DeepEqual(historical, manualResolutions) {
 					t.Fatal("historical native alias policy changed")
 				}
 				delete(wantPolicy, "runtime_resolutions")
+			}
+			if recorded, ok := wantPolicy["runtime_requirements"].(map[string]any); ok {
+				for runtime, value := range recorded {
+					recorded[runtime] = matchedJobDeduplicatedRequirement(t, runtime, fmt.Sprint(value))
+				}
 			}
 			if !reflect.DeepEqual(gotPolicy, wantPolicy) {
 				t.Fatalf("sealed execution policy differs from successful native manual job\nwant %v\ngot %v", wantPolicy, gotPolicy)
@@ -364,32 +342,59 @@ func matchedJobRead(t *testing.T, path string) []byte {
 
 func matchedJobSHA256(data []byte) string { return fmt.Sprintf("%x", sha256.Sum256(data)) }
 
+// matchedJobHistoricalResolution is the abandoned alias provenance recorded by
+// a historical native proof. Setup no longer produces it.
+type matchedJobHistoricalResolution struct {
+	Selector      string `json:"selector" yaml:"selector"`
+	Policy        string `json:"policy" yaml:"policy"`
+	Requirement   string `json:"requirement" yaml:"requirement"`
+	CatalogDigest string `json:"catalog_digest" yaml:"catalog_digest"`
+}
+
 // Preserve the recorded manual/native proof bytes and hashes. The abandoned
 // execution alias field is asserted as historical evidence, then removed only
 // in this test adapter to compare the current numeric execution contract.
-func matchedJobNumericOracle(t *testing.T, data []byte, check string) ([]byte, map[string]preflightapi.RuntimeResolution) {
+// Historical requirements also predate merging's removal of repeated bounds.
+func matchedJobNumericOracle(t *testing.T, data []byte, check string) ([]byte, map[string]matchedJobHistoricalResolution) {
 	t.Helper()
 	var document map[string]any
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
 	fields := document["checks"].(map[string]any)[check].(map[string]any)
-	raw, exists := fields["runtime_resolutions"]
-	if !exists {
-		return data, nil
+	if requirements, ok := fields["runtime_requirements"].(map[string]any); ok {
+		for runtime, value := range requirements {
+			requirements[runtime] = matchedJobDeduplicatedRequirement(t, runtime, fmt.Sprint(value))
+		}
 	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		t.Fatal(err)
+	var records map[string]matchedJobHistoricalResolution
+	if raw, exists := fields["runtime_resolutions"]; exists {
+		encoded, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(encoded, &records); err != nil {
+			t.Fatal(err)
+		}
+		delete(fields, "runtime_resolutions")
 	}
-	var records map[string]preflightapi.RuntimeResolution
-	if err := json.Unmarshal(encoded, &records); err != nil {
-		t.Fatal(err)
-	}
-	delete(fields, "runtime_resolutions")
 	numeric, err := yaml.Marshal(document)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return numeric, records
+}
+
+// matchedJobDeduplicatedRequirement re-merges a recorded conjunction term by
+// term, as setup merges independent declarations today.
+func matchedJobDeduplicatedRequirement(t *testing.T, runtime, value string) string {
+	t.Helper()
+	var merged map[string]string
+	for _, term := range strings.Split(value, ",") {
+		var err error
+		if merged, err = preflightapi.MergeRuntimeRequirements(merged, map[string]string{runtime: term}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return merged[runtime]
 }

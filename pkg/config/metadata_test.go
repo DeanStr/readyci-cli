@@ -27,6 +27,7 @@ func TestConfigFieldMetadataMatchesYAMLStructs(t *testing.T) {
 		ScopeService:       ServiceConfig{},
 		ScopeServiceHealth: ServiceHealthConfig{},
 		ScopeCheck:         CheckConfig{},
+		ScopeImportedFrom:  CheckImportConfig{},
 		ScopeStep:          StepConfig{},
 		ScopeMatrix:        MatrixConfig{},
 		ScopeWhen:          WhenConfig{},
@@ -65,6 +66,7 @@ func TestConfigFieldMetadataMatchesJSONSchemaSections(t *testing.T) {
 
 	checkProps := checkObjectProperties(t, objectValue(t, defs, "check"))
 	assertPropertiesContainScope(t, checkProps, fields[ScopeCheck], ScopeCheck)
+	assertPropertiesContainScope(t, schemaObjectProperties(t, objectValue(t, checkProps, "imported_from")), fields[ScopeImportedFrom], ScopeImportedFrom)
 	assertPropertiesContainScope(t, schemaObjectProperties(t, objectValue(t, checkProps, "sync")), fields[ScopeSync], ScopeSync)
 	assertPropertiesContainScope(t, schemaObjectProperties(t, objectValue(t, checkProps, "cache")), fields[ScopeCache], ScopeCache)
 	stepItems := objectValue(t, objectValue(t, checkProps, "steps"), "items")

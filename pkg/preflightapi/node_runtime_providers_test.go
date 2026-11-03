@@ -55,6 +55,22 @@ func TestApprovedNodeAndPackageManagerPreparationIsPolicyAndIntegrityBound(t *te
 	}
 }
 
+func TestApprovedPnpmIntegrityArchiveMatchesOnlyReviewedDistributions(t *testing.T) {
+	pnpm := PnpmRuntimeCatalog()[0]
+	if !ApprovedPnpmIntegrityArchive(pnpm.Version + "+sha512." + pnpm.SHA512) {
+		t.Fatal("reviewed pnpm distribution was not recognized")
+	}
+	native := PnpmRuntimeCatalog()[2]
+	for _, pin := range []string{
+		pnpm.Version, "9.15.0+sha512." + strings.Repeat("a", 128), pnpm.Version + "+sha512." + strings.Repeat("0", 128),
+		native.Version + "+sha512." + native.SHA512, pnpm.Version + "+sha512.abcd",
+	} {
+		if ApprovedPnpmIntegrityArchive(pin) {
+			t.Fatalf("unapproved pnpm integrity pin was accepted: %s", pin)
+		}
+	}
+}
+
 func TestApprovedRuntimeCatalogsAreImmutableAndProviderMetadataIsExact(t *testing.T) {
 	if digest := GoRuntimeCatalogDigest(); digest != "c27a02fac8930cc750a879044ca68eb9755268ec01b093c97824d575ad3ce188" {
 		t.Fatalf("adding other provider families changed the existing Go catalog: %s", digest)

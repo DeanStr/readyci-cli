@@ -1,96 +1,170 @@
 package main
 
 import (
+	"fmt"
+	"regexp"
 	"strings"
 
+	"github.com/DeanStr/readyci-cli/pkg/diagnosiscommon"
+	"github.com/DeanStr/readyci-cli/pkg/netpolicy"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-const opaqueSigstoreInitializationFailure = "no valid Sigstore verifiers could be initialized"
-const sigstoreAdvisoryLogLimit = 1 << 20
+const (
+	networkAdvisoryLogLimit  = 1 << 20
+	networkAdvisorySources   = 16
+	networkAdvisoryLineLimit = 4096
+	networkAdvisoryHostLimit = 3
+)
 
-// This is a prerequisite review advisory, not evidence that network policy
-// caused the failure. It leaves the authoritative execution diagnosis intact.
-func sigstorePrerequisiteAdvisory(status, classification, networkMode string, events []preflightapi.RunEvent) string {
-	if status != preflightapi.StatusFailed || classification != preflightapi.ClassificationTestFailed || (networkMode != "none" && networkMode != "allowlist") {
-		return ""
-	}
-	if !hasOpaqueSigstoreInitializationFailure(events) {
-		return ""
-	}
-	return "Logs report Sigstore verifier initialization failure. Review trust-metadata endpoint access and this run's network policy before editing tests; the available evidence does not establish the cause."
+// Resolver and connection errors name the host in these positions (Go, curl,
+// Node.js, Python, Java, apt and wget). Only lines that also report a
+// resolution or reachability failure are inspected.
+var unreachableHostPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\blookup ([a-z0-9.-]+)`),
+	regexp.MustCompile(`could not resolve host:? ['‘"]?([a-z0-9.-]+)`),
+	regexp.MustCompile(`\b(?:enotfound|eai_again) ([a-z0-9.-]+)`),
+	regexp.MustCompile(`(?:failed to resolve|temporary failure resolving|unable to resolve host address) ['‘"]([a-z0-9.-]+)`),
+	regexp.MustCompile(`unknownhostexception: ([a-z0-9.-]+)`),
+	regexp.MustCompile(`unknown host:? ['‘"]?([a-z0-9.-]+)`),
+	regexp.MustCompile(`\bhost='([a-z0-9.-]+)'`),
+	regexp.MustCompile(`\bresolving ([a-z0-9.-]+)\.{3} failed`),
 }
 
-func hasOpaqueSigstoreInitializationFailure(events []preflightapi.RunEvent) bool {
-	return prerequisiteOutputMarkers(events, false, opaqueSigstoreInitializationFailure)[0]
-}
+// Names that cannot be public egress destinations, so an allowlist entry
+// would not help.
+var nonPublicHostSuffixes = []string{".local", ".localhost", ".internal", ".lan", ".home.arpa", ".svc", ".test", ".example", ".invalid"}
 
-func kubernetesPrerequisiteAdvisories(status string, events []preflightapi.RunEvent) []string {
+// networkPolicyAdvisory suggests reviewing the run's egress policy when its
+// own output names hosts that could not be resolved or reached and that the
+// policy does not permit. It is secondary guidance: the authoritative
+// classification is unchanged and the failure may have another cause.
+func networkPolicyAdvisory(status, networkMode string, allowlist []string, events []preflightapi.RunEvent) string {
 	if status != preflightapi.StatusFailed && status != preflightapi.StatusTimedOut {
+		return ""
+	}
+	if networkMode != "none" && networkMode != "allowlist" {
+		return ""
+	}
+	permitted := map[string]bool{}
+	for _, entry := range allowlist {
+		if target, err := netpolicy.AllowlistTarget(entry); err == nil && target != "" {
+			permitted[target] = true
+		}
+	}
+	var hosts []string
+	seen := map[string]bool{}
+	scanCommandOutputLines(events, func(line string) bool {
+		for _, host := range unreachableHosts(line) {
+			if permitted[host] || seen[host] {
+				continue
+			}
+			seen[host] = true
+			hosts = append(hosts, host)
+		}
+		return len(hosts) < networkAdvisoryHostLimit
+	})
+	if len(hosts) == 0 {
+		return ""
+	}
+	listed := strings.Join(hosts[:min(len(hosts), networkAdvisoryHostLimit)], ", ")
+	const secondary = " This secondary guidance does not replace the terminal failure."
+	if networkMode == "none" {
+		return fmt.Sprintf("Command output reports unresolved or unreachable hosts while this run had no network access: %s. If the check needs them, fetch them during dependency preparation (network.warm_allowlist) or run the check with network_mode allowlist including them.%s", listed, secondary)
+	}
+	return fmt.Sprintf("Command output reports unresolved or unreachable hosts that are not in this run's network allowlist: %s. If the check needs them, add them to network.allowlist or the check's network_allowlist.%s", listed, secondary)
+}
+
+func unreachableHosts(line string) []string {
+	lower := strings.ToLower(line)
+	if !diagnosiscommon.RegistryEgressReachabilityFailureText(lower) && !strings.Contains(lower, "unknownhostexception") && !strings.Contains(lower, "unknown host") {
 		return nil
 	}
-	markers := prerequisiteOutputMarkers(events, true,
-		"unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined",
-		"KUBERNETES_SERVER_BIN_DIR must be set",
-	)
-	var advisories []string
-	if markers[0] {
-		advisories = append(advisories, "Command logs report missing Kubernetes cluster configuration. Review the selected test scope and its cluster prerequisites. This secondary guidance does not explain or replace the terminal failure.")
+	var hosts []string
+	for _, pattern := range unreachableHostPatterns {
+		for _, match := range pattern.FindAllStringSubmatch(lower, -1) {
+			if host := publicHostname(match[1]); host != "" {
+				hosts = append(hosts, host)
+			}
+		}
 	}
-	if markers[1] {
-		advisories = append(advisories, "Command logs report KUBERNETES_SERVER_BIN_DIR must be set. Review the selected test scope and required Kubernetes server binaries. This secondary guidance does not explain or replace the terminal failure.")
-	}
-	return advisories
+	return hosts
 }
 
-func prerequisiteOutputMarkers(events []preflightapi.RunEvent, commandPhaseOnly bool, markers ...string) []bool {
-	// Only actual command output establishes the advisory. Keep bounded tails
-	// for chunked output without joining different streams, phases, or steps.
-	matches := make([]bool, len(markers))
-	maxMarkerLength := 0
-	for _, marker := range markers {
-		maxMarkerLength = max(maxMarkerLength, len(marker))
+func publicHostname(candidate string) string {
+	host, err := netpolicy.AllowlistTarget(strings.Trim(candidate, ".-"))
+	if err != nil || host == "" || !strings.Contains(host, ".") {
+		return ""
 	}
-	if maxMarkerLength == 0 {
-		return matches
+	label := host[strings.LastIndex(host, ".")+1:]
+	if !strings.HasPrefix(label, "xn--") && strings.IndexFunc(label, func(r rune) bool { return r < 'a' || r > 'z' }) >= 0 {
+		// Public IPv4 targets are valid allowlist entries too.
+		if strings.Count(host, ".") != 3 || strings.Trim(host, "0123456789.") != "" {
+			return ""
+		}
 	}
+	for _, suffix := range nonPublicHostSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return ""
+		}
+	}
+	return host
+}
+
+// scanCommandOutputLines visits complete lines of the run's own stdout and
+// stderr. Chunks are joined only within one stream, phase and step; service
+// output, lifecycle events and undecodable chunks are skipped. Inspection is
+// bounded by total bytes, distinct sources and line length.
+func scanCommandOutputLines(events []preflightapi.RunEvent, visit func(string) bool) {
 	type source struct{ stream, phase, step string }
-	tails := map[source]string{}
-	remaining := sigstoreAdvisoryLogLimit
+	partial := map[source]string{}
+	var order []source
+	remaining := networkAdvisoryLogLimit
+	emit := func(line string) bool {
+		if len(line) > networkAdvisoryLineLimit {
+			line = line[:networkAdvisoryLineLimit]
+		}
+		return visit(line)
+	}
 	for _, event := range events {
-		if event.Service != "" || (event.Type != preflightapi.EventStdout && event.Type != preflightapi.EventStderr) || (commandPhaseOnly && event.Phase != "command") {
+		if event.Service != "" || (event.Type != preflightapi.EventStdout && event.Type != preflightapi.EventStderr) {
 			continue
 		}
 		key := source{event.Type, event.Phase, event.Step}
-		if _, known := tails[key]; !known && len(tails) >= 16 {
-			continue
+		if _, known := partial[key]; !known {
+			if len(partial) >= networkAdvisorySources {
+				continue
+			}
+			order = append(order, key)
 		}
 		if remaining == 0 {
 			break
 		}
 		data, err := event.DataBytes()
 		if err != nil {
-			// Retain the source count but discard incomplete diagnostic bytes.
-			tails[key] = ""
+			// Never join text across an undecodable chunk.
+			partial[key] = ""
 			continue
 		}
 		if len(data) > remaining {
 			data = data[:remaining]
 		}
 		remaining -= len(data)
-		text := tails[key] + string(data)
-		complete := true
-		for index, marker := range markers {
-			matches[index] = matches[index] || strings.Contains(text, marker)
-			complete = complete && matches[index]
+		lines := strings.Split(partial[key]+string(data), "\n")
+		for _, line := range lines[:len(lines)-1] {
+			if !emit(line) {
+				return
+			}
 		}
-		if complete {
-			return matches
+		tail := lines[len(lines)-1]
+		if len(tail) > networkAdvisoryLineLimit {
+			tail = tail[len(tail)-networkAdvisoryLineLimit:]
 		}
-		if len(text) >= maxMarkerLength {
-			text = text[len(text)-maxMarkerLength+1:]
-		}
-		tails[key] = text
+		partial[key] = tail
 	}
-	return matches
+	for _, key := range order {
+		if partial[key] != "" && !emit(partial[key]) {
+			return
+		}
+	}
 }

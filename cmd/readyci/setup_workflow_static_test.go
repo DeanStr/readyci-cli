@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,10 +115,18 @@ func TestWorkflowStaticExpressionsDoNotResolveUnavailableContextsOrRecurse(t *te
 
 func TestWorkflowRuntimeFamiliesKeepUnsupportedPythonSelectorsExplicit(t *testing.T) {
 	for _, selector := range []string{"3.14t", "3.15-dev", "pypy-3.11", "03.14"} {
-		_, _, problems := setupWorkflowRuntimeRequirements(t.TempDir(), repoWorkflowJobYAML{Steps: []repoWorkflowStepYAML{{Uses: "actions/setup-python@pinned", With: map[string]any{"python-version": selector}}}})
-		message := strings.Join(problems, "; ")
-		if !strings.Contains(message, "python") || strings.Contains(message, "npm ") {
-			t.Fatalf("wrong family or unsupported selector admitted: %s: %s", selector, message)
+		requirements, unresolved, notes, problems := setupWorkflowRuntimeRequirements(t.TempDir(), repoWorkflowJobYAML{Steps: []repoWorkflowStepYAML{{Uses: "actions/setup-python@pinned", With: map[string]any{"python-version": selector}}}})
+		message := strings.Join(setupUnresolvedNotes(unresolved), "; ")
+		if len(requirements) != 0 || len(problems) != 0 || !strings.Contains(message, "python") || !strings.Contains(message, strconv.Quote(selector)) || strings.Contains(message, "npm ") {
+			t.Fatalf("wrong family or unsupported selector admitted: %s: requirements=%v notes=%s problems=%v", selector, requirements, message, problems)
+		}
+		want := setupUnresolvedItem{Kind: setupUnresolvedRuntimeDeclarationNotApplied, Subject: "python", Source: "actions/setup-python python-version", Declared: selector}
+		// The item is the only home of its note; plain notes are check-latest only.
+		if len(unresolved) != 1 || unresolved[0].Detail == "" || len(notes) != 0 {
+			t.Fatalf("selector note is not carried once by its unresolved item: %s: items=%+v notes=%v", selector, unresolved, notes)
+		}
+		if got := unresolved[0]; got.Kind != want.Kind || got.Subject != want.Subject || got.Source != want.Source || got.Declared != want.Declared {
+			t.Fatalf("selector item lost its structure: got %+v want %+v", got, want)
 		}
 	}
 }

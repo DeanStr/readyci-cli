@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -89,10 +90,10 @@ func TestSetupSelectionKeepsFirstRunCheckForCommonWorkflowShapes(t *testing.T) {
 			if command != tc.command {
 				t.Fatalf("command=%q, want %q:\n%s", command, tc.command, template)
 			}
-			if tc.selected != "" && !strings.Contains(template, `# Selected: "`+tc.selected+`"`) {
+			if tc.selected != "" && !reflect.DeepEqual(setupImportedCandidates(t, template), []string{tc.selected}) {
 				t.Fatalf("imported scope lost its provenance:\n%s", template)
 			}
-			if tc.selected == "" && (strings.Contains(template, "# Selected:") || !strings.Contains(template, "# Ready CI setup scope: language default only")) {
+			if tc.selected == "" && (len(setupImportedCandidates(t, template)) != 0 || !strings.Contains(template, "# Ready CI setup scope: language default only")) {
 				t.Fatalf("language default was not labelled as such:\n%s", template)
 			}
 			for _, id := range tc.notImported {

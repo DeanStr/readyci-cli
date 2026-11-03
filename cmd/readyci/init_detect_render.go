@@ -20,7 +20,9 @@ func renderDetectedProjectTemplate(projectID, image, profile string, checks []de
 		imageLine = fmt.Sprintf("image: %s\n\n", strconv.Quote(image))
 	}
 	for _, check := range checks {
-		signals = append(signals, check.PreparationReview...)
+		for _, note := range setupUnresolvedNotes(check.Unresolved) {
+			signals = appendUniqueString(signals, note)
+		}
 	}
 
 	var b strings.Builder
@@ -142,6 +144,16 @@ artifacts:
 		b.WriteString("    sync:\n      include_untracked: true\n")
 		if strings.TrimSpace(check.Timeout) != "" {
 			fmt.Fprintf(&b, "    timeout: %s\n", check.Timeout)
+		}
+		if imported := check.ImportedFrom; imported != nil {
+			// The candidate ID is repository-derived; quoting keeps it one scalar.
+			fmt.Fprintf(&b, "    imported_from:\n      candidate: %s\n", strconv.Quote(imported.Candidate))
+			if len(imported.RuntimePins) > 0 {
+				b.WriteString("      runtime_pins:\n")
+				for _, runtime := range sortedStringMapKeys(imported.RuntimePins) {
+					fmt.Fprintf(&b, "        %s: %s\n", runtime, strconv.Quote(imported.RuntimePins[runtime]))
+				}
+			}
 		}
 	}
 	fmt.Fprintf(&b, `

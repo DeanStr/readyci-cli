@@ -53,6 +53,16 @@ func TestAgentSkillSetupProtocolMatchesTheCLI(t *testing.T) {
 			t.Fatalf("setup protocol field %q is not a setup report field or is not named", name)
 		}
 	}
+	environmentFields := setupProtocolJSONFields(reflect.TypeOf(setupEnvironmentReport{}))
+	itemFields := setupProtocolJSONFields(reflect.TypeOf(setupUnresolvedItem{}))
+	if !fields["environment"] || !environmentFields["unresolved"] || !strings.Contains(section, "`environment.unresolved`") {
+		t.Fatal("setup protocol does not name the environment's unresolved items")
+	}
+	for _, name := range []string{"kind", "check", "subject", "source"} {
+		if !itemFields[name] || !strings.Contains(section, "`"+name+"`") {
+			t.Fatalf("setup protocol unresolved field %q is not an item field or is not named", name)
+		}
+	}
 
 	chdirCLITestRepo(t, "agent-setup")
 	runGitForCLITest(t, "init", "-q")
@@ -102,7 +112,7 @@ func TestAgentSkillSetupProtocolMatchesTheCLI(t *testing.T) {
 	}
 	run(setupCommand, "--candidate", variant, "--write-config", "--force", "--project", "fixture")
 	saved, err := os.ReadFile(".readyci.yml")
-	if err != nil || !strings.Contains(string(saved), "# Selected: \""+variant+"\"") {
+	if err != nil || !reflect.DeepEqual(setupImportedCandidates(t, string(saved)), []string{variant}) {
 		t.Fatalf("explicit variant import was not saved: %v\n%s", err, saved)
 	}
 	if output := run(configCommand, "validate"); !strings.Contains(output, "status: ok") {

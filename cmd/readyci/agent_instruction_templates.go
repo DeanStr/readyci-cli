@@ -47,7 +47,10 @@ Setup inspects files statically and never runs repository code; you decide what 
 1. Inspect with ` + "`readyci setup --preview --json`" + ` (add ` + "`--force`" + ` when replacing an
    existing ` + "`.readyci.yml`" + `). Read ` + "`selection_status`" + `, ` + "`selection_reason`" + `, ` + "`warnings`" + `,
    ` + "`import_scope`" + `, ` + "`proposed_config`" + `, and each ` + "`import_candidates`" + ` entry's ` + "`id`" + `,
-   ` + "`command`" + `, ` + "`unsupported`" + `, and ` + "`automatic_unsupported`" + `.
+   ` + "`command`" + `, ` + "`unsupported`" + `, and ` + "`automatic_unsupported`" + `. Each
+   ` + "`environment.unresolved`" + ` item (` + "`kind`" + `, ` + "`check`" + `, ` + "`subject`" + `, ` + "`source`" + `) is
+   something setup could not confirm, such as an opaque Make target or a
+   runtime declaration it did not apply; only a run with test feedback settles it.
 2. Choose the check:
    - If ` + "`proposed_config`" + ` runs the repository's real tests (an imported job or the
      language default) and the jobs it lists as not imported do not matter for

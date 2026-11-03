@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func scanRepoCargo(ctx context.Context, cwd string) *repoCargoMap {
@@ -221,6 +220,7 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 			}
 			unsupported := append([]string(nil), job.Unsupported...)
 			unsupported = append(unsupported, setupWorkflowMakeRequirements(report.Make, job.RunSteps)...)
+			workflowUnresolved := setupUnresolvedForCheck(job.RuntimeUnresolved, setupImportCheckName(repoImportCandidate{Name: job.Name}))
 			out = append(out, repoImportCandidate{
 				ID:                   defaultString(job.ID, "github-actions:"+workflow.Path+":"+job.Name),
 				ParentJobID:          job.ParentJobID,
@@ -234,7 +234,9 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 				Runtimes:             append([]string(nil), job.Runtimes...),
 				RuntimeRequirements:  job.RuntimeRequirements,
 				RuntimePins:          copyStringMap(job.RuntimePins),
-				RuntimeResolutions:   preflightapi.CloneRuntimeResolutions(job.RuntimeResolutions),
+				RuntimeNotes:         append([]string(nil), job.RuntimeNotes...),
+				Unresolved:           workflowUnresolved,
+				WorkflowUnresolved:   workflowUnresolved,
 				WorkingDirectories:   directories,
 				Reason:               "GitHub Actions job runs existing verification command(s).",
 				Confidence:           0.74,

@@ -156,7 +156,7 @@ func runFailureDiagnosisHint(classification string) string {
 	case preflightapi.ClassificationDependencySetupFailed:
 		return "install declared test or development dependencies, or update the Ready CI check command to include the project dependency group"
 	case preflightapi.ClassificationEnvironmentSetupFailed:
-		return "check exact runtimes, required executables, platform, and filesystem support; for storage errors inspect bytes and inodes on the failed path's filesystem before rerunning"
+		return "check exact runtimes, required executables and environment variables, platform, and filesystem support; for storage errors inspect bytes and inodes on the failed path's filesystem before rerunning"
 	case preflightapi.ClassificationWorkerInternalError:
 		return "retry once; if it repeats, inspect worker logs because the command appears to have been terminated outside normal test output"
 	case preflightapi.ClassificationTimeout:

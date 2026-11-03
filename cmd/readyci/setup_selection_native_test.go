@@ -122,15 +122,14 @@ func TestSetupNativeSelectionAcceptsInternalMakefileSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateSetupRuntimeTemplate(repo, template); err != nil {
-		t.Fatal(err)
-	}
 	cfg, err := config.ParseProjectConfig([]byte(template), "detected")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The Make target is an opaque harness; its recipes are not evaluated, so
+	// neither the linked source's directory nor its runtimes are inferred.
 	check := cfg.Checks["test"]
-	if check.Command != "make -f Makefile -- test" || check.RuntimeRequirements["go"] != ">=1.25.0" {
+	if check.Command != "make -f Makefile -- test" || len(check.RuntimeRequirements) != 0 {
 		t.Fatalf("symlink changed the logical entrypoint or runtime scope: %+v", check)
 	}
 }

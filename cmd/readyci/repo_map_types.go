@@ -1,7 +1,5 @@
 package main
 
-import "github.com/DeanStr/readyci-cli/pkg/preflightapi"
-
 type repoMapReport struct {
 	Status          string               `json:"status"`
 	ConfigPath      string               `json:"config_path,omitempty"`
@@ -89,25 +87,26 @@ type repoWorkflowMap struct {
 }
 
 type repoWorkflowJob struct {
-	ID                   string                                    `json:"id,omitempty"`
-	ScopeUnknown         bool                                      `json:"scope_unknown,omitempty"`
-	ParentJobID          string                                    `json:"parent_job_id,omitempty"`
-	Matrix               map[string]string                         `json:"matrix,omitempty"`
-	Timeout              string                                    `json:"timeout,omitempty"`
-	RuntimeRequirements  map[string]string                         `json:"runtime_requirements,omitempty"`
-	RuntimePins          map[string]string                         `json:"runtime_pins,omitempty"`
-	RuntimeResolutions   map[string]preflightapi.RuntimeResolution `json:"runtime_resolutions,omitempty"`
-	Name                 string                                    `json:"name"`
-	RunsOn               []string                                  `json:"runs_on,omitempty"`
-	Needs                []string                                  `json:"needs,omitempty"`
-	Commands             []string                                  `json:"commands,omitempty"`
-	CommandLines         []int                                     `json:"command_lines,omitempty"`
-	RunSteps             []repoWorkflowRunStep                     `json:"run_steps,omitempty"`
-	Runtimes             []string                                  `json:"runtimes,omitempty"`
-	Conditions           []repoWorkflowCondition                   `json:"conditions,omitempty"`
-	Requirements         []string                                  `json:"requirements,omitempty"`
-	Unsupported          []string                                  `json:"unsupported,omitempty"`
-	AutomaticUnsupported []string                                  `json:"automatic_unsupported,omitempty"`
+	ID                   string                  `json:"id,omitempty"`
+	ScopeUnknown         bool                    `json:"scope_unknown,omitempty"`
+	ParentJobID          string                  `json:"parent_job_id,omitempty"`
+	Matrix               map[string]string       `json:"matrix,omitempty"`
+	Timeout              string                  `json:"timeout,omitempty"`
+	RuntimeRequirements  map[string]string       `json:"runtime_requirements,omitempty"`
+	RuntimePins          map[string]string       `json:"runtime_pins,omitempty"`
+	RuntimeNotes         []string                `json:"runtime_notes,omitempty"`
+	RuntimeUnresolved    []setupUnresolvedItem   `json:"-"`
+	Name                 string                  `json:"name"`
+	RunsOn               []string                `json:"runs_on,omitempty"`
+	Needs                []string                `json:"needs,omitempty"`
+	Commands             []string                `json:"commands,omitempty"`
+	CommandLines         []int                   `json:"command_lines,omitempty"`
+	RunSteps             []repoWorkflowRunStep   `json:"run_steps,omitempty"`
+	Runtimes             []string                `json:"runtimes,omitempty"`
+	Conditions           []repoWorkflowCondition `json:"conditions,omitempty"`
+	Requirements         []string                `json:"requirements,omitempty"`
+	Unsupported          []string                `json:"unsupported,omitempty"`
+	AutomaticUnsupported []string                `json:"automatic_unsupported,omitempty"`
 }
 
 type repoWorkflowRunStep struct {
@@ -164,31 +163,37 @@ type repoOpenAPIMap struct {
 }
 
 type repoImportCandidate struct {
-	ScopeUnknown         bool                                      `json:"scope_unknown,omitempty"`
-	ParentJobID          string                                    `json:"parent_job_id,omitempty"`
-	Matrix               map[string]string                         `json:"matrix,omitempty"`
-	RunSteps             []repoWorkflowRunStep                     `json:"run_steps,omitempty"`
-	Timeout              string                                    `json:"timeout,omitempty"`
-	RuntimeRequirements  map[string]string                         `json:"runtime_requirements,omitempty"`
-	RuntimePins          map[string]string                         `json:"runtime_pins,omitempty"`
-	RuntimeResolutions   map[string]preflightapi.RuntimeResolution `json:"runtime_resolutions,omitempty"`
-	TestEntrypoint       bool                                      `json:"test_entrypoint,omitempty"`
-	AutomaticUnsupported []string                                  `json:"automatic_unsupported,omitempty"`
-	Runtimes             []string                                  `json:"runtimes,omitempty"`
-	WorkingDirectories   []string                                  `json:"working_directories,omitempty"`
-	ID                   string                                    `json:"id,omitempty"`
-	Source               string                                    `json:"source"`
-	Name                 string                                    `json:"name"`
-	Command              string                                    `json:"command,omitempty"`
-	Check                string                                    `json:"check,omitempty"`
-	Reason               string                                    `json:"reason,omitempty"`
-	Confidence           float64                                   `json:"confidence"`
-	Evidence             []string                                  `json:"evidence,omitempty"`
-	Requirements         []string                                  `json:"requirements,omitempty"`
-	Unsupported          []string                                  `json:"unsupported,omitempty"`
+	ScopeUnknown         bool                  `json:"scope_unknown,omitempty"`
+	ParentJobID          string                `json:"parent_job_id,omitempty"`
+	Matrix               map[string]string     `json:"matrix,omitempty"`
+	RunSteps             []repoWorkflowRunStep `json:"run_steps,omitempty"`
+	Timeout              string                `json:"timeout,omitempty"`
+	RuntimeRequirements  map[string]string     `json:"runtime_requirements,omitempty"`
+	RuntimePins          map[string]string     `json:"runtime_pins,omitempty"`
+	RuntimeNotes         []string              `json:"runtime_notes,omitempty"`
+	Unresolved           []setupUnresolvedItem `json:"unresolved,omitempty"`
+	TestEntrypoint       bool                  `json:"test_entrypoint,omitempty"`
+	AutomaticUnsupported []string              `json:"automatic_unsupported,omitempty"`
+	Runtimes             []string              `json:"runtimes,omitempty"`
+	WorkingDirectories   []string              `json:"working_directories,omitempty"`
+	ID                   string                `json:"id,omitempty"`
+	Source               string                `json:"source"`
+	Name                 string                `json:"name"`
+	Command              string                `json:"command,omitempty"`
+	Check                string                `json:"check,omitempty"`
+	Reason               string                `json:"reason,omitempty"`
+	Confidence           float64               `json:"confidence"`
+	Evidence             []string              `json:"evidence,omitempty"`
+	Requirements         []string              `json:"requirements,omitempty"`
+	Unsupported          []string              `json:"unsupported,omitempty"`
 	// DeclaredTests records a syntactic test command that static package
 	// inspection could not confirm; it still declares test scope.
 	DeclaredTests bool `json:"-"`
+	// WorkflowUnresolved is the part of Unresolved that comes from the
+	// upstream job itself (its action runtime selectors) rather than from the
+	// check generated for it. The saved check does not carry these, so setup
+	// re-reads them from the candidate named by checks.<name>.imported_from.
+	WorkflowUnresolved []setupUnresolvedItem `json:"-"`
 }
 
 type repoImportReport struct {

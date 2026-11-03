@@ -11,7 +11,7 @@ type detectedCheck struct {
 	Name                string
 	Runtimes            []string
 	RuntimeRequirements map[string]string
-	PreparationReview   []string
+	Unresolved          []setupUnresolvedItem
 	RustTargetPaths     []string
 	Command             string
 	Steps               []config.StepConfig
@@ -24,6 +24,8 @@ type detectedCheck struct {
 	ConcurrencyGroup    string
 	ConcurrencyLimit    int
 	KeepFailed          bool
+	// ImportedFrom is set for checks generated from an import candidate.
+	ImportedFrom *config.CheckImportConfig
 }
 
 type detectedService struct {
@@ -157,9 +159,6 @@ func basicDetectedProjectTemplate(cwd, projectID, image, profile string, include
 	}
 	for i := range checks {
 		checks[i] = setupPrepareDetectedCheck(cwd, checks[i])
-		for _, requirement := range setupDependencyReviewRequirements(cwd, []string{checks[i].Command}) {
-			signals = append(signals, "Preparation review required: "+requirement)
-		}
 	}
 
 	return renderDetectedProjectTemplate(projectID, image, profile, checks, affectedRules, signals, unmatchedChecks), true

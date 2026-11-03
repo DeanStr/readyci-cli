@@ -204,7 +204,7 @@ func loginCommand(args []string) error {
 	ssoSlug := fs.String("sso", "", "enterprise SSO connection slug")
 	device := fs.Bool("device", false, "approve login from a browser on another machine")
 	noBrowser := fs.Bool("no-browser", false, "print the login URL instead of opening a browser")
-	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time to wait for browser login")
+	timeout := fs.Duration("timeout", 5*time.Minute, "maximum time to wait for browser login; device login waits until its request expires unless set")
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
@@ -214,15 +214,25 @@ func loginCommand(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
-	ctx, cancel := context.WithTimeout(ctx, *timeout)
-	defer cancel()
 
 	if *device {
 		if *ssoSlug != "" || *noBrowser {
 			return cliConfigError("--device cannot be combined with --sso or --no-browser; use your organization browser session to approve", nil)
 		}
+		// The server's request expiry bounds device login, including the poll
+		// that collects a last-moment approval. Only an explicit --timeout
+		// shortens it.
+		timeoutSet := false
+		fs.Visit(func(f *flag.Flag) { timeoutSet = timeoutSet || f.Name == "timeout" })
+		if timeoutSet {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, *timeout)
+			defer cancel()
+		}
 		return deviceLogin(ctx, normalizeAPIURL(*apiURL))
 	}
+	ctx, cancel := context.WithTimeout(ctx, *timeout)
+	defer cancel()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err

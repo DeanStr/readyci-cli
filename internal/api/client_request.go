@@ -145,7 +145,7 @@ func safeJSONRequestPath(path string) string {
 	if path == "" {
 		return "/"
 	}
-	const routeWords = " v1 admin account runs run-groups verification-sessions projects workers capability tokens teams queue status explain storage audit cleanup-expired-artifacts cleanup-cache-lanes cancel privacy cases review plan export complete erase providers restore-replay feedback runtime-aliases resolve auth cli device start poll events tests artifacts archive upload-complete latest retry stale cache settings analyze config-suggestions verification-policy source-binding preview proposals secrets disable release-billing-hold billing-evidence cancel-runs drain undrain stage-release promote-release demote-release sources complete-upload upload healthz readyz rotationz "
+	const routeWords = " v1 admin account runs run-groups verification-sessions projects workers capability tokens teams queue status explain storage audit cleanup-expired-artifacts cleanup-cache-lanes cancel privacy cases review plan export complete erase providers restore-replay feedback auth cli device start poll events tests artifacts archive upload-complete latest retry stale cache settings analyze config-suggestions verification-policy source-binding preview proposals secrets disable release-billing-hold billing-evidence cancel-runs drain undrain stage-release promote-release demote-release sources complete-upload upload healthz readyz rotationz "
 	segments := strings.Split(path, "/")
 	for i, segment := range segments {
 		if segment != "" && !strings.Contains(routeWords, " "+segment+" ") {

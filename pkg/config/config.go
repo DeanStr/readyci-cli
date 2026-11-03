@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
@@ -105,6 +107,11 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 		if err != nil {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.reviewed_fixtures: %w", source, name, err))
 		}
+		if check.ImportedFrom != nil {
+			if check.ImportedFrom, err = normalizeCheckImport(*check.ImportedFrom); err != nil {
+				return cfg, configError(fmt.Errorf("%s: checks.%s.imported_from: %w", source, name, err))
+			}
+		}
 		cfg.Checks[name] = check
 		if check.Sync.RespectGitignore != nil && !*check.Sync.RespectGitignore {
 			return cfg, configError(fmt.Errorf("%s: checks.%s.sync.respect_gitignore=false is not supported yet", source, name))
@@ -114,6 +121,30 @@ func ParseProjectConfig(data []byte, source string) (ProjectConfig, error) {
 		return cfg, configError(fmt.Errorf("%s: %w", source, err))
 	}
 	return cfg, nil
+}
+
+// normalizeCheckImport accepts only what setup writes: a candidate ID, which
+// is repository-derived text and so must stay on one line, and pins that the
+// --runtime flag accepts.
+func normalizeCheckImport(imported CheckImportConfig) (*CheckImportConfig, error) {
+	if strings.TrimSpace(imported.Candidate) == "" {
+		return nil, fmt.Errorf("candidate is required")
+	}
+	if strings.IndexFunc(imported.Candidate, unicode.IsControl) >= 0 {
+		return nil, fmt.Errorf("candidate contains control characters")
+	}
+	pins := make(map[string]string, len(imported.RuntimePins))
+	for runtime, version := range imported.RuntimePins {
+		normalized, err := preflightapi.NormalizeSetupRuntimePin(runtime, version)
+		if err != nil {
+			return nil, fmt.Errorf("runtime_pins: %w", err)
+		}
+		pins[runtime] = normalized
+	}
+	if len(pins) == 0 {
+		pins = nil
+	}
+	return &CheckImportConfig{Candidate: imported.Candidate, RuntimePins: pins}, nil
 }
 
 func (cfg *ProjectConfig) merge(loaded ProjectConfig) {

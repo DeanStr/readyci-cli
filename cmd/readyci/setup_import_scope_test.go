@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -72,7 +73,7 @@ func TestExplicitImportPrintNeedsNoAuthenticationOrWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "make -f Makefile -- unit") || !strings.Contains(output, "# Selected: \"make:Makefile:unit\"") {
+	if !strings.Contains(output, "make -f Makefile -- unit") || !reflect.DeepEqual(setupImportedCandidates(t, output), []string{"make:Makefile:unit"}) {
 		t.Fatalf("missing selected config or scope: %s", output)
 	}
 	if _, err := os.Stat(".readyci.yml"); !os.IsNotExist(err) {

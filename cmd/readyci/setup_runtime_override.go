@@ -2,26 +2,24 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
-var setupNumericRuntimePin = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$`)
-
 func parseSetupRuntimePins(values []string) (map[string]string, error) {
 	var pins map[string]string
 	for _, value := range values {
 		runtime, version, ok := strings.Cut(value, "=")
-		if !ok || !setupNumericRuntimePin.MatchString(version) {
+		if !ok {
 			return nil, cliConfigError("--runtime requires NAME=VERSION with a numeric version or series, such as node=24 or python=3.12", nil)
 		}
 		if pins[runtime] != "" {
 			return nil, cliConfigError("--runtime cannot select "+runtime+" more than once", nil)
 		}
-		// Match the runtime actions whose declarations setup can inspect.
-		normalized, err := preflightapi.NormalizeSetupRuntimeRequirement(runtime, version)
+		// Match the runtime actions whose declarations setup can inspect. The
+		// saved check's imported_from.runtime_pins is validated the same way.
+		normalized, err := preflightapi.NormalizeSetupRuntimePin(runtime, version)
 		if err != nil {
 			return nil, cliConfigError("--runtime: "+err.Error(), err)
 		}

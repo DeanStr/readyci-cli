@@ -139,6 +139,10 @@ type VerificationNodeSource struct {
 	SnapshotDigest string                         `json:"snapshot_digest"`
 	ChangedFiles   []string                       `json:"changed_files"`
 	Policy         syncbundle.SourcePolicyBinding `json:"policy"`
+	// ManifestDigest is syncbundle.ManifestDigest of the exact projected
+	// manifest the worker receives. Downloads verify the projection against
+	// it and derive the conditional-request validator from it.
+	ManifestDigest string `json:"manifest_digest"`
 }
 
 func VerificationNodeSnapshot(session VerificationSnapshot, node VerificationNodePlan) VerificationSnapshot {
@@ -745,7 +749,11 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 			if err != nil {
 				return err
 			}
-			node.Source = &VerificationNodeSource{BaselineKey: baseline, SnapshotDigest: node.Source.SnapshotDigest, ChangedFiles: changed, Policy: policy}
+			manifest, found := strings.CutPrefix(node.Source.ManifestDigest, "sha256:")
+			if !found || ValidateSHA256Hex(manifest) != nil {
+				return fmt.Errorf("verification node %q source manifest_digest must match sha256:<64 lowercase hex characters>", node.ID)
+			}
+			node.Source = &VerificationNodeSource{BaselineKey: baseline, SnapshotDigest: node.Source.SnapshotDigest, ChangedFiles: changed, Policy: policy, ManifestDigest: node.Source.ManifestDigest}
 		}
 		node.DependsOn = normalizedStrings(node.DependsOn)
 		node.SuccessDependsOn = normalizedStrings(node.SuccessDependsOn)

@@ -231,12 +231,14 @@ func TestSetupRequiresEffectivePolicyBeforeUpload(t *testing.T) {
 	}
 }
 
-func TestSetupEnvironmentRequiresEveryDeclaredRuntimeToBeSealed(t *testing.T) {
+// A configuration readyci check accepts is never blocked by repository
+// runtime declarations; declarations it does not seal become review notes.
+func TestSetupEnvironmentReviewsUnsealedDeclaredRuntimes(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		requirements map[string]string
-		blocked      bool
-	}{{"other runtime only", map[string]string{"node": "24"}, true}, {"weaker Python bound", map[string]string{"python": ">=3.8"}, true}, {"stronger exact Python", map[string]string{"python": "3.12.3"}, false}} {
+		noted        bool
+	}{{"other runtime only", map[string]string{"node": "24"}, true}, {"weaker Python bound", map[string]string{"python": ">=3.8"}, true}, {"stronger exact Python", map[string]string{"python": "3.12.3"}, false}, {"no runtime requirements", nil, true}} {
 		t.Run(test.name, func(t *testing.T) {
 			root := chdirCLITestRepo(t, "runtime-requirement-binding")
 			writeFileForRepoMapTest(t, filepath.Join(root, "pyproject.toml"), "[project]\nrequires-python = '>=3.9,<4'\n")
@@ -249,14 +251,24 @@ func TestSetupEnvironmentRequiresEveryDeclaredRuntimeToBeSealed(t *testing.T) {
 			cfg := config.ProjectConfig{Checks: map[string]config.CheckConfig{"test": {Command: "python3 -m pytest", RuntimeRequirements: test.requirements}}}
 			report := setupReport{ConfigStatus: "ok", AuthStatus: "ok", Check: "test", ProjectID: "runtime-requirement-binding"}
 			reconcileSetupEnvironment(setupOptions{APIURL: server.URL, APIToken: "pfl_fixture"}, cfg, &report)
-			if got := report.Environment.Status == "blocked"; got != test.blocked {
-				t.Fatalf("environment%+v", report.Environment)
+			if calls != 1 || len(report.Environment.Blockers) != 0 || validateSetupEnvironment(report.Environment) != nil {
+				t.Fatalf("runtime declarations blocked an accepted configuration: %+v", report.Environment)
 			}
-			if test.blocked && calls != 0 {
-				t.Fatal("unsealed source runtime reached remote admission")
+			noted := strings.Contains(strings.Join(setupUnresolvedNotes(report.Environment.Unresolved), "\n"), `Runtime review: repository runtime declarations narrow python to`)
+			if noted != test.noted || setupWarningsRepeatUnresolvedNotes(report.Environment) {
+				t.Fatalf("unsealed declaration review = %v, want %v once: unresolved=%v warnings=%v", noted, test.noted, report.Environment.Unresolved, report.Environment.Warnings)
 			}
-			if !test.blocked && (calls != 1 || report.Environment.RuntimeStatus != "compatible") {
-				t.Fatalf("stronger supported configuration was rejected %+v", report.Environment)
+			// An unsealed declaration is unresolved: the runner is compatible,
+			// but the environment is not ready until a run confirms it.
+			wantStatus := "ready"
+			if test.noted {
+				wantStatus = "review_required"
+				if kinds := setupUnresolvedKinds(report.Environment.Unresolved); len(kinds) != 1 || kinds[0] != setupUnresolvedRuntimeDeclarationNotApplied || report.Environment.Unresolved[0].Subject != "python" || report.Environment.Unresolved[0].Source != "pyproject.toml (requires-python)" {
+					t.Fatalf("unsealed declaration is not a structured unresolved item: %+v", report.Environment.Unresolved)
+				}
+			}
+			if report.Environment.Status != wantStatus {
+				t.Fatalf("status = %q, want %q: %+v", report.Environment.Status, wantStatus, report.Environment)
 			}
 		})
 	}

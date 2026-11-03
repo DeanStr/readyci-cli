@@ -14,14 +14,7 @@ func setupDetectedTemplate(root, projectID string, options setupOptions, candida
 	selection := automaticSetupSelection(candidates)
 	if selection.Imported != nil {
 		template := setupImportedTemplateWithScope(root, options, projectID, *selection.Imported, candidates)
-		template, err := applySetupNetworkPolicy(template, options)
-		if err != nil {
-			return "", err
-		}
-		if err := validateSetupRuntimeTemplate(root, template); err != nil {
-			return "", err
-		}
-		return template, nil
+		return applySetupNetworkPolicy(template, options)
 	}
 	if len(options.RuntimePins) > 0 {
 		return "", cliConfigError("--runtime requires a matching imported workflow runtime; inspect readyci setup --preview --json and select --candidate ID", nil)
@@ -34,18 +27,10 @@ func setupDetectedTemplate(root, projectID string, options setupOptions, candida
 			template, _ = basicDetectedProjectTemplate(root, projectID, options.Image, options.Profile, true)
 		}
 		template = appendSetupLanguageDefaultScope(template, selection)
-		var err error
-		template, err = applySetupNetworkPolicy(template, options)
-		if err != nil {
-			return "", err
-		}
-		if err := validateSetupRuntimeTemplate(root, template); err != nil {
-			return "", err
-		}
-		return template, nil
+		return applySetupNetworkPolicy(template, options)
 	}
 	if selection.Reason != "" {
-		return "", cliConfigError("configuration required: "+selection.Reason, nil)
+		return "", cliConfigError("configuration required: "+selection.Reason+"; or use readyci setup --print --detect=false to configure the repository's documented tests", nil)
 	}
 	return "", cliConfigError("configuration required: no supported root test entrypoint was found; inspect readyci setup --preview --json and select --candidate ID, or use readyci setup --print --detect=false to configure the repository's documented tests", nil)
 }
@@ -260,6 +245,11 @@ func setupShellCommandRunsTests(parsed shellCommand, command string) bool {
 			return true
 		}
 	case "make", "gmake":
+		for _, word := range words {
+			if !word.Dynamic && makeSkipsRecipes(word.Text) {
+				return false
+			}
+		}
 		for _, invocation := range makeInvocationsFromCommand(command) {
 			if hasSeparatedMarker(invocation.Target, "test") || hasSeparatedMarker(invocation.Target, "unit") || hasSeparatedMarker(invocation.Target, "e2e") {
 				return true
@@ -271,6 +261,24 @@ func setupShellCommandRunsTests(parsed shellCommand, command string) bool {
 		}
 	}
 	return false
+}
+
+// makeSkipsRecipes recognizes Make's dry-run, question and touch modes, which
+// report or mark targets without running their recipes.
+func makeSkipsRecipes(token string) bool {
+	switch token {
+	case "--just-print", "--dry-run", "--recon", "--question", "--touch":
+		return true
+	}
+	if !strings.HasPrefix(token, "-") || strings.HasPrefix(token, "--") || strings.Contains(token, "=") {
+		return false
+	}
+	for _, valued := range []string{"-C", "-f", "-I", "-W", "-o", "-j", "-l"} {
+		if strings.HasPrefix(token, valued) {
+			return false
+		}
+	}
+	return strings.ContainsAny(token[1:], "nqt")
 }
 
 func setupPythonInvocationRunsTests(args []shellWord) bool {

@@ -88,9 +88,6 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		if err := validateProjectConfig(proposed); err != nil {
 			return setupReport{}, err
 		}
-		if err := validateSetupRuntimeTemplate(".", *options.ConfigTemplate); err != nil {
-			return setupReport{}, err
-		}
 		if err := validateGuidedSetupCheck(options.CheckName, sortedCheckNames(proposed.Checks)); err != nil {
 			return setupReport{}, err
 		}
@@ -122,11 +119,6 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 		template, err = applySetupNetworkPolicy(template, options)
 		if err != nil {
 			return setupReport{}, err
-		}
-		if options.Detect {
-			if err := validateSetupRuntimeTemplate(".", template); err != nil {
-				return setupReport{}, err
-			}
 		}
 		if err := writeSetupConfig(writePath, template, options.Force); err != nil {
 			return setupReport{}, err
@@ -375,8 +367,8 @@ func printSetupReport(report setupReport) {
 			fmt.Printf("selected_matrix: %s\n", matrix)
 		}
 		fmt.Printf("scope: %s\n", report.ImportScope.Coverage)
-		for _, notice := range setupRuntimePinNotices(report.ImportScope.Selected.RuntimeResolutions) {
-			fmt.Printf("runtime_pin: %s\n", notice)
+		for _, note := range report.ImportScope.Selected.RuntimeNotes {
+			fmt.Printf("runtime_review: %s\n", note)
 		}
 		for _, notice := range setupUserRuntimePinNotices(report.ImportScope.Selected.RuntimePins) {
 			fmt.Printf("runtime_pin: %s\n", notice)
@@ -395,11 +387,22 @@ func printSetupReport(report setupReport) {
 		fmt.Printf("proposed_configuration:\n%s\n", report.ProposedConfig)
 	}
 	printSetupEnvironment(report.Environment)
+	if readiness := setupMilestoneSummary(report); readiness != "" {
+		fmt.Printf("readiness: %s\n", readiness)
+	}
 	for _, path := range report.Written {
 		fmt.Printf("wrote: %s\n", path)
 	}
 	for _, warning := range report.Warnings {
 		fmt.Printf("warning: %s\n", warning)
+	}
+	// Each unresolved note prints once: the environment's items above, then
+	// the first candidate that adds another.
+	listed := map[string]bool{}
+	if report.Environment != nil {
+		for _, item := range report.Environment.Unresolved {
+			listed[item.Note()] = true
+		}
 	}
 	for _, candidate := range report.ImportCandidates {
 		fmt.Printf("import_candidate: %s · %s\n", candidate.ID, candidate.Command)
@@ -408,6 +411,12 @@ func printSetupReport(report setupReport) {
 		}
 		for _, requirement := range candidate.Requirements {
 			fmt.Printf("  review: %s\n", requirement)
+		}
+		for _, item := range candidate.Unresolved {
+			if !listed[item.Note()] {
+				listed[item.Note()] = true
+				fmt.Printf("  unresolved (%s): %s\n", item.Kind, item.Detail)
+			}
 		}
 		for _, unsupported := range candidate.Unsupported {
 			fmt.Printf("  manual_configuration: %s\n", unsupported)

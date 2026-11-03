@@ -85,6 +85,7 @@ func setupWorkflowStaticJob(workflow repoWorkflowYAML, job repoWorkflowJobYAML, 
 		context["env"][key] = value
 	}
 	job.TimeoutMinutes = resolveAny(job.TimeoutMinutes, matrixContext)
+	job.ContinueOnError = setupWorkflowStaticBoolean(job.ContinueOnError, matrixContext)
 	defaultsContext := map[string]map[string]any{"env": context["env"]}
 	if matrix != nil {
 		defaultsContext["matrix"] = matrix
@@ -138,6 +139,7 @@ func setupWorkflowStaticJob(workflow repoWorkflowYAML, job repoWorkflowJobYAML, 
 		step.Run, step.Shell, step.WorkingDirectory = resolve(step.Run, stepContext), resolve(step.Shell, stepContext), resolve(step.WorkingDirectory, stepContext)
 		step.With = resolveMap(step.With, stepContext)
 		step.TimeoutMinutes = resolveAny(step.TimeoutMinutes, stepContext)
+		step.ContinueOnError = setupWorkflowStaticBoolean(step.ContinueOnError, stepContext)
 		steps = append(steps, step)
 		if step.Run != "" || step.Uses != "" {
 			// Both actions and opaque repository scripts can export variables
@@ -174,6 +176,21 @@ func setupWorkflowSupportedUbuntuRunner(label string) bool {
 	default:
 		return false
 	}
+}
+
+// setupWorkflowStaticBoolean resolves a boolean field such as continue-on-error
+// that is written as one expression, for example ${{ matrix.experimental }}.
+// An expression that cannot be evaluated statically is left unchanged, so it
+// remains an explicit review requirement.
+func setupWorkflowStaticBoolean(value any, context map[string]map[string]any) any {
+	expression, ok := value.(string)
+	if !ok || !strings.Contains(expression, "${{") {
+		return value
+	}
+	if result, err := setupWorkflowStaticCondition(expression, context); err == nil {
+		return result
+	}
+	return value
 }
 
 func setupWorkflowStaticCondition(expression string, context map[string]map[string]any) (bool, error) {

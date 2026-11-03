@@ -14,6 +14,13 @@ import (
 type RuntimeInventory map[string][]string
 
 var runtimeNames = map[string]bool{"node": true, "go": true, "python": true, "rust": true, "cargo": true, "npm": true, "pnpm": true, "yarn": true}
+
+// SupportedRuntimeRequirement reports whether name is a runtime family that
+// runtime requirements, image inventories and providers can express.
+func SupportedRuntimeRequirement(name string) bool {
+	return runtimeNames[name]
+}
+
 var runtimeTermPattern = regexp.MustCompile(`^(>=|<=|!=|==|>|<|=|\^|~)?\s*(v?[0-9]+(?:\.[0-9]+){0,2}(?:\.[xX*])?|[0-9]+\.[xX*])`)
 var packageManagerIntegrityPattern = regexp.MustCompile(`^([0-9]+\.[0-9]+\.[0-9]+)\+sha512\.([0-9a-f]{128})$`)
 
@@ -413,9 +420,22 @@ func MergeRuntimeRequirements(left, right map[string]string) (map[string]string,
 				continue
 			}
 			var branches []string
+			seenBranches := map[string]bool{}
 			for _, a := range strings.Split(previous, "||") {
 				for _, b := range strings.Split(value, "||") {
-					branches = append(branches, strings.TrimSpace(a)+","+strings.TrimSpace(b))
+					// Repeated declarations of the same bound add no constraint.
+					var terms []string
+					seenTerms := map[string]bool{}
+					for _, term := range strings.Split(a+","+b, ",") {
+						if term = strings.TrimSpace(term); !seenTerms[term] {
+							seenTerms[term] = true
+							terms = append(terms, term)
+						}
+					}
+					if branch := strings.Join(terms, ","); !seenBranches[branch] {
+						seenBranches[branch] = true
+						branches = append(branches, branch)
+					}
 				}
 			}
 			value = strings.Join(branches, " || ")
@@ -448,6 +468,18 @@ func NormalizeSetupRuntimeRequirement(runtime, value string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported setup runtime %q", runtime)
 	}
+}
+
+var setupRuntimePinPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$`)
+
+// NormalizeSetupRuntimePin validates an explicit runtime choice for an
+// imported workflow (setup --runtime, saved as imported_from.runtime_pins): a
+// numeric version or series for a runtime whose setup action setup inspects.
+func NormalizeSetupRuntimePin(runtime, version string) (string, error) {
+	if !setupRuntimePinPattern.MatchString(version) {
+		return "", fmt.Errorf("runtime %s pin %q is not a numeric version or series, such as 24 or 3.12", runtime, version)
+	}
+	return NormalizeSetupRuntimeRequirement(runtime, version)
 }
 
 func normalizeSemverRuntimeRequirement(runtime, label, value string) (string, error) {

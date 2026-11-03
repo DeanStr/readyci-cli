@@ -3,9 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
@@ -21,35 +19,25 @@ func setupSupportedRuntimeAction(action string) bool {
 
 // Runtime actions are requirements on an installed runner toolchain, rather
 // than an execution of third-party actions or a download during detection.
-var setupRuntimeResolutionNow = time.Now
-var setupRuntimeAliasResolve = func(preflightapi.RuntimeAliasRequest, time.Time) (preflightapi.RuntimeResolution, error) {
-	// Offline inventory cannot establish a moving alias. Setup installs the
-	// service resolver for its invocation; other discovery stays source-only.
-	return preflightapi.RuntimeResolution{}, fmt.Errorf("moving runtime aliases require readyci setup with the service catalog or an explicit numeric runtime")
-}
-
-func setupRuntimePinNotices(resolutions map[string]preflightapi.RuntimeResolution) []string {
-	var notices []string
-	names := make([]string, 0, len(resolutions))
-	for name := range resolutions {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		record := resolutions[name]
-		notices = append(notices, fmt.Sprintf("Resolved %s %s to numeric series %s at import time; the saved check does not track future LTS changes. Review and regenerate it to change series.", name, record.Selector, record.Requirement))
-	}
-	return notices
-}
-
-func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runtimePins ...map[string]string) (map[string]string, map[string]preflightapi.RuntimeResolution, []string) {
+// A selector setup cannot translate into a numeric requirement is advisory: it
+// is reported as an unresolved item and the runner image's installed toolchain
+// is used, unless the user pins that runtime with --runtime. The returned notes
+// are only check-latest freshness notes, whose numeric constraint is still
+// applied; an unresolved item carries its own note text.
+func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runtimePins ...map[string]string) (map[string]string, []setupUnresolvedItem, []string, []string) {
 	var requirements map[string]string
-	var resolutions map[string]preflightapi.RuntimeResolution
 	var pins map[string]string
 	if len(runtimePins) > 0 {
 		pins = runtimePins[0]
 	}
-	var problems []string
+	nodeSelections := 0
+	for _, step := range job.Steps {
+		if name, _, _ := strings.Cut(step.Uses, "@"); name == "actions/setup-node" {
+			nodeSelections++
+		}
+	}
+	var unresolved []setupUnresolvedItem
+	var notes, problems []string
 	for _, step := range job.Steps {
 		action, _, _ := strings.Cut(step.Uses, "@")
 		if !setupSupportedRuntimeAction(action) {
@@ -65,10 +53,6 @@ func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runt
 		if dynamic {
 			continue
 		}
-		if !pnpmInstallDisabled(step.With["check-latest"]) {
-			problems = append(problems, action+" check-latest requires remote release resolution; select an explicit installed runtime version")
-			continue
-		}
 		runtime, versionKey, fileKey := "", "", ""
 		switch action {
 		case "actions/setup-go":
@@ -80,88 +64,91 @@ func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runt
 		case "pnpm/action-setup":
 			runtime, versionKey = "pnpm", "version"
 		}
-		version, ok := setupLiteralActionInput(step.With[versionKey])
-		if !ok {
-			problems = append(problems, action+" runtime version must be a quoted static numeric version or supported version range")
-			continue
-		}
-		if version == "" && fileKey != "" {
-			path, literal := setupLiteralActionInput(step.With[fileKey])
-			if !literal {
-				problems = append(problems, action+" version-file must name a supported static root declaration")
+		declaration, requirement, reason := setupWorkflowActionRuntime(root, runtime, versionKey, fileKey, step.With)
+		if reason != "" {
+			if runtime == "node" && nodeSelections > 1 {
+				problems = append(problems, "an untranslated Node selector combined with multiple setup-node steps requires explicit configuration; sequential runtime changes are not imported")
 				continue
 			}
-			if path != "" {
-				version, ok = setupWorkflowRuntimeVersionFile(root, runtime, path)
-				if !ok {
-					problems = append(problems, action+" version-file "+path+" requires explicit translation; use a supported root runtime declaration or a literal version")
-					continue
+			if pins[runtime] == "" {
+				item := setupUnresolvedItem{
+					Kind: setupUnresolvedRuntimeDeclarationNotApplied, Subject: runtime, Source: action + " " + declaration.Source, Declared: declaration.Declared,
+					Detail: setupRuntimeNoteDetail(action+" "+declaration.Described, runtime, reason, "pin it with readyci setup --runtime "+runtime+"=VERSION"),
 				}
+				unresolved = append(unresolved, item)
+				continue
 			}
+			// An explicit user choice replaces only the untranslated selector;
+			// repository compatibility declarations are still reviewed.
+			requirement = pins[runtime]
+		} else if pins[runtime] != "" {
+			merged, err := preflightapi.MergeRuntimeRequirements(map[string]string{runtime: requirement}, map[string]string{runtime: pins[runtime]})
+			if err != nil {
+				problems = append(problems, action+" runtime requirement requires explicit configuration: --runtime "+runtime+"="+pins[runtime]+" conflicts with "+declaration.Described+": "+err.Error())
+				continue
+			}
+			requirement = merged[runtime]
 		}
-		if version == "" && runtime == "pnpm" {
-			version, _ = setupWorkflowRuntimeVersionFile(root, "pnpm", "package.json")
-		}
-		if version == "" {
-			problems = append(problems, action+" needs an explicit static runtime version; an action's moving default is not imported")
-			continue
+		if reason == "" && !pnpmInstallDisabled(step.With["check-latest"]) {
+			notes = append(notes, fmt.Sprintf("Runtime review: %s %s is imported as a %s runtime requirement %q; check-latest freshness is not guaranteed. Ready CI selects a matching installed toolchain or approved provider archive without resolving the latest remote release.", action, declaration.Described, runtime, requirement))
 		}
 		var err error
-		if runtime == "node" && version == "lts/*" {
-			nodeSelections := 0
-			for _, other := range job.Steps {
-				if name, _, _ := strings.Cut(other.Uses, "@"); name == "actions/setup-node" {
-					nodeSelections++
-				}
-			}
-			if nodeSelections != 1 {
-				problems = append(problems, "a moving Node selector combined with multiple setup-node steps requires explicit configuration; sequential runtime changes are not imported")
-				continue
-			}
-			if pin := pins[runtime]; pin != "" {
-				// An explicit user choice replaces this moving selector, not
-				// the source's independent numeric compatibility requirements.
-				version = pin
-			} else {
-				var record preflightapi.RuntimeResolution
-				record, err = setupRuntimeAliasResolve(preflightapi.RuntimeAliasRequest{Runtime: runtime, Selector: version, ActionRef: step.Uses}, setupRuntimeResolutionNow())
-				if err != nil {
-					err = fmt.Errorf("%w; choose an explicit numeric version with readyci setup --runtime node=VERSION", err)
-				}
-				if err == nil {
-					version = record.Requirement
-					if resolutions == nil {
-						resolutions = map[string]preflightapi.RuntimeResolution{}
-					}
-					resolutions[runtime] = record
-				}
-			}
-		} else if runtime == "pnpm" && strings.Contains(version, "+") {
-			// Preserve the package.json/action integrity pin in the sealed
-			// requirement. A version-only range cannot prove these bytes.
-			if _, _, ok := preflightapi.PackageManagerIntegrityRequirement(version); !ok {
-				err = fmt.Errorf("pnpm integrity requires an exact version and complete sha512 pin")
-			}
-		} else {
-			version, err = preflightapi.NormalizeSetupRuntimeRequirement(runtime, version)
-		}
-		var normalized map[string]string
-		if err == nil {
-			normalized, err = preflightapi.NormalizeRuntimeRequirements(map[string]string{runtime: version})
-		}
-		if err == nil && pins[runtime] != "" {
-			normalized, err = preflightapi.MergeRuntimeRequirements(normalized, map[string]string{runtime: pins[runtime]})
-		}
-		if err != nil {
-			problems = append(problems, action+" runtime requirement requires explicit configuration: "+err.Error())
-			continue
-		}
-		requirements, err = preflightapi.MergeRuntimeRequirements(requirements, normalized)
+		requirements, err = preflightapi.MergeRuntimeRequirements(requirements, map[string]string{runtime: requirement})
 		if err != nil {
 			problems = append(problems, action+" runtime requirements cannot be combined: "+err.Error())
 		}
 	}
-	return requirements, resolutions, uniqueStrings(problems)
+	if notes = uniqueStrings(notes); len(notes) == 0 {
+		notes = nil
+	}
+	return requirements, mergeSetupUnresolved(unresolved), notes, uniqueStrings(problems)
+}
+
+// setupActionDeclaration identifies a workflow action's runtime declaration:
+// the input or file it came from, the declared value, and the described form
+// used in notes.
+type setupActionDeclaration struct {
+	Source, Declared, Described string
+}
+
+// setupWorkflowActionRuntime returns the action's declaration and either its
+// numeric requirement or the reason it is not translated into a requirement.
+func setupWorkflowActionRuntime(root, runtime, versionKey, fileKey string, with map[string]any) (setupActionDeclaration, string, string) {
+	declaration := setupActionDeclaration{Source: versionKey, Described: versionKey}
+	version, ok := setupLiteralActionInput(with[versionKey])
+	if !ok {
+		return declaration, "", "the version is not a quoted static string"
+	}
+	if version != "" {
+		declaration.Declared = version
+		declaration.Described += " " + setupNoteValue(version)
+	} else if fileKey != "" {
+		path, literal := setupLiteralActionInput(with[fileKey])
+		if !literal {
+			return setupActionDeclaration{Source: fileKey, Described: fileKey}, "", "the version file is not a static path"
+		}
+		if path != "" {
+			declaration = setupActionDeclaration{Source: fileKey + " " + path, Described: fileKey + " " + path}
+			if version, ok = setupWorkflowRuntimeVersionFile(root, runtime, path); !ok {
+				return declaration, "", "only supported root runtime declarations are read"
+			}
+			declaration.Declared = version
+			declaration.Described += " (" + setupNoteValue(version) + ")"
+		}
+	}
+	if version == "" && runtime == "pnpm" {
+		if version, _ = setupWorkflowRuntimeVersionFile(root, "pnpm", "package.json"); version != "" {
+			declaration = setupActionDeclaration{Source: "package.json packageManager", Declared: "pnpm@" + version, Described: "package.json packageManager " + setupNoteValue("pnpm@"+version)}
+		}
+	}
+	if version == "" {
+		return declaration, "", "no version is declared, and the action's moving default is not imported"
+	}
+	if !pnpmInstallDisabled(with["check-latest"]) {
+		declaration.Described += " with check-latest"
+	}
+	requirement, reason := setupTranslatableRuntimeRequirement(runtime, version, preflightapi.NormalizeSetupRuntimeRequirement)
+	return declaration, requirement, reason
 }
 
 func setupLiteralActionInput(value any) (string, bool) {

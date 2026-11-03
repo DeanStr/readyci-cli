@@ -35,6 +35,7 @@ type Client struct {
 	forwardedFor string
 	httpClient   *http.Client
 	token        string
+	userAgent    string
 }
 
 type UploadBundleOptions struct {
@@ -107,6 +108,13 @@ type Option func(*Client)
 func WithToken(token string) Option {
 	return func(client *Client) {
 		client.token = strings.TrimSpace(token)
+	}
+}
+
+// WithUserAgent identifies the client in the User-Agent header.
+func WithUserAgent(userAgent string) Option {
+	return func(client *Client) {
+		client.userAgent = strings.TrimSpace(userAgent)
 	}
 }
 
@@ -409,6 +417,9 @@ func (c *Client) authorize(req *http.Request) {
 	}
 	if c.forwardedFor != "" {
 		req.Header.Set("X-Forwarded-For", c.forwardedFor)
+	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
 	}
 	if c.token == "" {
 		return

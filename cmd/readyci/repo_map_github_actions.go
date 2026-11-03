@@ -96,9 +96,9 @@ func scanWorkflowJob(cwd string, workflow repoWorkflowYAML, name string, parsedJ
 	var problems []string
 	job.Timeout, problems = staticWorkflowTimeout(parsedJob.TimeoutMinutes, "job")
 	job.Unsupported = append(job.Unsupported, problems...)
-	job.RuntimeRequirements, job.RuntimeResolutions, problems = setupWorkflowRuntimeRequirements(cwd, parsedJob, runtimePins...)
+	job.RuntimeRequirements, job.RuntimeUnresolved, job.RuntimeNotes, problems = setupWorkflowRuntimeRequirements(cwd, parsedJob, runtimePins...)
 	job.Unsupported = append(job.Unsupported, problems...)
-	job.Requirements = append(job.Requirements, setupRuntimePinNotices(job.RuntimeResolutions)...)
+	job.Requirements = append(job.Requirements, job.RuntimeNotes...)
 	if len(runtimePins) > 0 {
 		for runtime, pin := range runtimePins[0] {
 			if job.RuntimeRequirements[runtime] != "" {
@@ -244,7 +244,7 @@ type repoWorkflowStepYAML struct {
 	With             map[string]any
 	Env              map[string]any
 	Shell            string
-	ContinueOnError  bool
+	ContinueOnError  any
 	TimeoutMinutes   any
 	Problems         []string
 }
@@ -265,7 +265,7 @@ func (step *repoWorkflowStepYAML) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 	step.Uses, step.With, step.Env, step.Shell = metadata.Uses, metadata.With, metadata.Env, metadata.Shell
-	step.ContinueOnError = metadata.ContinueOnError != nil && metadata.ContinueOnError != false
+	step.ContinueOnError = metadata.ContinueOnError
 	step.TimeoutMinutes = metadata.TimeoutMinutes
 	step.Problems = setupWorkflowUnknownFields(value, "step", "id", "name", "run", "if", "working-directory", "uses", "with", "env", "shell", "continue-on-error", "timeout-minutes")
 	for i := 0; i+1 < len(value.Content); i += 2 {

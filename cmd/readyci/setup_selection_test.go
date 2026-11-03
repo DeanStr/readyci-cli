@@ -151,7 +151,6 @@ func TestSetupSelectionPrefersConcreteUpstreamTestJob(t *testing.T) {
 
 func TestSetupSelectionDoesNotGuessPastUpstreamRequirements(t *testing.T) {
 	for _, tc := range []struct{ name, job, steps string }{
-		{"runtime action moving alias", "", "      - uses: actions/setup-go@v5\n        with:\n          go-version: stable\n      - run: go test ./...\n"},
 		{"matrix", "    strategy:\n      matrix:\n        go: [1.26, 1.27]\n", "      - run: go test ./...\n"},
 		{"services", "    services:\n      db:\n        image: postgres:16\n", "      - run: go test ./...\n"},
 		{"privileged preparation", "", "      - run: sudo apt-get install special-library\n      - run: go test ./...\n"},
@@ -172,7 +171,7 @@ func TestSetupSelectionDoesNotGuessPastUpstreamRequirements(t *testing.T) {
 			}
 			// The language default is proposed, but the upstream job is never
 			// imported past its requirements and remains visibly uncovered.
-			if _, imported := cfg.Checks["test"]; imported || cfg.Checks["go"].Command != "go test ./..." || strings.Contains(template, "# Selected:") {
+			if _, imported := cfg.Checks["test"]; imported || cfg.Checks["go"].Command != "go test ./..." || len(setupImportedCandidates(t, template)) != 0 {
 				t.Fatalf("guessed a command past upstream requirements:\n%s", template)
 			}
 			if !strings.Contains(template, "# Ready CI setup scope: language default only") || !strings.Contains(template, `# Not imported: "github-actions:.github/workflows/ci.yml:test"`) {
