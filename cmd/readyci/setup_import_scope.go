@@ -66,12 +66,27 @@ func appendSetupImportScope(template string, scope *setupImportScope) string {
 	// The selected candidate is recorded in the check's imported_from field;
 	// these comments only list what the selection leaves out.
 	out.WriteString("\n# Ready CI import scope: selected candidate (imported_from) only.\n")
+	if len(scope.Selected.Matrix) > 0 {
+		fmt.Fprintf(&out, "# Selected matrix variant: %s; sibling variants below are not run.\n", strconv.Quote(setupMatrixValues(scope.Selected.Matrix)))
+	}
 	for _, candidate := range scope.Omitted {
 		fmt.Fprintf(&out, "# Not imported: %s", strconv.Quote(candidate.ID))
+		if len(candidate.Matrix) > 0 {
+			fmt.Fprintf(&out, "; matrix: %s", strconv.Quote(setupMatrixValues(candidate.Matrix)))
+		}
 		if len(candidate.Unsupported) > 0 {
 			fmt.Fprintf(&out, "; blocked: %s", strconv.Quote(strings.Join(candidate.Unsupported, "; ")))
 		}
 		out.WriteByte('\n')
 	}
 	return out.String()
+}
+
+// Matrix values are shown in key order, the same for every variant of a job.
+func setupMatrixValues(values map[string]string) string {
+	pairs := make([]string, 0, len(values))
+	for _, key := range sortedStringMapKeys(values) {
+		pairs = append(pairs, key+"="+values[key])
+	}
+	return strings.Join(pairs, ", ")
 }

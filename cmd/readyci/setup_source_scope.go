@@ -6,7 +6,7 @@ import (
 )
 
 // Different component inputs need registered verification authority for a
-// combined proof. Ordinary execution keeps its shared-source requirement.
+// combined proof. Requested checks can use independently sealed source views.
 func sharedSourceScopeWarning(cfg config.ProjectConfig) string {
 	var plans []affectedCheckPlan
 	for _, name := range sortedCheckNames(cfg.Checks) {
@@ -18,7 +18,7 @@ func sharedSourceScopeWarning(cfg config.ProjectConfig) string {
 		plans = append(plans, affectedCheckPlan{Plan: plan})
 	}
 	if _, err := compatibleAffectedSessionBuildOptions(plans, syncbundlebuild.BuildOptions{ChangeMode: "working"}); err != nil {
-		return "Different component upload scopes require an active trusted verification policy for combined readyci verify; ordinary combined checks require a shared upload scope."
+		return "Different component upload scopes require an active trusted verification policy for combined readyci verify; readyci check executes the requested source views without a workspace-wide verification verdict."
 	}
 	return ""
 }

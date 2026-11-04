@@ -13,7 +13,7 @@ import (
 // The first version is the image default; remaining versions are numerically ordered.
 type RuntimeInventory map[string][]string
 
-var runtimeNames = map[string]bool{"node": true, "go": true, "python": true, "rust": true, "cargo": true, "npm": true, "pnpm": true, "yarn": true}
+var runtimeNames = map[string]bool{"node": true, "go": true, "python": true, "java": true, "rust": true, "cargo": true, "npm": true, "pnpm": true, "yarn": true}
 
 // SupportedRuntimeRequirement reports whether name is a runtime family that
 // runtime requirements, image inventories and providers can express.
@@ -459,7 +459,7 @@ func NormalizeNodeRuntimeRequirement(value string) (string, error) {
 // Partial comparison bounds follow the setup actions' series semantics.
 func NormalizeSetupRuntimeRequirement(runtime, value string) (string, error) {
 	switch runtime {
-	case "node", "go", "python", "pnpm":
+	case "node", "go", "python", "java", "pnpm":
 		normalized, err := normalizeSemverRuntimeRequirement(runtime, runtime, value)
 		if err != nil {
 			return "", fmt.Errorf("runtime %s: %w", runtime, err)

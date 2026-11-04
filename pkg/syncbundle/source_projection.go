@@ -99,7 +99,7 @@ func ProjectSource(manifest Manifest, files map[string]BundleFile, policy Source
 // Content identities need file bytes and are supplied by the caller.
 func projectManifestEntries(manifest Manifest, policy SourcePolicyBinding) (Manifest, error) {
 	if manifest.BaselineRef || manifest.SourcePolicy == nil || len(manifest.SourcePolicy.Scopes) < 2 || len(policy.Scopes) != 0 {
-		return Manifest{}, fmt.Errorf("source projection requires a complete registered multi-scope upload and one member scope")
+		return Manifest{}, fmt.Errorf("source projection requires a complete multi-scope upload and one member scope")
 	}
 	key := SourcePolicyScopeKey(policy)
 	found := false
@@ -107,7 +107,7 @@ func projectManifestEntries(manifest Manifest, policy SourcePolicyBinding) (Mani
 		found = found || SourcePolicyScopeKey(scope) == key
 	}
 	if !found {
-		return Manifest{}, fmt.Errorf("source projection filter is absent from the registered upload contract")
+		return Manifest{}, fmt.Errorf("source projection filter is absent from the declared upload contract")
 	}
 	untracked := make(map[string]bool, len(manifest.UntrackedFiles))
 	for _, rel := range manifest.UntrackedFiles {

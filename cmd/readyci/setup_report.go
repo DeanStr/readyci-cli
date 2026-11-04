@@ -61,7 +61,7 @@ func buildSetupReport(options setupOptions) (setupReport, error) {
 			// Writing still requires a concrete template and rejects ambiguity.
 			if detected, detectionErr := setupDetectedTemplate(".", projectID, options, candidates); detectionErr == nil {
 				options.ConfigTemplate = &detected
-				if selection := automaticSetupSelection(candidates); selection.Imported != nil {
+				if selection := setupSelectedImport(".", projectID, options, candidates); selection.Imported != nil {
 					importScope = selectedSetupImportScope(*selection.Imported, scopeCandidates)
 				} else if len(selection.NotImported) > 0 {
 					languageDefaultNotice = setupLanguageDefaultNotice(selection)

@@ -36,9 +36,9 @@ type Manifest struct {
 	Git        GitMetadata `json:"git"`
 	Submodules []Submodule `json:"submodules,omitempty"`
 	ChangeMode string      `json:"change_mode,omitempty"`
-	// SourcePolicy records the independently registered policy whose sync
-	// filter was used to construct this workspace. It is absent for ordinary
-	// candidate-controlled bundles. A service-authorized planner verifies this
+	// SourcePolicy records the declared source filters. Scoped execution binds
+	// requested filters; registered verification uses independently trusted
+	// policy. A service-authorized planner verifies this
 	// binding against its own active policy revision before trusting the
 	// bundle's changed-file view.
 	SourcePolicy *SourcePolicyBinding `json:"source_policy,omitempty"`
@@ -62,7 +62,8 @@ type Manifest struct {
 }
 
 type SourcePolicyBinding struct {
-	// Scopes is a canonical set of independently approved filters. The upload
+	// Scopes is a canonical set of declared filters. Registered verification
+	// independently authorizes them; ordinary execution does not confer authority. The upload
 	// contains their union; execution receives one exact scope, never the union.
 	// Nested sets are invalid.
 	Scopes                          []SourcePolicyBinding `json:"scopes,omitempty"`

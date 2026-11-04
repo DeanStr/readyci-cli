@@ -29,6 +29,7 @@ type setupOptions struct {
 	ImportScope      *setupImportScope
 	NetworkAllowlist []string
 	RuntimePins      map[string]string
+	variantAdmission setupVariantAdmission
 }
 
 func setupMakefileScaffold(apiURL, projectID string) string {

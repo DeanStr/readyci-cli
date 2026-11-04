@@ -107,7 +107,7 @@ func createAndWatchVerificationSession(options verificationSessionOptions) (sess
 	// A caller-supplied key must produce the same immutable request after another
 	// job updates the local transfer hint. Use full source for these resumable
 	// requests; automatically keyed jobs can use the latest cached baseline.
-	if options.Purpose == preflightapi.ExecutionPurpose && strings.TrimSpace(options.IdempotencyKey) == "" {
+	if options.Purpose == preflightapi.ExecutionPurpose && len(buildOptions.SourceScopes) == 0 && strings.TrimSpace(options.IdempotencyKey) == "" {
 		sourceCache = readExecutionSourceCache(apiURL, projectID)
 		buildOptions.OmitBaseline = sourceCache.SessionID != ""
 	}

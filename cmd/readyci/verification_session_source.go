@@ -179,7 +179,7 @@ func registeredAffectedSessionBuildOptions(plans []affectedCheckPlan, fallback s
 	for _, selected := range plans[1:] {
 		current := canonicalVerificationBuildOptions(selected.Plan.Options, fallback.ChangeMode)
 		if current.ChangeMode != first.ChangeMode {
-			return syncbundlebuild.BuildOptions{}, fmt.Errorf("combined verification requires one changes mode; set --changes explicitly")
+			return syncbundlebuild.BuildOptions{}, fmt.Errorf("checks %q and %q require different changes modes (%s and %s); one session must use one exact workspace; set --changes explicitly", plans[0].Plan.Name, selected.Plan.Name, first.ChangeMode, current.ChangeMode)
 		}
 		if verificationBuildOptionsKey(current) != key {
 			first.RequireRegisteredScopes = true
@@ -196,7 +196,7 @@ func explicitDependencyWarmSessionBuildOptions(warmPlans, targets []checkRunPlan
 	for _, target := range targets {
 		sessionPlans = append(sessionPlans, affectedCheckPlan{Plan: target})
 	}
-	options, err := compatibleAffectedSessionBuildOptions(sessionPlans, fallback)
+	options, err := registeredAffectedSessionBuildOptions(sessionPlans, fallback)
 	if err != nil {
 		return syncbundlebuild.BuildOptions{}, cliConfigError(err.Error(), err)
 	}

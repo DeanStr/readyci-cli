@@ -357,14 +357,40 @@ func runSpecFromRemoteRunOptions(options remoteRunOptions) verificationplan.RunS
 func shellQuoteArg(arg string) string { return verificationplan.ShellQuoteArg(arg) }
 
 func verificationNodesForPlans(warmPlans, plans []checkRunPlan, bundle syncbundlebuild.BuildResult) ([]preflightapi.VerificationNodePlan, []preflightapi.VerificationMatrixGroup, error) {
+	warm, err := checkPlansWithSourceViews(warmPlans, bundle)
+	if err != nil {
+		return nil, nil, err
+	}
+	checks, err := checkPlansWithSourceViews(plans, bundle)
+	if err != nil {
+		return nil, nil, err
+	}
 	return verificationplan.NodesForPlans(
-		checkPlansForPlanning(warmPlans), checkPlansForPlanning(plans),
+		warm, checks,
 		verificationplan.BundleIdentity{BaselineKey: bundle.Manifest.BaselineKey},
 		verificationplan.ClientIdentity{
 			Client:     preflightapi.ClientInfo{Version: version, Platform: runtime.GOOS + "-" + runtime.GOARCH},
 			Repository: gitRepository(),
 		},
 	)
+}
+
+func checkPlansWithSourceViews(plans []checkRunPlan, bundle syncbundlebuild.BuildResult) ([]verificationplan.CheckPlan, error) {
+	resolved := checkPlansForPlanning(plans)
+	for i, plan := range plans {
+		if plan.SourcePolicy == nil {
+			continue
+		}
+		source, exists := bundle.SourceViews[syncbundle.SourcePolicyScopeKey(*plan.SourcePolicy)]
+		if !exists {
+			return nil, fmt.Errorf("check %q has no sealed source view in the uploaded snapshot", plan.Name)
+		}
+		resolved[i].Source = &preflightapi.VerificationNodeSource{
+			SnapshotDigest: source.SnapshotDigest, BaselineKey: source.BaselineKey,
+			ChangedFiles: source.ChangedFiles, Policy: *plan.SourcePolicy, ManifestDigest: syncbundle.ManifestDigest(source),
+		}
+	}
+	return resolved, nil
 }
 
 func checkPlansForPlanning(plans []checkRunPlan) []verificationplan.CheckPlan {

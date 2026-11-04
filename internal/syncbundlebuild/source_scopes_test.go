@@ -65,6 +65,7 @@ func TestComponentProjectionsMatchIndependentSourceBuilds(t *testing.T) {
 				t.Fatal(err)
 			}
 			options := scopeBuildOptions(contract, mode)
+			options.SealSourceViews = true
 			var raw bytes.Buffer
 			built, err := BuildWithOptions(context.Background(), repo, &raw, options)
 			if err != nil {
@@ -78,6 +79,10 @@ func TestComponentProjectionsMatchIndependentSourceBuilds(t *testing.T) {
 				projected, err := syncbundle.ProjectSource(manifest, files, policy)
 				if err != nil {
 					t.Fatal(err)
+				}
+				sealed, exists := built.SourceViews[syncbundle.SourcePolicyScopeKey(policy)]
+				if !exists || syncbundle.ManifestDigest(sealed) != syncbundle.ManifestDigest(projected.Manifest) {
+					t.Fatal("packaging did not seal the exact projected bytes")
 				}
 				var independent bytes.Buffer
 				expected, err := BuildWithOptions(context.Background(), repo, &independent, scopeBuildOptions(policy, mode))

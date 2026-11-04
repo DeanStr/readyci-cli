@@ -35,9 +35,10 @@ var setupUnresolvedShapes = []setupUnresolvedShape{
 		check: "ci", kinds: []string{setupUnresolvedOpaqueEntrypoint}, subjects: []string{"check"},
 	},
 	{
+		// Java is a supported runtime family; the image's JDK is required.
 		name:  "Maven workflow",
 		files: map[string]string{"pom.xml": "<project/>\n", ".github/workflows/ci.yml": setupAdvisoryWorkflow("      - run: mvn -B test\n")},
-		check: "test", kinds: []string{setupUnresolvedRuntimeFamilyUnsupported}, subjects: []string{"java"},
+		check: "test",
 	},
 	{
 		name:  "Ruby workflow with a version file",

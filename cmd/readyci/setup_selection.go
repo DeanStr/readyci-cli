@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -11,7 +12,7 @@ import (
 // Detection is a static source inspection. Never execute repository Makefiles,
 // scripts, package managers, or workflow actions to discover a command.
 func setupDetectedTemplate(root, projectID string, options setupOptions, candidates []repoImportCandidate) (string, error) {
-	selection := automaticSetupSelection(candidates)
+	selection := setupSelectedImport(root, projectID, options, candidates)
 	if selection.Imported != nil {
 		template := setupImportedTemplateWithScope(root, options, projectID, *selection.Imported, candidates)
 		return applySetupNetworkPolicy(template, options)
@@ -80,7 +81,11 @@ func validateSetupRootMakeTestScope(root string) error {
 // proposed and every upstream verification job is reported as not imported;
 // the default never claims that scope.
 type setupAutomaticSelection struct {
-	Imported    *repoImportCandidate
+	Imported *repoImportCandidate
+	// Variants are the sole test job's importable matrix variants, best first.
+	// Offline selection never imports one; only a runner that admits a
+	// variant's check can select it.
+	Variants    []repoImportCandidate
 	NotImported []repoImportCandidate
 	Reason      string
 }
@@ -92,8 +97,17 @@ func automaticSetupSelection(candidates []repoImportCandidate) setupAutomaticSel
 			variants[candidate.ParentJobID] = append(variants[candidate.ParentJobID], candidate)
 		}
 	}
+	// Jobs that run only on a schedule or by manual dispatch do not gate
+	// changes, so they do not compete with a test job that does.
+	gating := false
+	for _, candidate := range candidates {
+		if candidate.Source == "github-actions" && candidate.ParentJobID == "" && !candidate.ScheduledOnly && setupWorkflowJobDeclaresTests(candidate, variants[candidate.ID]) {
+			gating = true
+			break
+		}
+	}
 	var selection setupAutomaticSelection
-	var supported []repoImportCandidate
+	var supported, importableVariants []repoImportCandidate
 	var blockers []string
 	var testJobs []string
 	for _, candidate := range candidates {
@@ -102,26 +116,18 @@ func automaticSetupSelection(candidates []repoImportCandidate) setupAutomaticSel
 			continue
 		}
 		selection.NotImported = append(selection.NotImported, candidate)
-		if !setupWorkflowJobDeclaresTests(candidate, variants[candidate.ID]) {
+		if !setupWorkflowJobDeclaresTests(candidate, variants[candidate.ID]) || gating && candidate.ScheduledOnly {
 			continue
 		}
 		testJobs = append(testJobs, candidate.ID)
 		unsupported := append(append([]string(nil), candidate.Unsupported...), candidate.AutomaticUnsupported...)
 		if count := len(variants[candidate.ID]); count > 0 {
 			unsupported = append(unsupported, fmt.Sprintf("upstream matrix job has %d variants; one variant does not establish the job's scope, so select a variant explicitly", count))
-		}
-		if !candidate.TestEntrypoint {
-			unsupported = append(unsupported, "no concrete recognized test entrypoint is available; job names alone do not establish test scope")
-		}
-		for _, dir := range candidate.WorkingDirectories {
-			if dir != "" && dir != "." {
-				unsupported = append(unsupported, "component working directories require explicit candidate selection")
-				break
+			if !candidate.ScopeUnknown {
+				importableVariants = setupImportableMatrixVariants(variants[candidate.ID])
 			}
 		}
-		if strings.TrimSpace(candidate.Command) == "" {
-			unsupported = append(unsupported, "no concrete shell command is available")
-		}
+		unsupported = append(unsupported, setupAutomaticImportScopeProblems(candidate)...)
 		if len(unsupported) > 0 {
 			blockers = append(blockers, candidate.ID+": "+strings.Join(uniqueStrings(unsupported), "; "))
 			continue
@@ -138,8 +144,74 @@ func automaticSetupSelection(candidates []repoImportCandidate) setupAutomaticSel
 		return setupAutomaticSelection{Imported: &supported[0]}
 	case len(blockers) > 0:
 		selection.Reason = "upstream test jobs need explicit translation or selection; inspect readyci setup --preview --json: " + strings.Join(blockers, " | ")
+		selection.Variants = importableVariants
 	case len(selection.NotImported) > 0:
 		selection.Reason = "no upstream job has a recognized test entrypoint"
+	}
+	return selection
+}
+
+func setupAutomaticImportScopeProblems(candidate repoImportCandidate) []string {
+	var unsupported []string
+	if !candidate.TestEntrypoint {
+		unsupported = append(unsupported, "no concrete recognized test entrypoint is available; job names alone do not establish test scope")
+	}
+	for _, dir := range candidate.WorkingDirectories {
+		if dir != "" && dir != "." {
+			unsupported = append(unsupported, "component working directories require explicit candidate selection")
+			break
+		}
+	}
+	if strings.TrimSpace(candidate.Command) == "" {
+		unsupported = append(unsupported, "no concrete shell command is available")
+	}
+	return unsupported
+}
+
+// A variant is importable when it alone would be selected automatically.
+// Variants whose runtime declarations all apply come first, then upstream
+// matrix order, so a runner is offered the most faithful variant first.
+func setupImportableMatrixVariants(variants []repoImportCandidate) []repoImportCandidate {
+	var importable []repoImportCandidate
+	for _, variant := range variants {
+		if variant.ScopeUnknown || len(variant.Unsupported) > 0 || len(variant.AutomaticUnsupported) > 0 || len(setupAutomaticImportScopeProblems(variant)) > 0 {
+			continue
+		}
+		importable = append(importable, variant)
+	}
+	sort.SliceStable(importable, func(i, j int) bool {
+		left, right := len(importable[i].WorkflowUnresolved) == 0, len(importable[j].WorkflowUnresolved) == 0
+		if left != right {
+			return left
+		}
+		return importable[i].MatrixIndex < importable[j].MatrixIndex
+	})
+	return importable
+}
+
+// setupSelectedImport lets a runner choose among a sole matrix test job's
+// importable variants: the first variant whose check the runner admits is
+// imported. Without an admission answer the offline selection stands.
+func setupSelectedImport(root, projectID string, options setupOptions, candidates []repoImportCandidate) setupAutomaticSelection {
+	selection := automaticSetupSelection(candidates)
+	if selection.Imported != nil || options.variantAdmission == nil {
+		return selection
+	}
+	for index, variant := range selection.Variants {
+		if index == setupMaxVariantAdmissions {
+			break
+		}
+		template, err := applySetupNetworkPolicy(setupImportedTemplateWithScope(root, options, projectID, variant, candidates), options)
+		if err != nil {
+			break
+		}
+		admitted, known := options.variantAdmission(template, setupImportCheckName(variant))
+		if !known {
+			break
+		}
+		if admitted {
+			return setupAutomaticSelection{Imported: &variant}
+		}
 	}
 	return selection
 }
@@ -238,10 +310,16 @@ func setupShellCommandRunsTests(parsed shellCommand, command string) bool {
 		if setupPythonInvocationRunsTests(words) {
 			return true
 		}
-	case "pytest", "py.test", "tox", "nox", "ctest", "jest", "vitest", "mocha", "ava":
+	case "tox", "nox":
+		return setupEnvironmentRunnerRunsTests(name, words)
+	case "pytest", "py.test", "ctest", "jest", "vitest", "mocha", "ava":
 		return true
-	case "mvn", "mvnw", "gradle", "gradlew":
-		if has("test") || has("check") {
+	case "mvn", "mvnw":
+		if setupMavenInvocationRunsTests(words) {
+			return true
+		}
+	case "gradle", "gradlew":
+		if setupGradleInvocationRunsTests(words) {
 			return true
 		}
 	case "make", "gmake":
@@ -279,6 +357,121 @@ func makeSkipsRecipes(token string) bool {
 		}
 	}
 	return strings.ContainsAny(token[1:], "nqt")
+}
+
+// Maven lifecycle phases from test onward run the test phase unless the
+// invocation skips tests.
+func setupMavenInvocationRunsTests(words []shellWord) bool {
+	runsTests := false
+	for _, word := range words {
+		if word.Dynamic {
+			continue
+		}
+		switch word.Text {
+		case "-DskipTests", "-DskipTests=true", "-Dmaven.test.skip", "-Dmaven.test.skip=true":
+			return false
+		case "test", "check", "package", "integration-test", "verify", "install", "deploy":
+			runsTests = true
+		}
+	}
+	return runsTests
+}
+
+// Gradle's build task depends on check, which depends on test, unless either is
+// excluded with -x.
+func setupGradleInvocationRunsTests(words []shellWord) bool {
+	build, excluded := false, false
+	for i := 0; i < len(words); i++ {
+		if words[i].Dynamic {
+			continue
+		}
+		switch token := words[i].Text; token {
+		case "test", "check":
+			return true
+		case "build":
+			build = true
+		case "-x", "--exclude-task":
+			if i+1 < len(words) && !words[i+1].Dynamic && (words[i+1].Text == "test" || words[i+1].Text == "check") {
+				excluded = true
+			}
+			i++
+		}
+	}
+	return build && !excluded
+}
+
+// tox and nox run their configured default environments or sessions unless a
+// selection names others. A selection runs no tests only when every name it
+// gives is a known lint, type-check, documentation or packaging environment;
+// any other name, a label, tag or keyword filter, or a dynamic value counts as
+// tests.
+func setupEnvironmentRunnerRunsTests(runner string, words []shellWord) bool {
+	var names []string
+	for i := 0; i < len(words); i++ {
+		if words[i].Dynamic {
+			return true
+		}
+		token := words[i].Text
+		if token == "--" {
+			break // Positional arguments for the environment's commands.
+		}
+		switch {
+		case runner == "tox" && (token == "-e" || token == "--envlist"):
+			if i+1 >= len(words) || words[i+1].Dynamic {
+				return true
+			}
+			i++
+			names = append(names, strings.Split(words[i].Text, ",")...)
+		case runner == "tox" && strings.HasPrefix(token, "--envlist="):
+			names = append(names, strings.Split(strings.TrimPrefix(token, "--envlist="), ",")...)
+		case runner == "tox" && strings.HasPrefix(token, "-e"):
+			names = append(names, strings.Split(token[2:], ",")...)
+		case runner == "tox" && (token == "-m" || token == "--labels" || strings.HasPrefix(token, "--labels=")):
+			return true
+		case runner == "nox" && (token == "-s" || token == "-e" || token == "--session" || token == "--sessions"):
+			for i+1 < len(words) && !strings.HasPrefix(words[i+1].Text, "-") {
+				if words[i+1].Dynamic {
+					return true
+				}
+				i++
+				names = append(names, words[i].Text)
+			}
+		case runner == "nox" && (strings.HasPrefix(token, "--session=") || strings.HasPrefix(token, "--sessions=")):
+			_, value, _ := strings.Cut(token, "=")
+			names = append(names, value)
+		case runner == "nox" && (token == "-k" || token == "--keywords" || token == "-t" || token == "--tags"):
+			return true
+		}
+	}
+	if len(names) == 0 {
+		return true
+	}
+	for _, name := range names {
+		if !setupNonTestEnvironmentName(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func setupNonTestEnvironmentName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "pre-commit" {
+		return true
+	}
+	nonTest := false
+	for _, factor := range strings.FieldsFunc(name, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		switch factor {
+		case "test", "tests", "unit", "e2e", "integration":
+			return false
+		case "lint", "style", "format", "fmt", "typing", "types", "type", "typecheck", "mypy", "pyright",
+			"docs", "doc", "spell", "codespell", "build", "release", "publish", "ruff", "flake8", "pylint", "black", "isort":
+			nonTest = true
+		}
+	}
+	return nonTest
 }
 
 func setupPythonInvocationRunsTests(args []shellWord) bool {
@@ -413,7 +606,7 @@ func workflowAutomaticImportRequirements(job repoWorkflowJobYAML) []string {
 	var unsupported []string
 	for _, step := range job.Steps {
 		action, _, _ := strings.Cut(step.Uses, "@")
-		if action != "" && action != "actions/checkout" && !setupSupportedRuntimeAction(action) {
+		if action != "" && action != "actions/checkout" && action != "unjs/setup-jup" && action != "astral-sh/setup-uv" && !setupSupportedRuntimeAction(action) {
 			unsupported = append(unsupported, fmt.Sprintf("%s is not executed by command import; review its requirements and select the candidate explicitly", action))
 		}
 		for _, parsed := range shellCommandsFromCommand(step.Run) {

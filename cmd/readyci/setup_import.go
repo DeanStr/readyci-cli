@@ -112,11 +112,12 @@ func workflowImportRequirements(workflow repoWorkflowYAML, job repoWorkflowJobYA
 					break
 				}
 			}
-		case "actions/setup-go", "actions/setup-node", "actions/setup-python", "actions/cache", "pnpm/action-setup":
+		case "actions/setup-go", "actions/setup-node", "actions/setup-python", "actions/setup-java", "actions/cache", "pnpm/action-setup":
 			allowed := map[string]map[string]bool{
 				"actions/setup-go":     {"go-version": true, "go-version-file": true, "cache": true, "cache-dependency-path": true, "check-latest": true},
 				"actions/setup-node":   {"node-version": true, "node-version-file": true, "cache": true, "cache-dependency-path": true, "check-latest": true},
 				"actions/setup-python": {"python-version": true, "python-version-file": true, "cache": true, "cache-dependency-path": true, "check-latest": true},
+				"actions/setup-java":   {"java-version": true, "java-version-file": true, "distribution": true, "java-package": true, "architecture": true, "cache": true, "cache-dependency-path": true, "check-latest": true},
 				"actions/cache":        {"path": true, "key": true, "restore-keys": true},
 				"pnpm/action-setup":    {"version": true, "run_install": true},
 			}
@@ -133,7 +134,12 @@ func workflowImportRequirements(workflow repoWorkflowYAML, job repoWorkflowJobYA
 			if action == "pnpm/action-setup" && !pnpmInstallDisabled(step.With["run_install"]) {
 				unsupported = append(unsupported, "pnpm/action-setup dependency installation (run_install) requires manual translation")
 			}
-			for _, key := range []string{"go-version", "go-version-file", "node-version", "node-version-file", "python-version", "python-version-file", "version"} {
+			if action == "actions/setup-java" {
+				requirement, problems := setupJavaActionBuild(step.With)
+				requirements = append(requirements, requirement)
+				unsupported = append(unsupported, problems...)
+			}
+			for _, key := range []string{"go-version", "go-version-file", "node-version", "node-version-file", "python-version", "python-version-file", "java-version", "java-version-file", "version"} {
 				if value, ok := step.With[key]; ok {
 					text := fmt.Sprint(value)
 					if strings.Contains(text, "${{") {
@@ -143,6 +149,38 @@ func workflowImportRequirements(workflow repoWorkflowYAML, job repoWorkflowJobYA
 					}
 				}
 			}
+		case "unjs/setup-jup":
+			// Project pins take priority in setup-jup, so the repository's own
+			// runtime declarations are the requirement. An explicit Node selector,
+			// install arguments or another project directory are not translated.
+			for key, value := range step.With {
+				switch key {
+				case "jup-version", "package-managers", "cache", "cache-dependencies":
+				case "install":
+					if _, ok := setupJupInstall(value); !ok {
+						unsupported = append(unsupported, action+" input install requires manual translation unless it is true or false")
+					}
+				case "working-directory":
+					if dir := strings.TrimSpace(fmt.Sprint(value)); dir != "." && dir != "" {
+						unsupported = append(unsupported, action+" input working-directory requires manual translation")
+					}
+				default:
+					unsupported = append(unsupported, action+" input "+key+" requires manual translation")
+				}
+			}
+			requirements = append(requirements, action+" is translated into the repository's declared Node.js runtime and package manager and, unless install is false, that package manager's frozen dependency installation; the action itself, its shims and its caches are not executed")
+		case "astral-sh/setup-uv":
+			// The runner image provides uv. Cache inputs cannot change what runs;
+			// a uv or Python selector, an activated environment or another project
+			// directory would, so they are not translated.
+			for key := range step.With {
+				switch key {
+				case "enable-cache", "cache-dependency-glob", "cache-suffix", "prune-cache", "ignore-nothing-to-cache":
+				default:
+					unsupported = append(unsupported, action+" input "+key+" requires manual translation")
+				}
+			}
+			requirements = append(requirements, action+" is satisfied by the runner image's uv; the action itself and its cache are not executed")
 		default:
 			unsupported = append(unsupported, "action "+action+" requires manual translation")
 		}
@@ -188,6 +226,48 @@ func pnpmInstallDisabled(input any) bool {
 		}
 	}
 	return false
+}
+
+// setupJupInstall reports whether a literal setup-jup install input installs
+// dependencies. Other values are arguments passed to the package manager.
+func setupJupInstall(input any) (install, ok bool) {
+	switch value := input.(type) {
+	case nil:
+		return true, true
+	case bool:
+		return value, true
+	case string:
+		switch strings.TrimSpace(value) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		}
+	}
+	return false, false
+}
+
+// setupJupInstallCommand is the frozen installation setup-jup performs with
+// the repository root's pinned package manager.
+func setupJupInstallCommand(root string) (string, bool) {
+	if _, ok := readNodePackage(root); !ok {
+		return "", false
+	}
+	pinned := nearestPackageManager(root, root)
+	manager, lockfile, _ := nearestNodeLockfile(root, root, pinned)
+	if manager == "" {
+		manager = defaultString(packageManagerName(pinned), "npm")
+	}
+	switch {
+	case manager == "pnpm" && lockfile != "":
+		return "pnpm install --frozen-lockfile", true
+	case manager == "yarn" && lockfile != "":
+		return nodeYarnFrozenInstall, true
+	case manager == "npm" && lockfile != "":
+		return "npm ci", true
+	default:
+		return manager + " install", true
+	}
 }
 
 func effectiveWorkflowRunDefaults(workflow repoWorkflowYAML, job repoWorkflowJobYAML, step repoWorkflowStepYAML) repoWorkflowRunDefaultsYAML {
@@ -414,8 +494,44 @@ func setupImportCheckName(candidate repoImportCandidate) string {
 func setupImportedCheck(root string, candidate repoImportCandidate) detectedCheck {
 	return setupPrepareDetectedCheck(root, detectedCheck{
 		Name: setupImportCheckName(candidate), Command: candidate.Command, Steps: importedWorkflowSteps(candidate.RunSteps),
+		Prepare: append([]string(nil), candidate.Prepare...),
 		Timeout: defaultString(candidate.Timeout, "20m"), Runtimes: setupImportRuntimes(root, candidate),
 		RuntimeRequirements: candidate.RuntimeRequirements, RustTargetPaths: setupImportRustTargetPaths(root, candidate),
 		ImportedFrom: &config.CheckImportConfig{Candidate: candidate.ID, RuntimePins: copyStringMap(candidate.RuntimePins)},
 	})
+}
+
+// setupJavaActionBuild checks that setup-java requests a JDK build the image's
+// OpenJDK can stand in for: an OpenJDK HotSpot distribution, the plain JDK
+// package and the x64 architecture. setup-java v1 has no distribution input.
+func setupJavaActionBuild(with map[string]any) (string, []string) {
+	const action = "actions/setup-java"
+	var problems []string
+	distribution, ok := setupLiteralActionInput(with["distribution"])
+	switch {
+	case !ok:
+		problems = append(problems, action+" input distribution must be a static value; it requires manual translation")
+	case distribution != "" && !setupOpenJDKHotSpotDistribution(distribution):
+		problems = append(problems, action+" distribution "+distribution+" requires manual translation; only OpenJDK HotSpot distributions are satisfied by the image's OpenJDK")
+	}
+	if pkg, ok := setupLiteralActionInput(with["java-package"]); !ok || pkg != "" && pkg != "jdk" {
+		problems = append(problems, action+" input java-package requires manual translation unless it is jdk")
+	}
+	if architecture, ok := setupLiteralActionInput(with["architecture"]); !ok || architecture != "" && architecture != "x64" {
+		problems = append(problems, action+" input architecture requires manual translation unless it is x64")
+	}
+	described := "its default distribution"
+	if distribution != "" && ok {
+		described = "distribution " + distribution
+	}
+	return action + " " + described + " is satisfied by the image's OpenJDK build of the requested Java version", problems
+}
+
+func setupOpenJDKHotSpotDistribution(distribution string) bool {
+	switch distribution {
+	case "temurin", "zulu", "corretto", "adopt", "adopt-hotspot", "microsoft", "liberica", "oracle":
+		return true
+	default:
+		return false
+	}
 }

@@ -91,6 +91,8 @@ type repoWorkflowJob struct {
 	ScopeUnknown         bool                    `json:"scope_unknown,omitempty"`
 	ParentJobID          string                  `json:"parent_job_id,omitempty"`
 	Matrix               map[string]string       `json:"matrix,omitempty"`
+	MatrixIndex          int                     `json:"-"`
+	ScheduledOnly        bool                    `json:"-"`
 	Timeout              string                  `json:"timeout,omitempty"`
 	RuntimeRequirements  map[string]string       `json:"runtime_requirements,omitempty"`
 	RuntimePins          map[string]string       `json:"runtime_pins,omitempty"`
@@ -102,6 +104,7 @@ type repoWorkflowJob struct {
 	Commands             []string                `json:"commands,omitempty"`
 	CommandLines         []int                   `json:"command_lines,omitempty"`
 	RunSteps             []repoWorkflowRunStep   `json:"run_steps,omitempty"`
+	Prepare              []string                `json:"prepare,omitempty"`
 	Runtimes             []string                `json:"runtimes,omitempty"`
 	Conditions           []repoWorkflowCondition `json:"conditions,omitempty"`
 	Requirements         []string                `json:"requirements,omitempty"`
@@ -166,7 +169,10 @@ type repoImportCandidate struct {
 	ScopeUnknown         bool                  `json:"scope_unknown,omitempty"`
 	ParentJobID          string                `json:"parent_job_id,omitempty"`
 	Matrix               map[string]string     `json:"matrix,omitempty"`
+	MatrixIndex          int                   `json:"-"`
+	ScheduledOnly        bool                  `json:"-"`
 	RunSteps             []repoWorkflowRunStep `json:"run_steps,omitempty"`
+	Prepare              []string              `json:"prepare,omitempty"`
 	Timeout              string                `json:"timeout,omitempty"`
 	RuntimeRequirements  map[string]string     `json:"runtime_requirements,omitempty"`
 	RuntimePins          map[string]string     `json:"runtime_pins,omitempty"`

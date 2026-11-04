@@ -61,18 +61,23 @@ func prepareExecutionRerun(previous preflightapi.VerificationSession, apiURL str
 	}
 	all := append(append([]affectedCheckPlan{}, warm...), selected...)
 	first := selected[0].Plan.Options
-	build, err := compatibleAffectedSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
+	var executions []checkRunPlan
+	for _, item := range all {
+		executions = append(executions, item.Plan)
+	}
+	build, err := executionSessionBuildOptions(executions, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
 	if err != nil {
 		return preparedVerificationSession{}, err
 	}
 	prepared := preparedVerificationSession{ProjectID: previous.ProjectID, BuildOptions: build, CoverageMode: "check"}
-	for _, plan := range selected {
-		plan.Plan.Options.SecretsRequested = boolPtr(previous.Recipe.RequestSecrets)
-		prepared.Plans = append(prepared.Plans, plan.Plan)
+	for i := range executions {
+		if i < len(warm) {
+			executions[i].Options.SecretsRequested = boolPtr(false)
+		} else {
+			executions[i].Options.SecretsRequested = boolPtr(previous.Recipe.RequestSecrets)
+		}
 	}
-	for _, plan := range warm {
-		plan.Plan.Options.SecretsRequested = boolPtr(false)
-		prepared.WarmPlans = append(prepared.WarmPlans, plan.Plan)
-	}
+	prepared.WarmPlans = executions[:len(warm)]
+	prepared.Plans = executions[len(warm):]
 	return prepared, nil
 }

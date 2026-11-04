@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -247,6 +248,128 @@ func TestWorkflowImportBlocksPNPMActionDependencyInstallation(t *testing.T) {
 			_, err := validateSetupImport(candidates[0])
 			if (err != nil) != tc.unsupported || tc.unsupported && !strings.Contains(err.Error(), "run_install") {
 				t.Fatalf("dependency installation was not disclosed: candidates=%+v err=%v", candidates, err)
+			}
+		})
+	}
+}
+
+func TestWorkflowImportSkipsCoverageUploads(t *testing.T) {
+	repo := t.TempDir()
+	workflow := "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n" +
+		"      - uses: actions/checkout@v4\n" +
+		"      - run: go test ./...\n" +
+		"      - uses: codecov/codecov-action@v5\n        env:\n          CODECOV_ENV: x\n        with:\n          token: ${{ secrets.CODECOV_TOKEN }}\n          files: ./coverage.out\n" +
+		"      - uses: coverallsapp/github-action@v2\n        if: always()\n        with:\n          github-token: ${{ secrets.GITHUB_TOKEN }}\n"
+	writeFileForRepoMapTest(t, filepath.Join(repo, ".github", "workflows", "ci.yml"), workflow)
+	candidates := setupImportCandidates(repo, "github-actions")
+	if len(candidates) != 1 {
+		t.Fatalf("candidates=%+v", candidates)
+	}
+	candidate := candidates[0]
+	if _, err := validateSetupImport(candidate); err != nil || len(candidate.AutomaticUnsupported) != 0 {
+		t.Fatalf("coverage uploads blocked the import: candidate=%+v err=%v", candidate, err)
+	}
+	if len(candidate.RunSteps) != 1 || candidate.RunSteps[0].Command != "go test ./..." {
+		t.Fatalf("coverage uploads changed the imported steps: %+v", candidate.RunSteps)
+	}
+	requirements := strings.Join(candidate.Requirements, "\n")
+	for _, action := range []string{"codecov/codecov-action", "coverallsapp/github-action"} {
+		if !strings.Contains(requirements, "("+action+") uploads coverage") {
+			t.Fatalf("skipped %s upload was not disclosed: %q", action, requirements)
+		}
+	}
+}
+
+func TestWorkflowImportTranslatesCorepackEnable(t *testing.T) {
+	for _, tc := range []struct {
+		name, step, unsupported string
+		steps                   int
+	}{
+		{name: "alone", step: "corepack enable", steps: 1},
+		{name: "named managers", step: "corepack enable pnpm yarn", steps: 1},
+		{name: "combined", step: "corepack enable && pnpm install", steps: 2, unsupported: "corepack enable combined with other commands"},
+		{name: "other corepack command", step: "corepack prepare pnpm@10 --activate", steps: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			workflow := "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: " + tc.step + "\n      - run: pnpm vitest\n"
+			writeFileForRepoMapTest(t, filepath.Join(repo, ".github", "workflows", "ci.yml"), workflow)
+			candidates := setupImportCandidates(repo, "github-actions")
+			if len(candidates) != 1 {
+				t.Fatalf("candidates=%+v", candidates)
+			}
+			candidate := candidates[0]
+			if len(candidate.RunSteps) != tc.steps {
+				t.Fatalf("run steps=%+v, want %d", candidate.RunSteps, tc.steps)
+			}
+			_, err := validateSetupImport(candidate)
+			if tc.unsupported != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.unsupported) {
+					t.Fatalf("combined corepack enable was not disclosed: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("candidate=%+v err=%v", candidate, err)
+			}
+			if tc.steps == 1 && !strings.Contains(strings.Join(candidate.Requirements, "\n"), "corepack enable is not executed") {
+				t.Fatalf("skipped corepack enable was not disclosed: %+v", candidate.Requirements)
+			}
+		})
+	}
+}
+
+func TestWorkflowImportTranslatesSetupJup(t *testing.T) {
+	for _, tc := range []struct {
+		name, with, lockfile, prepare, unsupported string
+		noPackage                                  bool
+	}{
+		{name: "pnpm", lockfile: "pnpm-lock.yaml", prepare: "pnpm install --frozen-lockfile"},
+		{name: "npm", lockfile: "package-lock.json", prepare: "npm ci"},
+		{name: "yarn", lockfile: "yarn.lock", prepare: nodeYarnFrozenInstall},
+		{name: "reviewed inputs", with: "          install: true\n          working-directory: .\n          package-managers: pnpm\n          cache: false\n", lockfile: "pnpm-lock.yaml", prepare: "pnpm install --frozen-lockfile"},
+		{name: "no install", with: "          install: false\n", lockfile: "pnpm-lock.yaml"},
+		{name: "install arguments", with: "          install: --prod\n", lockfile: "pnpm-lock.yaml", unsupported: "input install"},
+		{name: "node selector", with: "          node-version: 22\n", lockfile: "pnpm-lock.yaml", prepare: "pnpm install --frozen-lockfile", unsupported: "input node-version"},
+		{name: "other directory", with: "          working-directory: web\n", lockfile: "pnpm-lock.yaml", prepare: "pnpm install --frozen-lockfile", unsupported: "input working-directory"},
+		{name: "no package", noPackage: true, unsupported: "requires a root package.json"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := t.TempDir()
+			with := ""
+			if tc.with != "" {
+				with = "        with:\n" + tc.with
+			}
+			workflow := "jobs:\n  tests:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: unjs/setup-jup@v1\n" + with + "      - run: pnpm build\n      - run: pnpm vitest --coverage\n"
+			writeFileForRepoMapTest(t, filepath.Join(repo, ".github", "workflows", "ci.yml"), workflow)
+			if !tc.noPackage {
+				writeFileForRepoMapTest(t, filepath.Join(repo, "package.json"), `{"scripts":{"build":"obuild"},"devDependencies":{"vitest":"4.0.0"}}`)
+				writeFileForRepoMapTest(t, filepath.Join(repo, tc.lockfile), "")
+			}
+			candidates := setupImportCandidates(repo, "github-actions")
+			if len(candidates) != 1 {
+				t.Fatalf("candidates=%+v", candidates)
+			}
+			candidate := candidates[0]
+			if got := strings.Join(candidate.Prepare, "\n"); got != tc.prepare {
+				t.Fatalf("prepare=%q want %q", got, tc.prepare)
+			}
+			_, err := validateSetupImport(candidate)
+			if tc.unsupported != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.unsupported) {
+					t.Fatalf("untranslated setup-jup use was not disclosed: candidate=%+v err=%v", candidate, err)
+				}
+				return
+			}
+			if err != nil || len(candidate.AutomaticUnsupported) != 0 || !containsString(candidate.Runtimes, "node") {
+				t.Fatalf("setup-jup was not translated: candidate=%+v err=%v", candidate, err)
+			}
+			template := setupImportedTemplateForRoot(repo, setupOptions{}, "p", candidate)
+			if tc.prepare != "" && !strings.Contains(template, "    prepare:\n      - "+strconv.Quote(tc.prepare)+"\n") {
+				t.Fatalf("template does not prepare dependencies:\n%s", template)
+			}
+			if tc.prepare == "" && strings.Contains(template, "prepare:") {
+				t.Fatalf("install: false still prepares dependencies:\n%s", template)
 			}
 		})
 	}

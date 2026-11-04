@@ -36,7 +36,12 @@ func BuildWithOptions(ctx context.Context, cwd string, writer io.Writer, options
 	if err != nil {
 		return BuildResult{}, err
 	}
+	views, err := plannedSourceViews(planned, manifest, options.SealSourceViews)
+	if err != nil {
+		return BuildResult{}, err
+	}
 	return BuildResult{
+		SourceViews:      views,
 		Root:             planned.root,
 		Manifest:         manifest,
 		IncludeUntracked: planned.includeUntracked,

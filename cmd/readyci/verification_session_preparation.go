@@ -221,7 +221,7 @@ func prepareVerificationSession(ctx context.Context, options verificationSession
 	for _, selected := range warmSelected {
 		prepared.WarmPlans = append(prepared.WarmPlans, selected.Plan)
 	}
-	prepared.BuildOptions, err = compatibleAffectedSessionBuildOptions(
+	prepared.BuildOptions, err = registeredAffectedSessionBuildOptions(
 		append(warmSelected, affectedCheckPlan{Plan: plan}), prepared.BuildOptions,
 	)
 	if err != nil {

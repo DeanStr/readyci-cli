@@ -120,6 +120,42 @@ func SourcePolicyScopeKey(binding SourcePolicyBinding) string {
 	return hex.EncodeToString(digest[:])
 }
 
+const requestedSourcePolicyDomain = "readyci.requested_source_scopes.v1\x00"
+
+// RequestedSourcePolicyDigest names a requested execution scope set by its
+// canonical members. It is domain-separated from registered policy revisions,
+// is recomputed by the service, and grants no verification authority.
+func RequestedSourcePolicyDigest(scopes []SourcePolicyBinding) (string, error) {
+	placeholder := "sha256:" + strings.Repeat("0", 64)
+	set := make(map[string]SourcePolicyBinding, len(scopes))
+	for _, scope := range scopes {
+		if len(scope.Scopes) > 0 || scope.ProjectIgnoreUsed {
+			return "", fmt.Errorf("requested source scopes must be explicit filters without nesting or project ignore")
+		}
+		scope.Digest = placeholder
+		normalized, err := NormalizeSourcePolicyBinding(scope)
+		if err != nil {
+			return "", err
+		}
+		set[SourcePolicyScopeKey(normalized)] = normalized
+	}
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	members := make([]SourcePolicyBinding, 0, len(keys))
+	for _, key := range keys {
+		members = append(members, set[key])
+	}
+	encoded, err := json.Marshal(members)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(append([]byte(requestedSourcePolicyDomain), encoded...))
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 func normalizeSourceScopeSet(binding SourcePolicyBinding) (SourcePolicyBinding, error) {
 	if len(binding.Scopes) > 256 || binding.ProjectIgnoreUsed {
 		return SourcePolicyBinding{}, fmt.Errorf("source scope set requires at most 256 scopes and no project ignore")
@@ -137,7 +173,7 @@ func normalizeSourceScopeSet(binding SourcePolicyBinding) (SourcePolicyBinding, 
 			return SourcePolicyBinding{}, err
 		}
 		if normalized.Digest != strings.TrimSpace(binding.Digest) || normalized.ProjectIgnoreUsed {
-			return SourcePolicyBinding{}, fmt.Errorf("source scopes must bind the same registered policy without project ignore")
+			return SourcePolicyBinding{}, fmt.Errorf("source scopes must bind the same declared policy without implicit project ignore")
 		}
 		set[SourcePolicyScopeKey(normalized)] = normalized
 	}

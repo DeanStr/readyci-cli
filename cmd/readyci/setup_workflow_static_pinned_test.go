@@ -50,8 +50,8 @@ func TestWorkflowStaticPinnedFlaskExpressionsKeepOtherPrerequisites(t *testing.T
 			linux++
 		}
 		report := scanWorkflowJob(t.TempDir(), variant.Workflow, "tests", variant.Job)
-		if !strings.Contains(strings.Join(report.Unsupported, ";"), "astral-sh/setup-uv") || !strings.Contains(strings.Join(report.Unsupported, ";"), "allow-prereleases") {
-			t.Fatalf("static expressions erased independent action prerequisites: %v", report.Unsupported)
+		if !strings.Contains(strings.Join(report.Unsupported, ";"), "allow-prereleases") || !strings.Contains(strings.Join(report.Requirements, ";"), "astral-sh/setup-uv is satisfied by the runner image's uv") {
+			t.Fatalf("static expressions erased independent action prerequisites: unsupported=%v requirements=%v", report.Unsupported, report.Requirements)
 		}
 		if len(report.RunSteps) != 1 || report.RunSteps[0].Command != "uv run --locked --no-default-groups --group dev tox run" || strings.Contains(report.RunSteps[0].Env["TOX_ENV"], "${{") {
 			t.Fatalf("selected upstream command or static tox environment was lost: %+v", report.RunSteps)

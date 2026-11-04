@@ -48,7 +48,7 @@ func TestWorkflowMatrixPinnedOverlayCohort(t *testing.T) {
 		"caddyserver/caddy": "step-security/harden-runner",
 		"fastapi/fastapi":   "astral-sh/setup-uv",
 		"gin-gonic/gin":     "job dependencies and outputs",
-		"google/guava":      "actions/setup-java",
+		"google/guava":      "step conditions or continue-on-error require manual translation",
 	}
 	seenRepositories := map[string]bool{}
 	for _, fixture := range fixtures {

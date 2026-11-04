@@ -116,7 +116,7 @@ func sourceIgnoreMatcher(root string, options BuildOptions) (ignoreMatcher, bool
 	}
 	if len(options.SourceScopes) > 0 {
 		if options.SourcePolicyDigest == "" || options.UseProjectIgnore == nil || *options.UseProjectIgnore {
-			return ignoreMatcher{}, false, fmt.Errorf("source scopes require a registered policy without project ignore")
+			return ignoreMatcher{}, false, fmt.Errorf("source scopes require an explicit policy digest without implicit project ignore")
 		}
 		binding, err := syncbundle.NormalizeSourcePolicyBinding(syncbundle.SourcePolicyBinding{Digest: options.SourcePolicyDigest, Scopes: options.SourceScopes})
 		if err != nil {

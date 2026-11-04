@@ -10,7 +10,7 @@ import (
 
 func setupSupportedRuntimeAction(action string) bool {
 	switch action {
-	case "actions/setup-go", "actions/setup-node", "actions/setup-python", "pnpm/action-setup":
+	case "actions/setup-go", "actions/setup-node", "actions/setup-python", "actions/setup-java", "pnpm/action-setup":
 		return true
 	default:
 		return false
@@ -61,6 +61,8 @@ func setupWorkflowRuntimeRequirements(root string, job repoWorkflowJobYAML, runt
 			runtime, versionKey, fileKey = "node", "node-version", "node-version-file"
 		case "actions/setup-python":
 			runtime, versionKey, fileKey = "python", "python-version", "python-version-file"
+		case "actions/setup-java":
+			runtime, versionKey, fileKey = "java", "java-version", "java-version-file"
 		case "pnpm/action-setup":
 			runtime, versionKey = "pnpm", "version"
 		}
@@ -168,7 +170,7 @@ func setupLiteralActionInput(value any) (string, bool) {
 func setupWorkflowRuntimeVersionFile(root, runtime, path string) (string, bool) {
 	allowed := map[string]map[string]bool{
 		"go": {"go.mod": true}, "node": {".nvmrc": true, ".node-version": true, "package.json": true},
-		"python": {".python-version": true}, "pnpm": {"package.json": true},
+		"python": {".python-version": true}, "java": {".java-version": true}, "pnpm": {"package.json": true},
 	}
 	if !allowed[runtime][path] {
 		return "", false

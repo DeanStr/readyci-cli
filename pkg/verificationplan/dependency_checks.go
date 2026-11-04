@@ -1,7 +1,6 @@
 package verificationplan
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,51 +9,19 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
-// A component installer cannot silently broaden or narrow its consumer's
-// uploaded source. Independent components may use different sealed sessions.
+// Preparation and consumption may declare different views of one canonical
+// snapshot. Change selection still belongs to the session, not to each view.
 func ValidateDependencySourceScope(warm, target CheckPlan) error {
-	key := func(run RunSpec) (string, error) {
-		changes, err := syncbundle.NormalizeChangeMode(run.ChangeMode)
-		if err != nil {
-			return "", err
-		}
-		exclude := append([]string{}, run.SyncExclude...)
-		sort.Strings(exclude)
-		var canonical []string
-		for _, pattern := range exclude {
-			if len(canonical) == 0 || canonical[len(canonical)-1] != pattern {
-				canonical = append(canonical, pattern)
-			}
-		}
-		include := true
-		if run.IncludeUntracked != nil {
-			include = *run.IncludeUntracked
-		}
-		if changes == syncbundle.ChangeModeStaged {
-			include = false
-		}
-		fixtures, err := syncbundle.NormalizeReviewedFixtures(run.SyncReviewedFixtures)
-		if err != nil {
-			return "", err
-		}
-		encoded, _ := json.Marshal(struct {
-			Changes  string
-			Exclude  []string
-			Include  bool
-			Fixtures []syncbundle.ReviewedFixture
-		}{changes, canonical, include, fixtures})
-		return string(encoded), nil
-	}
-	warmKey, err := key(warm.Run)
+	warmMode, err := syncbundle.NormalizeChangeMode(warm.Run.ChangeMode)
 	if err != nil {
 		return err
 	}
-	targetKey, err := key(target.Run)
+	targetMode, err := syncbundle.NormalizeChangeMode(target.Run.ChangeMode)
 	if err != nil {
 		return err
 	}
-	if warmKey != targetKey {
-		return fmt.Errorf("dependency check %q and consumer %q require different sync.exclude, reviewed_fixtures, or include_untracked settings (or change mode); configure matching source settings for this installer and its consumer", warm.Name, target.Name)
+	if warmMode != targetMode {
+		return fmt.Errorf("dependency check %q and consumer %q require different change modes; one session must use one exact workspace", warm.Name, target.Name)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type checkResolveOptions struct {
@@ -33,6 +34,7 @@ type checkResolveOptions struct {
 }
 
 type checkRunPlan struct {
+	SourcePolicy          *syncbundle.SourcePolicyBinding
 	DependencyWarmTargets []string
 	SkipWarm              bool
 	RetryProvided         bool

@@ -50,7 +50,7 @@ func setupPythonDependencyReview(root string, tests, preparation []string, depen
 		}
 	}
 	for _, command := range tests {
-		if setupCommandHasPythonInstall(command) {
+		if setupCommandHasPythonInstall(root, command) {
 			return nil
 		}
 	}
@@ -124,9 +124,13 @@ func setupExecutableRuntimes(executable string) []string {
 	}
 }
 
-func setupCommandHasPythonInstall(command string) bool {
+func setupCommandHasPythonInstall(root, command string) bool {
 	for _, call := range setupExpandedShellCommands(command) {
-		args := executableShellCommandFromCommand(call).Args
+		executable := executableShellCommandFromCommand(call)
+		if setupUVRunSyncsProject(root, executable) {
+			return true
+		}
+		args := executable.Args
 		if len(args) < 2 || args[0].Dynamic {
 			continue
 		}
@@ -138,6 +142,22 @@ func setupCommandHasPythonInstall(command string) bool {
 		}
 	}
 	return false
+}
+
+// uv run syncs the nearest pyproject.toml at or above its working directory,
+// which is the repository's own dependency installation.
+func setupUVRunSyncsProject(root string, executable executableShellCommand) bool {
+	if !executable.UVProjectSync || executable.DirDynamic {
+		return false
+	}
+	for directory := filepath.Clean(defaultString(executable.Dir, ".")); ; directory = filepath.Dir(directory) {
+		if importManifestExists(root, directory, "pyproject.toml") {
+			return true
+		}
+		if directory == "." {
+			return false
+		}
+	}
 }
 
 func setupReadRepositoryFile(root, path string) ([]byte, bool) {

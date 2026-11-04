@@ -398,6 +398,9 @@ func packageManagerName(value string) string {
 	}
 }
 
+// nodeYarnFrozenInstall installs from the lockfile with Yarn Classic or Berry.
+const nodeYarnFrozenInstall = "if yarn --version | grep -q '^1\\.'; then yarn install --frozen-lockfile; else yarn install --immutable; fi"
+
 func nodePackageCheckCommand(pkg detectedNodePackage) string {
 	manager := pkg.Manager
 	if manager == "" {
@@ -422,7 +425,7 @@ func nodePackageCheckCommand(pkg detectedNodePackage) string {
 	case "yarn":
 		install := "yarn install"
 		if pkg.LockfileRel != "" {
-			install = "if yarn --version | grep -q '^1\\.'; then yarn install --frozen-lockfile; else yarn install --immutable; fi"
+			install = nodeYarnFrozenInstall
 		}
 		if pkg.LockfileDir != "" && !sameFilepath(pkg.LockfileDir, pkg.Dir) {
 			return withWorkingDir(pkg.LockfileDirRel, install+" && yarn --cwd "+shellQuoteArg(packageRelFromLockfile)+" run "+shellQuoteArg(pkg.ScriptName))

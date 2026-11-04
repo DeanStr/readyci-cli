@@ -132,8 +132,9 @@ type VerificationNodePlan struct {
 	Run              CreateRunRequest        `json:"run"`
 }
 
-// VerificationNodeSource binds one server-derived view to the enclosing
-// session snapshot through the immutable plan digest.
+// VerificationNodeSource binds one independently validated view to the parent
+// session snapshot through the immutable plan digest. Source validity never
+// grants authority to a caller-proposed test selection.
 type VerificationNodeSource struct {
 	BaselineKey    string                         `json:"baseline_key,omitempty"`
 	SnapshotDigest string                         `json:"snapshot_digest"`
@@ -530,8 +531,14 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 	req.Recipe.Source.SourcePolicyDigest = strings.TrimSpace(req.Recipe.Source.SourcePolicyDigest)
 	if len(req.Recipe.Source.SourceScopes) > 0 {
 		binding, scopeErr := syncbundle.NormalizeSourcePolicyBinding(syncbundle.SourcePolicyBinding{Digest: req.Recipe.Source.SourcePolicyDigest, Scopes: req.Recipe.Source.SourceScopes})
-		if scopeErr != nil || len(binding.Scopes) < 2 || req.Recipe.Source.UseProjectIgnore || req.Recipe.Purpose == ExecutionPurpose {
-			return req, fmt.Errorf("recipe source_scopes require a registered verification policy without project ignore")
+		if scopeErr != nil || len(binding.Scopes) < 2 || req.Recipe.Source.UseProjectIgnore || req.Recipe.Source.UploadBaselineSessionID != "" {
+			return req, fmt.Errorf("recipe source_scopes require distinct explicit filters, no project ignore and a complete upload")
+		}
+		if req.Recipe.Purpose == ExecutionPurpose {
+			// A requested scope set names itself; it can never pose as a registered policy revision.
+			if digest, digestErr := syncbundle.RequestedSourcePolicyDigest(binding.Scopes); digestErr != nil || digest != binding.Digest {
+				return req, fmt.Errorf("execution recipe source_policy_digest must name its requested source scopes")
+			}
 		}
 		req.Recipe.Source.SourceScopes = binding.Scopes
 	}
@@ -617,6 +624,15 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 	}
 	if err := normalizeVerificationPlan(&req.Plan, req.ProjectID); err != nil {
 		return req, err
+	}
+	for _, node := range req.Plan.Nodes {
+		requestedViews := req.Recipe.Purpose == ExecutionPurpose && len(req.Recipe.Source.SourceScopes) > 0
+		if node.Source != nil && req.Plan.Authority != VerificationPlanAuthorityServer && !requestedViews {
+			return req, fmt.Errorf("verification node %q source must be service-authorized or part of a scoped execution recipe", node.ID)
+		}
+		if requestedViews && node.Source == nil {
+			return req, fmt.Errorf("execution node %q requires a sealed source view", node.ID)
+		}
 	}
 	digest, err := VerificationPlanDigest(req.Plan)
 	if err != nil {
@@ -731,15 +747,12 @@ func normalizeVerificationPlan(plan *VerificationPlan, projectID string) error {
 		}
 		node.Retry.RetryableClassifications = normalizedStrings(node.Retry.RetryableClassifications)
 		if node.Source != nil {
-			if plan.Authority != VerificationPlanAuthorityServer {
-				return fmt.Errorf("verification node %q source must be service-authorized", node.ID)
-			}
 			if err := syncbundle.ValidateSnapshotDigest(node.Source.SnapshotDigest); err != nil {
 				return fmt.Errorf("verification node %q source: %w", node.ID, err)
 			}
 			policy, err := syncbundle.NormalizeSourcePolicyBinding(node.Source.Policy)
 			if err != nil || len(policy.Scopes) != 0 || policy.ProjectIgnoreUsed {
-				return fmt.Errorf("verification node %q requires one registered source scope", node.ID)
+				return fmt.Errorf("verification node %q requires one explicit source scope", node.ID)
 			}
 			changed, err := normalizedPaths(node.Source.ChangedFiles)
 			if err != nil {

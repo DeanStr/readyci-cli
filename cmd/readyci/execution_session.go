@@ -64,16 +64,14 @@ func executeSessionPlans(plans, warm []checkRunPlan, token string, jsonOutput bo
 		first = firstPlan.Options
 	}
 	requestSecrets := false
-	selected := make([]affectedCheckPlan, 0, len(all))
 	for i := range all {
 		if i < len(warm) || all[i].Options.SecretsRequested == nil {
 			all[i].Options.SecretsRequested = boolPtr(false)
 		}
 		requestSecrets = requestSecrets || *all[i].Options.SecretsRequested
-		selected = append(selected, affectedCheckPlan{Plan: all[i]})
 	}
-	// Snapshot packaging is one shared contract across every node.
-	build, err := compatibleAffectedSessionBuildOptions(selected, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
+	// Different node views are projections of one canonical uploaded snapshot.
+	build, err := executionSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: first.ChangeMode, ExcludePatterns: first.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), first.SyncReviewedFixtures...), IncludeUntracked: first.IncludeUntracked})
 	if err != nil {
 		return cliConfigError(err.Error(), err)
 	}

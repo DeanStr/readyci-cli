@@ -226,7 +226,10 @@ func inferRepoImportCandidates(report repoMapReport) []repoImportCandidate {
 				ParentJobID:          job.ParentJobID,
 				ScopeUnknown:         job.ScopeUnknown,
 				Matrix:               job.Matrix,
+				MatrixIndex:          job.MatrixIndex,
+				ScheduledOnly:        job.ScheduledOnly,
 				RunSteps:             append([]repoWorkflowRunStep(nil), job.RunSteps...),
+				Prepare:              append([]string(nil), job.Prepare...),
 				Timeout:              job.Timeout,
 				Source:               "github-actions",
 				Name:                 job.Name,
@@ -313,11 +316,45 @@ func isOperationalWorkflowJob(workflow repoWorkflowMap, job repoWorkflowJob) boo
 			return true
 		}
 	}
+	for _, command := range job.Commands {
+		if setupCommandPublishesBuildArtifacts(command) {
+			return true
+		}
+	}
 	if hasSeparatedMarker(namePath, "release") && strings.Contains(commands, "gh release") {
 		return true
 	}
 	if hasSeparatedMarker(namePath, "release") && shellCommandLooksLikeReleaseOperation(commands) {
 		return true
+	}
+	return false
+}
+
+// Maven deploy goals and Gradle publish tasks upload artifacts to a remote
+// repository. publishToMavenLocal only writes the local Maven repository.
+func setupCommandPublishesBuildArtifacts(command string) bool {
+	for _, parsed := range shellCommandsFromCommand(command) {
+		args := executableShellCommandFromCommand(parsed).Args
+		if len(args) == 0 || args[0].Dynamic {
+			continue
+		}
+		name := filepath.Base(normalizeCommandInvocationToken(args[0].Text))
+		for _, word := range args[1:] {
+			if word.Dynamic || strings.HasPrefix(word.Text, "-") {
+				continue
+			}
+			switch name {
+			case "mvn", "mvnw":
+				if word.Text == "deploy" || strings.HasPrefix(word.Text, "deploy:") {
+					return true
+				}
+			case "gradle", "gradlew":
+				task := word.Text[strings.LastIndex(word.Text, ":")+1:]
+				if strings.HasPrefix(task, "publish") && !strings.HasSuffix(task, "ToMavenLocal") {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }

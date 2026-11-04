@@ -99,32 +99,36 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		if err != nil {
 			return agentPlanReport{}, err
 		}
-		if _, err := explicitDependencyWarmSessionBuildOptions(warmPlans, targets, syncbundlebuild.BuildOptions{
+		build, err := explicitDependencyWarmSessionBuildOptions(warmPlans, targets, syncbundlebuild.BuildOptions{
 			ChangeMode:      plan.Options.ChangeMode,
 			ExcludePatterns: append([]string(nil), plan.Options.SyncExclude...), ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...),
 			IncludeUntracked: plan.Options.IncludeUntracked,
-		}); err != nil {
+		})
+		if err != nil {
 			return agentPlanReport{}, err
 		}
 		recommendation.Reason = "Explicit dependency warm check requested."
 		for index := range warmPlans {
 			applyAgentRemoteRunOptionsForIntent(intent, false, &warmPlans[index].Options)
 		}
-		return explicitDependencyWarmAgentPlanReport(
+		report := explicitDependencyWarmAgentPlanReport(
 			cfg, path, loaded, recommendation, warmPlans, goal, intent, intentFlag, changes,
-		), nil
+		)
+		report.Warnings = append(report.Warnings, agentSourceViewWarnings(build)...)
+		return report, nil
 	}
 	applyAgentRemoteRunOptionsForIntent(intent, requestSecrets, &plan.Options)
 	warmPlans, err := agentDependencyWarmPlansForAffected(".", []affectedCheckPlan{{Plan: plan}}, cfg, resolveOptions, intent)
 	if err != nil {
 		return agentPlanReport{}, err
 	}
-	if _, err := compatibleAffectedSessionBuildOptions(append(warmPlans, affectedCheckPlan{Plan: plan}), syncbundlebuild.BuildOptions{
+	build, err := registeredAffectedSessionBuildOptions(append(warmPlans, affectedCheckPlan{Plan: plan}), syncbundlebuild.BuildOptions{
 		ChangeMode: plan.Options.ChangeMode, ExcludePatterns: plan.Options.SyncExclude, ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), plan.Options.SyncReviewedFixtures...), IncludeUntracked: plan.Options.IncludeUntracked,
-	}); err != nil {
+	})
+	if err != nil {
 		return agentPlanReport{}, err
 	}
-	var warnings []agentWarning
+	warnings := agentSourceViewWarnings(build)
 	for _, warm := range warmPlans {
 		warnings = append(warnings, agentWarning{Section: "preparation", Message: "Automatic dependency preparation: " + warm.Plan.Name +
 			"; network_mode=" + warm.Plan.Options.NetworkMode + "; network_allowlist=" + strings.Join(warm.Plan.Options.NetworkAllowlist, ",") +
@@ -168,6 +172,17 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		Policy:        agentPolicyForPlanForIntent(plan.Options.ChangeMode, intent, requestSecrets, plan),
 		VerifyCommand: agentVerifyCommandForPlan(plan, intentFlag),
 	}, nil
+}
+
+// This preview cannot see the registered policy, so it reports what different
+// source views need instead of claiming readiness for readyci verify.
+func agentSourceViewWarnings(build syncbundlebuild.BuildOptions) []agentWarning {
+	if !build.RequireRegisteredScopes {
+		return nil
+	}
+	return []agentWarning{{Section: "source", Message: "The selected checks and their dependency installers use different source views. " +
+		"readyci check runs each view from one upload and reports checks_passed; readyci verify needs an active trusted verification policy " +
+		"that registers these views and otherwise stops before uploading source."}}
 }
 
 func explicitDependencyWarmAgentPlanReport(

@@ -105,7 +105,7 @@ func ConfigFieldMetadata() []ConfigField {
 		field(ScopeServiceHealth, "interval", "services.<name>.health.interval", "Health-check polling interval.", ""),
 
 		field(ScopeCheck, "command", "checks.<name>.command", "Shell command for a check.", ""),
-		field(ScopeCheck, "dependency_check", "checks.<name>.dependency_check", "Named dependency installer run without secrets before this check, using network.warm_mode and the same sealed workspace and cache lane.", "dependencies when defined"),
+		field(ScopeCheck, "dependency_check", "checks.<name>.dependency_check", "Named dependency installer run without secrets before this check, using network.warm_mode, a declared view of the same sealed snapshot and the successful preparation cache lane.", "dependencies when defined"),
 		field(ScopeCheck, "steps", "checks.<name>.steps", "Ordered step definitions for a check.", ""),
 		field(ScopeCheck, "environment_requirements", "checks.<name>.environment_requirements", "Required guest capabilities combined with project requirements and enforced by the service and runner.", ""),
 		field(ScopeCheck, "runtime_requirements", "checks.<name>.runtime_requirements", "Runtime version constraints and supported pnpm integrity pins enforced by the service and runner.", ""),

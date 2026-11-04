@@ -110,6 +110,14 @@ func setupWorkflowStaticJob(workflow repoWorkflowYAML, job repoWorkflowJobYAML, 
 		// Invalid syntax is a workflow error even when the condition is false.
 		// Conditional omission only removes a well-formed upstream step.
 		job.Problems = append(job.Problems, step.Problems...)
+		if action, _, _ := strings.Cut(step.Uses, "@"); setupCoverageUploadAction(action) {
+			// A coverage upload reports results after the commands ran; it
+			// cannot change what they verify. Its inputs (typically a secret
+			// token) are neither evaluated nor imported.
+			job.StaticRequirements = append(job.StaticRequirements, fmt.Sprintf("Upstream step %d (%s) uploads coverage to an external service; Ready CI does not execute it or read its inputs.", index+1, action))
+			context["env"] = map[string]any{}
+			continue
+		}
 		step.Env = resolveMap(step.Env, context)
 		stepContext := make(map[string]map[string]any, len(context))
 		for key, value := range context {
@@ -155,6 +163,17 @@ func setupWorkflowStaticJob(workflow repoWorkflowYAML, job repoWorkflowJobYAML, 
 	}
 	job.Problems = uniqueStrings(job.Problems)
 	return workflow, job
+}
+
+// setupCoverageUploadAction reports actions that only upload coverage reports
+// to an external service.
+func setupCoverageUploadAction(action string) bool {
+	switch action {
+	case "codecov/codecov-action", "coverallsapp/github-action":
+		return true
+	default:
+		return false
+	}
 }
 
 func setupWorkflowEnvironmentContext(environment map[string]any) map[string]any {

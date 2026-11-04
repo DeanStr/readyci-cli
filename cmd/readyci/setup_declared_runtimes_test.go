@@ -91,7 +91,7 @@ func TestSetupRuntimeDeclarationCommentsAndUnrelatedUnsafeMetadata(t *testing.T)
 	}
 }
 func TestSetupSelectedUnsupportedRuntimeDeclarationsDoNotDisappear(t *testing.T) {
-	for _, test := range []struct{ command, path, value string }{{"bundle exec rake test", ".ruby-version", "3.4.0\n"}, {"mvn test", ".java-version", "21.0.0\n"}, {"dotnet test", "global.json", `{"sdk":{"version":"9.0.100"}}`}} {
+	for _, test := range []struct{ command, path, value string }{{"bundle exec rake test", ".ruby-version", "3.4.0\n"}, {"dotnet test", "global.json", `{"sdk":{"version":"9.0.100"}}`}} {
 		root := t.TempDir()
 		writeFileForRepoMapTest(t, filepath.Join(root, test.path), test.value)
 		requirements, notes := setupDeclaredRuntimeRequirements(root, []string{test.command})
@@ -156,5 +156,16 @@ func TestSetupGoVersionFilePreservesExactToolchainAlongsideModuleMinimum(t *test
 	}
 	if !preflightapi.RuntimeVersionSatisfies("1.27.2", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.27.3", requirements["go"]) || preflightapi.RuntimeVersionSatisfies("1.27.1", requirements["go"]) {
 		t.Fatalf("exact .go-version constraint disappeared %v", requirements)
+	}
+}
+
+func TestSetupJavaVersionDeclarationIsARuntimeRequirement(t *testing.T) {
+	root := t.TempDir()
+	writeFileForRepoMapTest(t, filepath.Join(root, ".java-version"), "21\n")
+	if requirements, notes := setupDeclaredRuntimeRequirements(root, []string{"./mvnw -B verify"}); len(notes) != 0 || requirements["java"] != "21" {
+		t.Fatalf(".java-version was not applied to a Maven command: %v %v", requirements, notes)
+	}
+	if requirements, notes := setupDeclaredRuntimeRequirements(t.TempDir(), []string{"gradle test"}); len(notes) != 0 || requirements["java"] != "installed" {
+		t.Fatalf("a Gradle command without a declaration did not require the installed Java: %v %v", requirements, notes)
 	}
 }

@@ -53,3 +53,27 @@ func sortPlanned(entries []plannedEntry) {
 		return entries[i].entry.Path < entries[j].entry.Path
 	})
 }
+
+func plannedSourceViews(planned plannedBundle, manifest syncbundle.Manifest, seal bool) (map[string]syncbundle.Manifest, error) {
+	if !seal || manifest.SourcePolicy == nil || len(manifest.SourcePolicy.Scopes) == 0 {
+		return nil, nil
+	}
+	files := make(map[string]syncbundle.BundleFile, len(planned.baseline)+len(planned.workspace))
+	for _, group := range []struct {
+		name    string
+		entries []plannedEntry
+	}{{"baseline", planned.baseline}, {"workspace", planned.workspace}} {
+		for _, entry := range group.entries {
+			files[group.name+"/"+entry.entry.Path] = syncbundle.BundleFile{Data: entry.data}
+		}
+	}
+	views := make(map[string]syncbundle.Manifest, len(manifest.SourcePolicy.Scopes))
+	for _, policy := range manifest.SourcePolicy.Scopes {
+		view, err := syncbundle.ProjectSource(manifest, files, policy)
+		if err != nil {
+			return nil, err
+		}
+		views[syncbundle.SourcePolicyScopeKey(policy)] = view.Manifest
+	}
+	return views, nil
+}

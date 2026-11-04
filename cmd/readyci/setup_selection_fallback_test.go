@@ -44,11 +44,12 @@ func TestSetupSelectionKeepsFirstRunCheckForCommonWorkflowShapes(t *testing.T) {
 			notImported: []string{"github-actions:.github/workflows/ci.yml:test"},
 		},
 		{
-			name:        "coverage upload action",
-			workflow:    "jobs:\n  test:\n" + goTest + "      - uses: codecov/codecov-action@v4\n",
-			check:       "go",
-			command:     "go test ./...",
-			notImported: []string{"github-actions:.github/workflows/ci.yml:test"},
+			// A coverage upload cannot change what the job verifies.
+			name:     "coverage upload action",
+			workflow: "jobs:\n  test:\n" + goTest + "      - uses: codecov/codecov-action@v4\n        with:\n          token: ${{ secrets.CODECOV_TOKEN }}\n",
+			check:    "test",
+			command:  "bash -e -c 'go test ./...'",
+			selected: "github-actions:.github/workflows/ci.yml:test",
 		},
 		{
 			name:        "separate unit and e2e jobs",

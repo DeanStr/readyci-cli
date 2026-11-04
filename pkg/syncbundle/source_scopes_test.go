@@ -53,3 +53,34 @@ func TestSourceScopeSetCanonicalizationAndConfidentiality(t *testing.T) {
 		t.Fatalf("shared fixture = %+v, %v", shared, err)
 	}
 }
+
+func TestRequestedSourcePolicyDigestNamesOnlyTheCanonicalScopeSet(t *testing.T) {
+	web := SourcePolicyBinding{Digest: "sha256:" + strings.Repeat("a", 64), ExcludePatterns: []string{"server", "docs"}, IncludeUntracked: true}
+	server := SourcePolicyBinding{Digest: "sha256:" + strings.Repeat("b", 64), ExcludePatterns: []string{"web"}}
+	digest, err := RequestedSourcePolicyDigest([]SourcePolicyBinding{web, server})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateSnapshotDigest(digest); err != nil {
+		t.Fatal(err)
+	}
+	reordered := web
+	reordered.ExcludePatterns = []string{"docs", "server"}
+	same, err := RequestedSourcePolicyDigest([]SourcePolicyBinding{server, reordered, web})
+	if err != nil || same != digest {
+		t.Fatalf("member order, duplicates or caller digests changed the name: %q %v", same, err)
+	}
+	widened := web
+	widened.ExcludePatterns = []string{"server"}
+	if other, err := RequestedSourcePolicyDigest([]SourcePolicyBinding{widened, server}); err != nil || other == digest {
+		t.Fatalf("a different filter kept the same name: %q %v", other, err)
+	}
+	for name, scope := range map[string]SourcePolicyBinding{
+		"nested":         {Scopes: []SourcePolicyBinding{web}},
+		"project ignore": {ExcludePatterns: []string{"web"}, ProjectIgnoreUsed: true},
+	} {
+		if _, err := RequestedSourcePolicyDigest([]SourcePolicyBinding{web, scope}); err == nil {
+			t.Fatalf("%s scope was named", name)
+		}
+	}
+}

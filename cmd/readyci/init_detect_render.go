@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,7 +64,9 @@ artifacts:
 				}
 				cachePaths = append(cachePaths, "~/.cargo/registry", "~/.cargo/git")
 			case "python":
-				cachePaths = append(cachePaths, "~/.cache/pip")
+				cachePaths = append(cachePaths, "~/.cache/pip", "~/.cache/uv")
+			case "java":
+				cachePaths = append(cachePaths, "~/.m2/repository", "~/.gradle/caches", "~/.gradle/wrapper")
 			}
 		}
 	}
@@ -193,6 +196,8 @@ func detectedDependencyHosts(checks []detectedCheck) []string {
 				selected = append(selected, "index.crates.io", "static.crates.io", "static.rust-lang.org")
 			case "python":
 				selected = append(selected, "pypi.org", "files.pythonhosted.org")
+			case "java":
+				selected = append(selected, detectedJavaDependencyHosts(check)...)
 			}
 		}
 		for _, host := range selected {
@@ -210,4 +215,38 @@ func detectedCheckRuntimes(check detectedCheck) []string {
 		return check.Runtimes
 	}
 	return []string{check.Name}
+}
+
+// Java checks resolve dependencies from Maven Central. Gradle builds also use
+// the plugin portal, which redirects artifacts to plugins-artifacts.gradle.org,
+// and the Gradle wrapper downloads its distribution through services.gradle.org,
+// which redirects to GitHub release assets.
+func detectedJavaDependencyHosts(check detectedCheck) []string {
+	hosts := []string{"repo.maven.apache.org", "repo1.maven.org"}
+	commands := []string{check.Command}
+	for _, step := range check.Steps {
+		commands = append(commands, step.Command)
+	}
+	gradle, wrapper := false, false
+	for _, command := range commands {
+		for _, call := range setupExpandedShellCommands(command) {
+			args := executableShellCommandFromCommand(call).Args
+			if len(args) == 0 || args[0].Dynamic {
+				continue
+			}
+			switch filepath.Base(normalizeCommandInvocationToken(args[0].Text)) {
+			case "gradle":
+				gradle = true
+			case "gradlew":
+				gradle, wrapper = true, true
+			}
+		}
+	}
+	if gradle {
+		hosts = append(hosts, "plugins.gradle.org", "plugins-artifacts.gradle.org")
+	}
+	if wrapper {
+		hosts = append(hosts, "services.gradle.org", "github.com", "release-assets.githubusercontent.com")
+	}
+	return hosts
 }

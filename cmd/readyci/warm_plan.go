@@ -49,7 +49,6 @@ func prepareWarmChecks(ctx context.Context, names []string, cfg config.ProjectCo
 	if err != nil {
 		return prepared, cliConfigError(err.Error(), err)
 	}
-	var targets []checkRunPlan
 	// Profile names are alphabetic, but dependency preparation must precede
 	// every ordinary warm consumer, including checks named api or browser.
 	var uniqueNames []string
@@ -111,7 +110,6 @@ func prepareWarmChecks(ctx context.Context, names []string, cfg config.ProjectCo
 				return prepared, err
 			}
 			prepared.WarmPlans = append(prepared.WarmPlans, groups...)
-			targets = append(targets, consumers...)
 			continue
 		}
 		warm.Options.SecretsRequested = boolPtr(false)
@@ -125,6 +123,9 @@ func prepareWarmChecks(ctx context.Context, names []string, cfg config.ProjectCo
 			prepared.Plans = append(prepared.Plans, check)
 		}
 	}
-	prepared.BuildOptions, err = explicitDependencyWarmSessionBuildOptions(prepared.WarmPlans, append(targets, prepared.Plans...), syncbundlebuild.BuildOptions{ChangeMode: base.Changes})
+	all := append(append([]checkRunPlan{}, prepared.WarmPlans...), prepared.Plans...)
+	prepared.BuildOptions, err = executionSessionBuildOptions(all, syncbundlebuild.BuildOptions{ChangeMode: base.Changes})
+	prepared.WarmPlans = all[:len(prepared.WarmPlans)]
+	prepared.Plans = all[len(prepared.WarmPlans):]
 	return prepared, err
 }

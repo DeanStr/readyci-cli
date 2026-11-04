@@ -448,7 +448,7 @@ func TestVerificationNonAuthoritativeVerdictsUseDedicatedExitCode(t *testing.T) 
 	}
 }
 
-func TestExplicitDependencyWarmSourceConflictIsConfigInvalidForPlanAndVerify(t *testing.T) {
+func TestExplicitDependencyWarmDifferentSourceViewsRequireRegisteredVerification(t *testing.T) {
 	_ = chdirCLITestRepo(t, "")
 	if err := os.WriteFile(".readyci.yml", []byte(`version: 1
 project_id: proj_dev
@@ -484,23 +484,28 @@ checks:
 		t.Fatal(err)
 	}
 
-	assertConfigInvalid := func(label string, err error) {
-		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "different sync.exclude, reviewed_fixtures, or include_untracked") {
-			t.Fatalf("%s error = %v, want source-filter conflict", label, err)
+	for _, check := range []string{"dependencies", "unit"} {
+		report, err := buildAgentPlanReport("http://localhost", "proj_dev", check, "", agentIntentEditLoop, "", false)
+		if err != nil || report.Status != "ready" {
+			t.Fatalf("%s source preview = %+v, %v", check, report, err)
 		}
-		normalized := normalizeCLIError(err)
-		if normalized.Code != "config_invalid" || normalized.Classification != preflightapi.ClassificationConfigInvalid || normalized.ExitCode != cliExitUsageOrConfig {
-			t.Fatalf("%s normalized error = %+v, want config_invalid", label, normalized)
+		warned := false
+		for _, warning := range report.Warnings {
+			warned = warned || warning.Section == "source" && strings.Contains(warning.Message, "active trusted verification policy")
+		}
+		if !warned {
+			t.Fatalf("%s preview did not say readyci verify needs a registered policy: %+v", check, report.Warnings)
 		}
 	}
-
-	_, err := buildAgentPlanReport("http://localhost", "proj_dev", "dependencies", "", agentIntentEditLoop, "", false)
-	assertConfigInvalid("agent plan", err)
-	_, err = prepareVerificationSession(t.Context(), verificationSessionOptions{
-		APIURL: "http://localhost", ProjectID: "proj_dev", CheckName: "dependencies", RetryCount: -1,
+	prepared, err := prepareVerificationSession(t.Context(), verificationSessionOptions{
+		APIURL: "http://localhost", ProjectID: "proj_dev", CheckName: "dependencies",
 	}, agentIntentEditLoop)
-	assertConfigInvalid("verify preparation", err)
+	if err != nil || !prepared.BuildOptions.RequireRegisteredScopes {
+		t.Fatalf("different views were rejected or lost their authority requirement: %+v %v", prepared, err)
+	}
+	if _, err := registeredPolicyBuildOptions(prepared.BuildOptions, nil); err == nil {
+		t.Fatal("unregistered mixed verification acquired authority")
+	}
 }
 
 func TestExplicitDependencyWarmTargetConflictIsConfigInvalid(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 )
 
 type BuildResult struct {
+	SourceViews      map[string]syncbundle.Manifest
 	Root             string
 	Manifest         syncbundle.Manifest
 	Size             int64
@@ -15,7 +16,10 @@ type BuildResult struct {
 }
 
 type BuildOptions struct {
-	SourceScopes []syncbundle.SourcePolicyBinding
+	// SealSourceViews derives requested execution views from the bytes already
+	// retained for packaging. Registered verification derives them on the server.
+	SealSourceViews bool
+	SourceScopes    []syncbundle.SourcePolicyBinding
 	// RequireRegisteredScopes is a planning precondition, never an upload hint.
 	// Only an independently fetched registered policy can authorize mixed scopes.
 	RequireRegisteredScopes bool
@@ -38,8 +42,8 @@ type BuildOptions struct {
 	// ReviewedFixtures permits only exact, regular Git-tracked fixture bytes to
 	// bypass the default confidentiality filter; explicit exclusions still win.
 	ReviewedFixtures []syncbundle.ReviewedFixture
-	// SourcePolicyDigest binds the canonical sync filter used by the builder to
-	// an independently registered policy revision.
+	// SourcePolicyDigest binds the canonical filter to a registered policy or
+	// the sealed requested execution scope set; it does not grant plan authority.
 	SourcePolicyDigest string
 }
 

@@ -50,7 +50,7 @@ func setupCommand(args []string) error {
 	image := fs.String("image", "", "runner image for the generated configuration")
 	networkAllowlist := fs.String("network-allowlist", "", "replace generated network policy with this reviewed comma-separated allowlist for the entire check")
 	var runtimeSelections stringSliceFlag
-	fs.Var(&runtimeSelections, "runtime", "pin an imported workflow runtime numerically, e.g. node=24 or python=3.12; repeatable for node, go, python, pnpm")
+	fs.Var(&runtimeSelections, "runtime", "pin an imported workflow runtime numerically, e.g. node=24 or python=3.12; repeatable for node, go, python, java, pnpm")
 	printConfig := fs.Bool("print", false, "print starter configuration without authentication, network access, or writes")
 	preview := fs.Bool("preview", false, "inspect setup without writing files, signing in, or running checks")
 	yes := fs.Bool("yes", false, "save configuration and run the first check without prompts; requires authentication")
@@ -240,6 +240,7 @@ func setupCommand(args []string) error {
 		ImportCandidate:  *importCandidate,
 		NetworkAllowlist: reviewedNetwork,
 		RuntimePins:      runtimePins,
+		variantAdmission: newSetupVariantAdmission(*apiURL, *apiToken),
 	}
 	if !explicitAction && !inspection {
 		if !*yes && !term.IsTerminal(int(os.Stdin.Fd())) {

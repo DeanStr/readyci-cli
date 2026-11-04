@@ -14,6 +14,9 @@ type executableShellCommand struct {
 	Args       []shellWord
 	Dir        string
 	DirDynamic bool
+	// UVProjectSync reports that a uv run wrapper syncs the project it
+	// discovers from Dir into its environment before running Args.
+	UVProjectSync bool
 }
 
 func executableShellCommandFromCommand(command shellCommand) executableShellCommand {
@@ -21,6 +24,7 @@ func executableShellCommandFromCommand(command shellCommand) executableShellComm
 }
 
 func executableShellCommandFromArgs(args []shellWord, dir string, dirDynamic bool) executableShellCommand {
+	uvSync := false
 	for len(args) > 0 && !args[0].Dynamic {
 		switch normalizeCommandInvocationToken(args[0].Text) {
 		case "env":
@@ -37,11 +41,118 @@ func executableShellCommandFromArgs(args []shellWord, dir string, dirDynamic boo
 				return executableShellCommand{}
 			}
 			args = next
+		case "uv":
+			next, ok := uvRunWrappedCommandArgs(args[1:], dir, dirDynamic)
+			if !ok {
+				// Other subcommands and unrecognized run options stay opaque.
+				return executableShellCommand{Args: args, Dir: dir, DirDynamic: dirDynamic, UVProjectSync: uvSync}
+			}
+			args, dir, dirDynamic = next.Args, next.Dir, next.DirDynamic
+			uvSync = uvSync || next.UVProjectSync
 		default:
-			return executableShellCommand{Args: args, Dir: dir, DirDynamic: dirDynamic}
+			return executableShellCommand{Args: args, Dir: dir, DirDynamic: dirDynamic, UVProjectSync: uvSync}
 		}
 	}
-	return executableShellCommand{Args: args, Dir: dir, DirDynamic: dirDynamic}
+	return executableShellCommand{Args: args, Dir: dir, DirDynamic: dirDynamic, UVProjectSync: uvSync}
+}
+
+// uvRunWrappedCommandArgs reads uv run's options. It recognizes uv's
+// documented run options and rejects anything else, including --project, which
+// discovers the project somewhere other than the working directory.
+func uvRunWrappedCommandArgs(args []shellWord, dir string, dirDynamic bool) (executableShellCommand, bool) {
+	if len(args) == 0 || args[0].Dynamic || args[0].Text != "run" {
+		return executableShellCommand{}, false
+	}
+	sync := true
+	for i := 1; i < len(args); i++ {
+		if args[i].Dynamic {
+			return executableShellCommand{}, false
+		}
+		token := args[i].Text
+		if token == "--" {
+			i++
+		}
+		if token == "--" || !strings.HasPrefix(token, "-") {
+			if i >= len(args) {
+				return executableShellCommand{}, false
+			}
+			return executableShellCommand{Args: args[i:], Dir: dir, DirDynamic: dirDynamic, UVProjectSync: sync}, true
+		}
+		name, value, inline := strings.Cut(token, "=")
+		kind := uvRunOptionKind(name)
+		if kind == "flag" || kind == "module" || kind == "script" {
+			if inline {
+				return executableShellCommand{}, false
+			}
+		} else if kind != "" && !inline {
+			if i+1 >= len(args) || args[i+1].Dynamic {
+				return executableShellCommand{}, false
+			}
+			i++
+			value = args[i].Text
+		}
+		switch kind {
+		case "flag":
+			if name == "--no-sync" || name == "--no-project" {
+				sync = false
+			}
+		case "value":
+		case "directory":
+			if next, ok := resolveMakeDir(dir, value); ok {
+				dir = next
+			} else {
+				dirDynamic = true
+			}
+		case "module":
+			if i+1 >= len(args) {
+				return executableShellCommand{}, false
+			}
+			command := append([]shellWord{{Text: "python"}, {Text: "-m"}}, args[i+1:]...)
+			return executableShellCommand{Args: command, Dir: dir, DirDynamic: dirDynamic, UVProjectSync: sync}, true
+		case "script":
+			// A script runs with its inline metadata, not the project environment.
+			if i+1 >= len(args) {
+				return executableShellCommand{}, false
+			}
+			command := append([]shellWord{{Text: "python"}}, args[i+1:]...)
+			return executableShellCommand{Args: command, Dir: dir, DirDynamic: dirDynamic}, true
+		default:
+			return executableShellCommand{}, false
+		}
+	}
+	return executableShellCommand{}, false
+}
+
+func uvRunOptionKind(name string) string {
+	switch name {
+	case "--all-extras", "--no-dev", "--dev", "--only-dev", "--no-default-groups", "--all-groups",
+		"--no-editable", "--exact", "--no-env-file", "--isolated", "--active", "--no-active",
+		"--no-sync", "--locked", "--frozen", "--all-packages", "--no-project", "--no-index",
+		"--no-sources", "-U", "--upgrade", "--reinstall", "--compile-bytecode",
+		"--no-build-isolation", "--no-build", "--no-binary", "-n", "--no-cache", "--refresh",
+		"--managed-python", "--no-managed-python", "--no-python-downloads", "--quiet", "--verbose",
+		"--native-tls", "--offline", "--no-progress", "--no-config", "--preview":
+		return "flag"
+	case "--extra", "--no-extra", "--group", "--no-group", "--only-group", "--env-file", "--with",
+		"--with-editable", "--with-requirements", "--package", "-p", "--python", "--python-platform",
+		"--index", "--default-index", "-i", "--index-url", "--extra-index-url", "-f", "--find-links",
+		"--index-strategy", "--keyring-provider", "-P", "--upgrade-package", "--resolution",
+		"--prerelease", "--fork-strategy", "--exclude-newer", "--exclude-newer-package",
+		"--reinstall-package", "--link-mode", "-C", "--config-setting", "--config-settings-package",
+		"--no-build-isolation-package", "--no-build-package", "--no-binary-package", "--cache-dir",
+		"--refresh-package", "--color", "--allow-insecure-host", "--config-file":
+		return "value"
+	case "--directory":
+		return "directory"
+	case "-m", "--module":
+		return "module"
+	case "-s", "--script":
+		return "script"
+	}
+	if len(name) > 1 && strings.Trim(name[1:], "qv") == "" && name[0] == '-' {
+		return "flag" // -q, -vv and similar repeated verbosity flags
+	}
+	return ""
 }
 
 func envWrappedCommandArgs(args []shellWord, dir string, dirDynamic bool) (executableShellCommand, bool) {

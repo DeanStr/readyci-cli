@@ -61,19 +61,22 @@ func scanWorkflowFile(cwd, path string, runtimePins ...map[string]string) repoWo
 		workflow.Problems = append(workflow.Problems, "workflow defines no inspectable jobs; its test scope requires explicit configuration")
 	}
 	sort.Strings(jobNames)
+	scheduledOnly := setupWorkflowScheduledOnly(parsed.On)
 	for _, name := range jobNames {
 		parsedJob := parsed.Jobs[name]
 		job := scanWorkflowJob(cwd, parsed, name, parsedJob, runtimePins...)
 		job.ID = "github-actions:" + rel + ":" + name
+		job.ScheduledOnly = scheduledOnly
 		workflow.Jobs = append(workflow.Jobs, job)
 		if parsedJob.Strategy != nil {
 			variants, problems := setupWorkflowMatrixVariants(parsed, parsedJob)
 			workflow.Jobs[len(workflow.Jobs)-1].Unsupported = uniqueStrings(append(workflow.Jobs[len(workflow.Jobs)-1].Unsupported, problems...))
 			workflow.Jobs[len(workflow.Jobs)-1].ScopeUnknown = job.ScopeUnknown || len(problems) > 0
-			for _, variant := range variants {
+			for index, variant := range variants {
 				child := scanWorkflowJob(cwd, variant.Workflow, name, variant.Job, runtimePins...)
 				child.ID = job.ID + ":matrix:" + variant.Digest
 				child.ParentJobID, child.Matrix = job.ID, variant.Values
+				child.MatrixIndex, child.ScheduledOnly = index, scheduledOnly
 				child.Requirements = append(child.Requirements, "This selects one explicit upstream matrix variant; sibling variants and upstream matrix scheduling are not imported.")
 				workflow.Jobs = append(workflow.Jobs, child)
 			}
@@ -83,6 +86,36 @@ func scanWorkflowFile(cwd, path string, runtimePins ...map[string]string) repoWo
 		workflow.Env = nil
 	}
 	return workflow
+}
+
+// A workflow that runs only on a schedule or by manual dispatch does not gate
+// changes. Any other or unrecognized trigger shape counts as gating.
+func setupWorkflowScheduledOnly(on any) bool {
+	var events []string
+	switch value := on.(type) {
+	case string:
+		events = []string{value}
+	case []any:
+		for _, item := range value {
+			name, ok := item.(string)
+			if !ok {
+				return false
+			}
+			events = append(events, name)
+		}
+	case map[string]any:
+		for name := range value {
+			events = append(events, name)
+		}
+	}
+	for _, event := range events {
+		switch strings.TrimSpace(event) {
+		case "schedule", "workflow_dispatch", "repository_dispatch":
+		default:
+			return false
+		}
+	}
+	return len(events) > 0
 }
 
 func scanWorkflowJob(cwd string, workflow repoWorkflowYAML, name string, parsedJob repoWorkflowJobYAML, runtimePins ...map[string]string) repoWorkflowJob {
@@ -131,7 +164,19 @@ func scanWorkflowJob(cwd string, workflow repoWorkflowYAML, name string, parsedJ
 			job.Runtimes = appendUniqueString(job.Runtimes, "node")
 		case "actions/setup-python":
 			job.Runtimes = appendUniqueString(job.Runtimes, "python")
-		case "", "actions/checkout", "actions/cache":
+		case "actions/setup-java":
+			job.Runtimes = appendUniqueString(job.Runtimes, "java")
+		case "unjs/setup-jup":
+			job.Runtimes = appendUniqueString(job.Runtimes, "node")
+			if install, ok := setupJupInstall(step.With["install"]); ok && install {
+				command, found := setupJupInstallCommand(cwd)
+				if !found {
+					job.Unsupported = append(job.Unsupported, "unjs/setup-jup dependency installation requires a root package.json; configure preparation explicitly")
+					break
+				}
+				job.Prepare = appendUniqueString(job.Prepare, command)
+			}
+		case "", "actions/checkout", "actions/cache", "astral-sh/setup-uv":
 		default:
 			job.ScopeUnknown = true
 		}
@@ -141,6 +186,15 @@ func scanWorkflowJob(cwd string, workflow repoWorkflowYAML, name string, parsedJ
 		command := strings.TrimSpace(step.Run)
 		if command == "" {
 			continue
+		}
+		// Ready CI images refuse corepack enable: their package manager shims
+		// are immutable and already provisioned.
+		switch enables, others := setupCorepackEnableCommands(command); {
+		case enables > 0 && others == 0:
+			job.Requirements = append(job.Requirements, "corepack enable is not executed; Ready CI images provide immutable, already provisioned package manager shims.")
+			continue
+		case enables > 0:
+			job.Unsupported = append(job.Unsupported, "corepack enable combined with other commands in one step requires manual translation; Ready CI images provide immutable, already provisioned package manager shims")
 		}
 		defaults := effectiveWorkflowRunDefaults(workflow, parsedJob, step)
 		env, envProblems := effectiveWorkflowEnvironment(workflow, parsedJob, step)
@@ -156,6 +210,7 @@ func scanWorkflowJob(cwd string, workflow repoWorkflowYAML, name string, parsedJ
 }
 
 type repoWorkflowYAML struct {
+	On       any                            `yaml:"on"`
 	Env      map[string]any                 `yaml:"env"`
 	Defaults repoWorkflowDefaultsYAML       `yaml:"defaults"`
 	Jobs     map[string]repoWorkflowJobYAML `yaml:"jobs"`
@@ -307,6 +362,20 @@ func (step *repoWorkflowStepYAML) UnmarshalYAML(value *yaml.Node) error {
 		step.Problems = append(step.Problems, "action steps cannot declare a run shell or working directory; configure the prerequisite explicitly")
 	}
 	return nil
+}
+
+// setupCorepackEnableCommands counts a step's literal corepack enable commands
+// and its other commands.
+func setupCorepackEnableCommands(command string) (enables, others int) {
+	for _, parsed := range shellCommandsFromCommand(command) {
+		args := executableShellCommandFromCommand(parsed).Args
+		if len(args) >= 2 && !args[0].Dynamic && !args[1].Dynamic && filepath.Base(args[0].Text) == "corepack" && args[1].Text == "enable" {
+			enables++
+		} else {
+			others++
+		}
+	}
+	return enables, others
 }
 
 func commandWithWorkingDirectory(command, workingDir string) string {

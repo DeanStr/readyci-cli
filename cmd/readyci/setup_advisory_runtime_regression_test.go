@@ -40,12 +40,12 @@ func TestSetupUntranslatableRuntimeDeclarationsAreReviewNotes(t *testing.T) {
 			runtime: "java",
 		},
 		{
-			name:    "Maven workflow",
-			files:   map[string]string{"pom.xml": "<project/>\n", ".github/workflows/ci.yml": setupAdvisoryWorkflow("      - run: mvn -B test\n")},
+			name:    "Maven workflow with a vendor-prefixed .java-version",
+			files:   map[string]string{"pom.xml": "<project/>\n", ".java-version": "temurin-21\n", ".github/workflows/ci.yml": setupAdvisoryWorkflow("      - run: mvn -B test\n")},
 			check:   "test",
 			command: "bash -e -c 'mvn -B test'",
 			runtime: "java",
-			note:    "java (used by the selected command) is not emitted as a java runtime requirement",
+			note:    `.java-version \"temurin-21\" is not emitted as a java runtime requirement`,
 		},
 		{
 			name:    "Ruby workflow",
