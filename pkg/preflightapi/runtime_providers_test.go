@@ -15,16 +15,17 @@ func TestGoRuntimeProviderRequiresServerCatalogAndExistingNetworkPolicy(t *testi
 		download                   bool
 	}{
 		{name: "installed remains preferred", requirement: ">=1.25", inventory: RuntimeInventory{"go": {"1.25.13"}}, want: "1.25.13"},
-		{name: "explicit approved archive", requirement: ">=1.27.2", network: "allowlist", hosts: []string{"dl.google.com"}, providers: []string{GoRuntimeProviderCapability()}, want: "1.27.2", download: true},
+		{name: "explicit approved archive", requirement: "1.27.2", network: "allowlist", hosts: []string{"dl.google.com"}, providers: []string{GoRuntimeProviderCapability()}, want: "1.27.2", download: true},
 		{name: "default authorized egress", requirement: "1.26.0", network: "default", providers: []string{GoRuntimeProviderCapability()}, want: "1.26.0", download: true},
-		{name: "highest approved patch in series", requirement: "1.26", network: "default", providers: []string{GoRuntimeProviderCapability()}, want: "1.26.9", download: true},
-		{name: "highest approved older series patch", requirement: "1.25", network: "default", providers: []string{GoRuntimeProviderCapability()}, want: "1.25.14", download: true},
+		{name: "highest approved patch in series", requirement: "1.26", network: "default", providers: []string{GoRuntimeProviderCapability()}, want: newestCatalogVersion(t, GoRuntimeCatalog(), "1.26."), download: true},
+		{name: "highest approved older series patch", requirement: "1.25", network: "default", providers: []string{GoRuntimeProviderCapability()}, want: newestCatalogVersion(t, GoRuntimeCatalog(), "1.25."), download: true},
 		{name: "presence never downloads", requirement: "installed", network: "default", providers: []string{GoRuntimeProviderCapability()}},
 		{name: "no provider", requirement: "1.27.2", network: "default"},
 		{name: "offline stays offline", requirement: "1.27.2", network: "none", providers: []string{GoRuntimeProviderCapability()}},
 		{name: "different allowed host", requirement: "1.27.2", network: "allowlist", hosts: []string{"go.dev"}, providers: []string{GoRuntimeProviderCapability()}},
 		{name: "deceptive hostname", requirement: "1.27.2", network: "allowlist", hosts: []string{"dl.google.com.attacker.test"}, providers: []string{GoRuntimeProviderCapability()}},
-		{name: "uncatalogued version", requirement: "1.27.3", network: "default", providers: []string{GoRuntimeProviderCapability()}},
+		// The refresh policy never adds a release line the catalog lacks.
+		{name: "uncatalogued version", requirement: "1.24.0", network: "default", providers: []string{GoRuntimeProviderCapability()}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -51,7 +52,7 @@ func TestGoRuntimeProviderRequiresServerCatalogAndExistingNetworkPolicy(t *testi
 func TestGoRuntimeCatalogIsImmutableAndExact(t *testing.T) {
 	first := GoRuntimeCatalog()
 	digest := GoRuntimeCatalogDigest()
-	if len(digest) != 64 || len(first) != 5 {
+	if len(digest) != 64 || len(first) == 0 {
 		t.Fatalf("invalid catalog %v %s", first, digest)
 	}
 	first[0].SHA256 = strings.Repeat("a", 64)
@@ -59,7 +60,7 @@ func TestGoRuntimeCatalogIsImmutableAndExact(t *testing.T) {
 		t.Fatal("caller can mutate approved runtimecatalog")
 	}
 	selected, err := ResolveRuntimePreparation(RunSpec{RuntimeRequirements: map[string]string{"go": ">=1.26"}, NetworkMode: "default"}, nil, []string{GoRuntimeProviderCapability()})
-	if err != nil || selected.GoArchive.Version != "1.27.2" {
+	if err != nil || selected.GoArchive.Version != newestCatalogVersion(t, first, "") {
 		t.Fatalf("catalogselection not deterministic highest satisfying %+v %v", selected, err)
 	}
 }

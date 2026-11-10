@@ -1,0 +1,147 @@
+{
+  "schema": "readyci.runtime_catalog.v1",
+  "catalogs": {
+    "go_archive_v1": [
+      {
+        "version": "1.25.13",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.25.13.linux-amd64.tar.gz",
+        "sha256": "39042a078ea9ceebe3ecda4a7188f0f5b96e14a071d27923ba7f40b456e85ae3",
+        "size_bytes": 59908810
+      },
+      {
+        "version": "1.25.14",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.25.14.linux-amd64.tar.gz",
+        "sha256": "a21ae5633a269bcd7e90cf767e48225633795e99d831742cbf3397064fee7712",
+        "size_bytes": 59909419
+      },
+      {
+        "version": "1.26.0",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.26.0.linux-amd64.tar.gz",
+        "sha256": "aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235",
+        "size_bytes": 66768540
+      },
+      {
+        "version": "1.26.9",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz",
+        "sha256": "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d",
+        "size_bytes": 66935201
+      },
+      {
+        "version": "1.26.10",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.26.10.linux-amd64.tar.gz",
+        "sha256": "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5",
+        "size_bytes": 66936659
+      },
+      {
+        "version": "1.27.2",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.27.2.linux-amd64.tar.gz",
+        "sha256": "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5",
+        "size_bytes": 70590635
+      },
+      {
+        "version": "1.27.3",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://dl.google.com/go/go1.27.3.linux-amd64.tar.gz",
+        "sha256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+        "size_bytes": 70588678
+      }
+    ],
+    "node_archive_v1": [
+      {
+        "version": "24.15.0",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-x64.tar.gz",
+        "sha256": "44836872d9aec49f1e6b52a9a922872db9a2b02d235a616a5681b6a85fec8d89",
+        "size_bytes": 56579517,
+        "runtime": "node",
+        "sha512": "455150401b5e2ca49fd38a913e1a58fa993111853aaeeac5f793407d14e93548270ae267564d083bd4d4f77d23518124644cff873bf04ab8af663be03f71e099"
+      },
+      {
+        "version": "24.22.2",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://nodejs.org/dist/v24.22.2/node-v24.22.2-linux-x64.tar.gz",
+        "sha256": "361718c444e49af2ca5a110c83ba6a8901143f23ab285ebbef0341f391f482a9",
+        "size_bytes": 58299872,
+        "runtime": "node",
+        "sha512": "24b736cee98874acafe0105f4ab39ce5238374b1b8154fb1fa08ef99250c052097a5cfb7a1e368721f80dd9df0081ae6551ff7a25785bd417e5b0a31db0a0a24"
+      }
+    ],
+    "pnpm_archive_v1": [
+      {
+        "version": "10.33.4",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.33.4.tgz",
+        "sha256": "8e70ddc6649b18bc3d895cf3a908c0291ea4c38039ad8722c47e018daf1e9cfc",
+        "size_bytes": 4566847,
+        "runtime": "pnpm",
+        "sha512": "1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800"
+      },
+      {
+        "version": "10.34.9",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-10.34.9.tgz",
+        "sha256": "7e8a946108e7baab119e51d27c24d6178b46545422643dbc91e34e2f1ee32e0f",
+        "size_bytes": 4895615,
+        "runtime": "pnpm",
+        "sha512": "f49b5a8ea0fdedb44bb3c0c1d6575092a53c2950d95b7ad15df11f17974877a2de3a01c07e934e9b28ce716e51c09a94962c7306d09be2e1e4b18a8c8762fd32"
+      },
+      {
+        "version": "12.11.2",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-12.11.2.tgz",
+        "sha256": "eb57341b8b54fddaeededb15dbb77cc30a11750cecca301bfda02478fdff3a00",
+        "size_bytes": 1041013,
+        "runtime": "pnpm",
+        "sha512": "25a51652a196785af5f28bda6dfe8dc582ebefa4ac1d180221ce1390231c5fb76637822ea4b6e4633ce74acdcb0a77f725af11bad38177fdeddaee818a955cb9"
+      },
+      {
+        "version": "12.11.2",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.11.2.tgz",
+        "sha256": "79008d3130845ee8a0fe4381e6b81815e80e1bd411702f34721b1cc63e6e20bf",
+        "size_bytes": 23919843,
+        "runtime": "pnpm-native",
+        "sha512": "14aed029edb8018829a49c0ede6a68a18a6d76ebaf206a8a24f8b969cecc7675a48d4cb8e8905f621096d20ae7916282f1839fd31faf1af8ae42a2448f74a941"
+      },
+      {
+        "version": "12.17.0",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/pnpm/-/pnpm-12.17.0.tgz",
+        "sha256": "6d776e285187f9e334d8826cc5a88e82e41606345f196a5a93f4403bd332553e",
+        "size_bytes": 1117821,
+        "runtime": "pnpm",
+        "sha512": "b8d223ebec04b580a89ed206daa71d1bccb6a1ee1d52efa95cc3b0db75271561df8f0d8e2c43add39c5ec08018af7a8a95108e7090f95a29f88727b7a40fd53d"
+      },
+      {
+        "version": "12.17.0",
+        "os": "linux",
+        "arch": "amd64",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.17.0.tgz",
+        "sha256": "6c1c71d00f82765d8f7488df6d1a94533fd1ad5d47c86da41211b1da1093c9d4",
+        "size_bytes": 25950264,
+        "runtime": "pnpm-native",
+        "sha512": "bd002eb03ccca1f73f11ee0a39462313a1567873a5306432be147b5b7f5049a995789592d7a728fe7f9b863763c2323750587c2163a96a6bd34be6f896f414a2"
+      }
+    ]
+  }
+}

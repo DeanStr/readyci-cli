@@ -14,7 +14,8 @@ const GoRuntimeDownloadHost = "dl.google.com"
 
 // RuntimeArchive is a release-reviewed immutable provider input. Callers may
 // request runtime constraints, but may not choose URLs, checksums or archives.
-// Source: https://go.dev/dl/?mode=json&include=all, captured 2026-10-19.
+// The approved archives live in runtime_catalog.json; Go entries come from
+// https://go.dev/dl/?mode=json and its signed dl.google.com archives.
 type RuntimeArchive struct {
 	Version   string `json:"version"`
 	OS        string `json:"os"`
@@ -24,14 +25,6 @@ type RuntimeArchive struct {
 	SizeBytes int64  `json:"size_bytes"`
 	Runtime   string `json:"runtime,omitempty"`
 	SHA512    string `json:"sha512,omitempty"`
-}
-
-var goRuntimeCatalog = []RuntimeArchive{
-	{Version: "1.25.13", OS: "linux", Arch: "amd64", URL: "https://dl.google.com/go/go1.25.13.linux-amd64.tar.gz", SHA256: "39042a078ea9ceebe3ecda4a7188f0f5b96e14a071d27923ba7f40b456e85ae3", SizeBytes: 59908810},
-	{Version: "1.25.14", OS: "linux", Arch: "amd64", URL: "https://dl.google.com/go/go1.25.14.linux-amd64.tar.gz", SHA256: "a21ae5633a269bcd7e90cf767e48225633795e99d831742cbf3397064fee7712", SizeBytes: 59909419},
-	{Version: "1.26.0", OS: "linux", Arch: "amd64", URL: "https://dl.google.com/go/go1.26.0.linux-amd64.tar.gz", SHA256: "aac1b08a0fb0c4e0a7c1555beb7b59180b05dfc5a3d62e40e9de90cd42f88235", SizeBytes: 66768540},
-	{Version: "1.26.9", OS: "linux", Arch: "amd64", URL: "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz", SHA256: "42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d", SizeBytes: 66935201},
-	{Version: "1.27.2", OS: "linux", Arch: "amd64", URL: "https://dl.google.com/go/go1.27.2.linux-amd64.tar.gz", SHA256: "ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5", SizeBytes: 70590635},
 }
 
 func GoRuntimeProviderCapability() string {
