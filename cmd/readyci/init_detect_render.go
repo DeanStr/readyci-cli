@@ -38,7 +38,7 @@ func renderDetectedProjectTemplate(projectID, image, profile string, checks []de
 		b.WriteString("\n")
 	}
 	b.WriteString(`sync:
-  include_untracked: false
+  include_untracked: true
   # Built-in filtering excludes .env*, build outputs, and dependency directories.
   exclude: [".npmrc*", "test-results", "tmp"]
 

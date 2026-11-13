@@ -54,6 +54,9 @@ func (filter PathFilter) Includes(path string) (bool, error) {
 	}
 	ignored := filter.matcher.ignored(rel)
 	if filter.pathKnownToGit(rel) {
+		if err := filter.matcher.validateTrackedPath(rel); err != nil {
+			return false, err
+		}
 		ignored = filter.matcher.ignoredTracked(rel)
 	}
 	if ignored {

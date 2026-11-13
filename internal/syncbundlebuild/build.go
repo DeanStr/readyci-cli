@@ -41,11 +41,13 @@ func BuildWithOptions(ctx context.Context, cwd string, writer io.Writer, options
 		return BuildResult{}, err
 	}
 	return BuildResult{
-		SourceViews:      views,
-		Root:             planned.root,
-		Manifest:         manifest,
-		IncludeUntracked: planned.includeUntracked,
-		UntrackedFiles:   append([]string(nil), planned.untrackedFiles...),
+		SourceViews:           views,
+		Root:                  planned.root,
+		Manifest:              manifest,
+		IncludeUntracked:      planned.includeUntracked,
+		UntrackedFiles:        append([]string(nil), planned.untrackedFiles...),
+		OmittedUntrackedFiles: append([]string(nil), planned.omittedUntrackedFiles...),
+		OmittedTrackedFiles:   append([]string(nil), planned.omittedTrackedFiles...),
 	}, nil
 }
 
@@ -106,11 +108,13 @@ func BuildFullAndDeltaToTempWithOptions(ctx context.Context, cwd string, options
 		return "", BuildResult{}, "", BuildResult{}, err
 	}
 	fullResult := BuildResult{
-		Root:             planned.root,
-		Manifest:         fullManifest,
-		Size:             fullSize,
-		IncludeUntracked: planned.includeUntracked,
-		UntrackedFiles:   append([]string(nil), planned.untrackedFiles...),
+		Root:                  planned.root,
+		Manifest:              fullManifest,
+		Size:                  fullSize,
+		IncludeUntracked:      planned.includeUntracked,
+		UntrackedFiles:        append([]string(nil), planned.untrackedFiles...),
+		OmittedUntrackedFiles: append([]string(nil), planned.omittedUntrackedFiles...),
+		OmittedTrackedFiles:   append([]string(nil), planned.omittedTrackedFiles...),
 	}
 	if fullManifest.BaselineKey == "" {
 		cleanupFull = false
@@ -142,11 +146,13 @@ func BuildFullAndDeltaToTempWithOptions(ctx context.Context, cwd string, options
 	cleanupFull = false
 	cleanupDelta = false
 	return fullPath, fullResult, deltaPath, BuildResult{
-		Root:             planned.root,
-		Manifest:         deltaManifest,
-		Size:             deltaSize,
-		IncludeUntracked: planned.includeUntracked,
-		UntrackedFiles:   append([]string(nil), planned.untrackedFiles...),
+		Root:                  planned.root,
+		Manifest:              deltaManifest,
+		Size:                  deltaSize,
+		IncludeUntracked:      planned.includeUntracked,
+		UntrackedFiles:        append([]string(nil), planned.untrackedFiles...),
+		OmittedUntrackedFiles: append([]string(nil), planned.omittedUntrackedFiles...),
+		OmittedTrackedFiles:   append([]string(nil), planned.omittedTrackedFiles...),
 	}, nil
 }
 

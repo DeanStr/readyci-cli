@@ -76,7 +76,7 @@ func (matcher ignoreMatcher) ignoredSource(rel string, tracked bool) bool {
 	}
 	envExample := isEnvExamplePath(rel)
 	return matchIgnorePatternsSkipping(matcher.defaultPatterns, rel, func(pattern string) bool {
-		return pattern == defaultEnvExcludePattern && (envExample || tracked && matcher.reviewedFixtures[rel])
+		return pattern == defaultEnvExcludePattern && envExample || syncbundle.ReviewableSourceExclude(pattern) && tracked && matcher.reviewedFixtures[rel]
 	})
 }
 
@@ -160,4 +160,26 @@ func sourceIgnoreMatcher(root string, options BuildOptions) (ignoreMatcher, bool
 		}
 	}
 	return newIgnoreMatcherWithFilters(extra, defaults, untrackedDefaults, fixtures), useProjectIgnore, nil
+}
+
+// A tracked key must never silently disappear from the verified workspace.
+// An explicit exclusion or an exact reviewed fixture makes the choice visible.
+func (matcher ignoreMatcher) validateTrackedPath(rel string) error {
+	if !syncbundle.RequiresReviewedSourcePath(rel) || !matcher.ignoredTracked(rel) {
+		return nil
+	}
+	if len(matcher.scopes) > 0 {
+		explicitlyExcluded := true
+		for _, scope := range matcher.scopes {
+			if !matchIgnorePatterns(scope.ExcludePatterns, rel) {
+				explicitlyExcluded = false
+			}
+		}
+		if explicitlyExcluded {
+			return nil
+		}
+	} else if matchIgnorePatterns(matcher.extraPatterns, rel) {
+		return nil
+	}
+	return fmt.Errorf("%w: tracked credential path %q requires an explicit sync.exclude rule or an exact reviewed fixture", ErrUnsupportedRepository, rel)
 }

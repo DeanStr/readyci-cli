@@ -24,30 +24,32 @@ type syncDryRunOptions struct {
 }
 
 type syncDryRunReport struct {
-	Root              string                       `json:"root"`
-	ConfigPath        string                       `json:"config_path,omitempty"`
-	CheckName         string                       `json:"check,omitempty"`
-	ChangeMode        string                       `json:"change_mode"`
-	IncludeUntracked  bool                         `json:"include_untracked"`
-	ExcludePatterns   []string                     `json:"exclude_patterns,omitempty"`
-	ReviewedFixtures  []syncbundle.ReviewedFixture `json:"reviewed_fixtures,omitempty"`
-	Git               syncbundle.GitMetadata       `json:"git"`
-	CompressedBytes   int64                        `json:"compressed_bytes"`
-	ExpandedBytes     int64                        `json:"expanded_bytes"`
-	ManifestBytes     int64                        `json:"manifest_bytes"`
-	EntryCount        int                          `json:"entry_count"`
-	AdmissionLimits   syncbundle.AdmissionLimits   `json:"admission_limits"`
-	BaselineCount     int                          `json:"baseline_count"`
-	WorkspaceCount    int                          `json:"workspace_count"`
-	DeletedCount      int                          `json:"deleted_count"`
-	ChangedFilesCount int                          `json:"changed_files_count"`
-	UntrackedCount    int                          `json:"untracked_count"`
-	BaselineFiles     []string                     `json:"baseline_files,omitempty"`
-	WorkspaceFiles    []string                     `json:"workspace_files,omitempty"`
-	DeletedFiles      []string                     `json:"deleted_files,omitempty"`
-	ChangedFiles      []string                     `json:"changed_files,omitempty"`
-	UntrackedFiles    []string                     `json:"untracked_files,omitempty"`
-	Warnings          []string                     `json:"warnings,omitempty"`
+	Root                  string                       `json:"root"`
+	ConfigPath            string                       `json:"config_path,omitempty"`
+	CheckName             string                       `json:"check,omitempty"`
+	ChangeMode            string                       `json:"change_mode"`
+	IncludeUntracked      bool                         `json:"include_untracked"`
+	ExcludePatterns       []string                     `json:"exclude_patterns,omitempty"`
+	ReviewedFixtures      []syncbundle.ReviewedFixture `json:"reviewed_fixtures,omitempty"`
+	Git                   syncbundle.GitMetadata       `json:"git"`
+	CompressedBytes       int64                        `json:"compressed_bytes"`
+	ExpandedBytes         int64                        `json:"expanded_bytes"`
+	ManifestBytes         int64                        `json:"manifest_bytes"`
+	EntryCount            int                          `json:"entry_count"`
+	AdmissionLimits       syncbundle.AdmissionLimits   `json:"admission_limits"`
+	BaselineCount         int                          `json:"baseline_count"`
+	WorkspaceCount        int                          `json:"workspace_count"`
+	DeletedCount          int                          `json:"deleted_count"`
+	ChangedFilesCount     int                          `json:"changed_files_count"`
+	OmittedUntrackedFiles []string                     `json:"omitted_untracked_files,omitempty"`
+	OmittedTrackedFiles   []string                     `json:"omitted_tracked_files,omitempty"`
+	UntrackedCount        int                          `json:"untracked_count"`
+	BaselineFiles         []string                     `json:"baseline_files,omitempty"`
+	WorkspaceFiles        []string                     `json:"workspace_files,omitempty"`
+	DeletedFiles          []string                     `json:"deleted_files,omitempty"`
+	ChangedFiles          []string                     `json:"changed_files,omitempty"`
+	UntrackedFiles        []string                     `json:"untracked_files,omitempty"`
+	Warnings              []string                     `json:"warnings,omitempty"`
 }
 
 func syncCommand(args []string) error {
@@ -138,29 +140,31 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 		return syncDryRunReport{}, cliConfigError(err.Error(), err)
 	}
 	report := syncDryRunReport{
-		Root:              result.Root,
-		ConfigPath:        configPath,
-		CheckName:         checkName,
-		ChangeMode:        result.Manifest.ChangeMode,
-		IncludeUntracked:  includeUntracked,
-		ExcludePatterns:   append([]string(nil), syncConfig.Exclude...),
-		ReviewedFixtures:  append([]syncbundle.ReviewedFixture(nil), result.Manifest.ReviewedFixtures...),
-		Git:               result.Manifest.Git,
-		CompressedBytes:   result.Size,
-		ExpandedBytes:     expandedBytes,
-		ManifestBytes:     usage.ManifestBytes,
-		EntryCount:        usage.Entries,
-		AdmissionLimits:   syncbundle.SourceAdmissionLimits(),
-		BaselineCount:     len(result.Manifest.Baseline),
-		WorkspaceCount:    len(result.Manifest.Workspace),
-		DeletedCount:      len(result.Manifest.Deleted),
-		ChangedFilesCount: len(result.Manifest.ChangedFiles),
-		UntrackedCount:    len(result.UntrackedFiles),
-		BaselineFiles:     entryPaths(result.Manifest.Baseline),
-		WorkspaceFiles:    entryPaths(result.Manifest.Workspace),
-		DeletedFiles:      append([]string(nil), result.Manifest.Deleted...),
-		ChangedFiles:      append([]string(nil), result.Manifest.ChangedFiles...),
-		UntrackedFiles:    append([]string(nil), result.UntrackedFiles...),
+		Root:                  result.Root,
+		ConfigPath:            configPath,
+		CheckName:             checkName,
+		ChangeMode:            result.Manifest.ChangeMode,
+		IncludeUntracked:      includeUntracked,
+		ExcludePatterns:       append([]string(nil), syncConfig.Exclude...),
+		ReviewedFixtures:      append([]syncbundle.ReviewedFixture(nil), result.Manifest.ReviewedFixtures...),
+		Git:                   result.Manifest.Git,
+		CompressedBytes:       result.Size,
+		ExpandedBytes:         expandedBytes,
+		ManifestBytes:         usage.ManifestBytes,
+		EntryCount:            usage.Entries,
+		AdmissionLimits:       syncbundle.SourceAdmissionLimits(),
+		BaselineCount:         len(result.Manifest.Baseline),
+		WorkspaceCount:        len(result.Manifest.Workspace),
+		DeletedCount:          len(result.Manifest.Deleted),
+		ChangedFilesCount:     len(result.Manifest.ChangedFiles),
+		UntrackedCount:        len(result.UntrackedFiles),
+		OmittedUntrackedFiles: result.OmittedUntrackedFiles,
+		OmittedTrackedFiles:   result.OmittedTrackedFiles,
+		BaselineFiles:         entryPaths(result.Manifest.Baseline),
+		WorkspaceFiles:        entryPaths(result.Manifest.Workspace),
+		DeletedFiles:          append([]string(nil), result.Manifest.Deleted...),
+		ChangedFiles:          append([]string(nil), result.Manifest.ChangedFiles...),
+		UntrackedFiles:        append([]string(nil), result.UntrackedFiles...),
 	}
 	report.Warnings = syncDryRunWarnings(report, result.Manifest)
 	return report, nil
@@ -202,6 +206,8 @@ func printSyncDryRunReport(report syncDryRunReport) {
 	fmt.Printf("untracked_files: %d\n", report.UntrackedCount)
 	printPathSample("changed_file", report.ChangedFiles, 20)
 	printPathSample("untracked_file", report.UntrackedFiles, 20)
+	printPathSample("omitted_untracked_file", report.OmittedUntrackedFiles, 20)
+	printPathSample("omitted_tracked_file", report.OmittedTrackedFiles, 20)
 	printPathSample("workspace_file", report.WorkspaceFiles, 20)
 	if len(report.Warnings) > 0 {
 		fmt.Println("warnings:")
@@ -244,24 +250,55 @@ func syncDryRunWarnings(report syncDryRunReport, manifest syncbundle.Manifest) [
 	if report.UntrackedCount > 0 {
 		warnings = append(warnings, formatUntrackedUploadWarning(report.UntrackedFiles))
 	}
-	secretWarnings := 0
-	secretTotal := 0
+	// An untracked secret-like file is new to the upload and gets its own line.
+	// Committed ones are already part of the repository: naming each on every
+	// upload buries the lines that matter, so they share one.
+	untracked := make(map[string]struct{}, len(report.UntrackedFiles))
+	for _, path := range report.UntrackedFiles {
+		untracked[path] = struct{}{}
+	}
+	const untrackedSecretLimit = 10
+	untrackedSecretTotal := 0
+	var trackedSecrets []string
+	seen := make(map[string]struct{})
 	for _, entry := range append(append([]syncbundle.Entry{}, manifest.Baseline...), manifest.Workspace...) {
-		if secretLikeSyncPath(entry.Path) {
-			secretTotal++
-			if secretWarnings < 10 {
-				warnings = append(warnings, "secret-like path included: "+entry.Path)
-				secretWarnings++
+		if _, duplicate := seen[entry.Path]; !duplicate && secretLikeSyncPath(entry.Path) {
+			seen[entry.Path] = struct{}{}
+			if _, ok := untracked[entry.Path]; !ok {
+				trackedSecrets = append(trackedSecrets, entry.Path)
+			} else {
+				untrackedSecretTotal++
+				if untrackedSecretTotal <= untrackedSecretLimit {
+					warnings = append(warnings, "secret-like untracked path included: "+entry.Path)
+				}
 			}
 		}
 		if entry.Size > 25<<20 {
 			warnings = append(warnings, fmt.Sprintf("large file included: %s (%d bytes)", entry.Path, entry.Size))
 		}
 	}
-	if secretTotal > secretWarnings {
-		warnings = append(warnings, fmt.Sprintf("%d additional secret-like path(s) omitted from warnings", secretTotal-secretWarnings))
+	if untrackedSecretTotal > untrackedSecretLimit {
+		warnings = append(warnings, fmt.Sprintf("%d additional secret-like untracked path(s) omitted from warnings", untrackedSecretTotal-untrackedSecretLimit))
+	}
+	if warning := formatTrackedSecretWarning(trackedSecrets); warning != "" {
+		warnings = append(warnings, warning)
 	}
 	return warnings
+}
+
+func formatTrackedSecretWarning(paths []string) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	sort.Strings(paths)
+	const sampleLimit = 5
+	if len(paths) > sampleLimit {
+		return fmt.Sprintf("%d tracked secret-like paths included (first %d: %s)", len(paths), sampleLimit, strings.Join(paths[:sampleLimit], ", "))
+	}
+	if len(paths) == 1 {
+		return "1 tracked secret-like path included (" + paths[0] + ")"
+	}
+	return fmt.Sprintf("%d tracked secret-like paths included (%s)", len(paths), strings.Join(paths, ", "))
 }
 
 func secretLikeSyncPath(value string) bool {
@@ -270,10 +307,10 @@ func secretLikeSyncPath(value string) bool {
 		return false
 	}
 	switch base {
-	case ".env", ".envrc", ".npmrc", ".npmrc.local", ".pypirc", ".netrc", "id_rsa", "id_ed25519", "credentials.json", "service-account.json":
+	case ".env", ".envrc", ".npmrc", ".npmrc.local", ".pypirc", ".netrc", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "credentials.json", "service-account.json", "application_default_credentials.json", ".git-credentials", "kubeconfig":
 		return true
 	default:
-		return strings.HasPrefix(base, ".env")
+		return strings.HasPrefix(base, ".env") || strings.HasSuffix(base, ".pem") || strings.Contains("/"+filepath.ToSlash(value), "/.ssh/") || strings.HasSuffix("/"+filepath.ToSlash(value), "/.aws/credentials") || strings.HasSuffix("/"+filepath.ToSlash(value), "/.docker/config.json")
 	}
 }
 

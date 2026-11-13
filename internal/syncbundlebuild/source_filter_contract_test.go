@@ -13,6 +13,33 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
+func TestCredentialFilesExcludedFromActualUpload(t *testing.T) {
+	repo := t.TempDir()
+	initRepo(t, repo)
+	writeFile(t, repo, "source.go", "package example\n")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "baseline")
+	credentials := []string{"id_rsa", "nested/id_ed25519", ".npmrc", "nested/.netrc", "credentials.json", ".aws/credentials", ".docker/config.json"}
+	for _, rel := range credentials {
+		writeFile(t, repo, rel, "public test placeholder\n")
+	}
+	writeFile(t, repo, "new_test.go", "package example\n")
+	var archive bytes.Buffer
+	built, err := BuildWithOptions(context.Background(), repo, &archive, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := syncbundle.ManifestPaths(built.Manifest)
+	for _, rel := range credentials {
+		if contains(paths, "workspace/"+rel) {
+			t.Errorf("credential path %q reached the upload", rel)
+		}
+	}
+	if !contains(paths, "workspace/new_test.go") {
+		t.Fatal("new untracked test omitted")
+	}
+}
+
 func TestGeneratedDefaultsPreserveTrackedSource(t *testing.T) {
 	repo := t.TempDir()
 	initRepo(t, repo)
@@ -276,5 +303,62 @@ func TestRecordedEmptyDefaultsCannotDisableConfidentiality(t *testing.T) {
 	}
 	if included, err := filter.Includes("tests/test_apps/.env"); err != nil || included {
 		t.Fatalf("watch/affected filter disagreed with confidentiality admission: included=%v error=%v", included, err)
+	}
+}
+
+func TestTrackedCredentialNamedConfigurationIsIncluded(t *testing.T) {
+	repo := t.TempDir()
+	initRepo(t, repo)
+	for _, rel := range []string{".npmrc", "testdata/credentials.json", ".docker/config.json"} {
+		writeFile(t, repo, rel, "public configuration or fixture\n")
+	}
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "public tracked configuration")
+	var archive bytes.Buffer
+	built, err := BuildWithOptions(context.Background(), repo, &archive, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{".npmrc", "testdata/credentials.json", ".docker/config.json"} {
+		if !contains(syncbundle.ManifestPaths(built.Manifest), "baseline/"+rel) {
+			t.Errorf("tracked configuration silently omitted: %s", rel)
+		}
+	}
+}
+
+func TestTrackedPrivateKeyRequiresVisibleSelection(t *testing.T) {
+	repo := t.TempDir()
+	initRepo(t, repo)
+	writeFile(t, repo, "id_rsa", "public test fixture\n")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "public private-key fixture")
+	if _, err := SnapshotWithOptions(context.Background(), repo, BuildOptions{}); err == nil || !strings.Contains(err.Error(), "tracked credential path") {
+		t.Fatalf("silently filtered tracked key: %v", err)
+	}
+	if _, err := SnapshotWithOptions(context.Background(), repo, BuildOptions{ExcludePatterns: []string{"id_rsa"}}); err != nil {
+		t.Fatalf("explicit exclusion rejected: %v", err)
+	}
+	digest := sha256.Sum256([]byte("public test fixture\n"))
+	manifest, err := SnapshotWithOptions(context.Background(), repo, BuildOptions{ReviewedFixtures: []syncbundle.ReviewedFixture{{Path: "id_rsa", SHA256: hex.EncodeToString(digest[:])}}})
+	if err != nil || !contains(syncbundle.ManifestPaths(manifest), "baseline/id_rsa") {
+		t.Fatalf("reviewed fixture lost: %+v %v", manifest, err)
+	}
+}
+
+func TestDisabledUntrackedUploadReportsOmittedTest(t *testing.T) {
+	repo := t.TempDir()
+	initRepo(t, repo)
+	writeFile(t, repo, "source.go", "package example\n")
+	runGitTest(t, repo, "add", ".")
+	runGitTest(t, repo, "commit", "-m", "baseline")
+	writeFile(t, repo, "new_test.go", "package example\n")
+	disabled := false
+	var archive bytes.Buffer
+	built, err := BuildWithOptions(context.Background(), repo, &archive, BuildOptions{IncludeUntracked: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(built.UntrackedFiles) != 0 || len(built.OmittedUntrackedFiles) != 1 || built.OmittedUntrackedFiles[0] != "new_test.go" {
+		t.Fatalf("omission invisible: %+v", built)
 	}
 }

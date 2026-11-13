@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -37,30 +38,58 @@ func normalizeExcludePattern(pattern string) string {
 }
 
 var defaultSourceExcludePatterns = []string{
-	".env*",
-	".git",
+	".env*", ".git",
+	"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+	".git-credentials", "**/.aws/credentials",
 }
 
 var defaultUntrackedExcludePatterns = []string{
-	"apps/web/.next",
-	"coverage",
-	"dist",
-	"node_modules",
-	"target",
+	"apps/web/.next", "coverage", "dist", "node_modules", "target",
+	".npmrc", ".npmrc.local", ".pypirc", ".netrc",
+	"credentials.json", "service-account.json", "application_default_credentials.json",
+	"**/.docker/config.json", ".ssh", "kubeconfig",
+}
+
+// RequiresReviewedSourcePath identifies private-key and credential-store paths
+// that must fail packaging rather than silently remove tracked source.
+func RequiresReviewedSourcePath(rel string) bool {
+	for _, pattern := range defaultSourceExcludePatterns {
+		if pattern != ".git" && pattern != ".env*" && PathMatchesExcludePatterns([]string{pattern}, rel) {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultSourceExcludePatterns returns confidentiality and VCS exclusions that
 // apply to both tracked and untracked source. Registered policy bindings carry
 // this exact list instead of relying on hidden client behavior.
 func DefaultSourceExcludePatterns() []string {
-	return append([]string(nil), defaultSourceExcludePatterns...)
+	patterns := append([]string(nil), defaultSourceExcludePatterns...)
+	sort.Strings(patterns)
+	return patterns
 }
 
-// DefaultUntrackedExcludePatterns returns generated-output exclusions. Git
+// ReviewableSourceExclude reports whether an exact fixture may bypass this
+// built-in confidentiality rule. Additional policy rules and Git metadata
+// remain exclusions even when a fixture is reviewed.
+func ReviewableSourceExclude(pattern string) bool {
+	for _, candidate := range defaultSourceExcludePatterns {
+		if candidate == pattern && candidate != ".git" {
+			return true
+		}
+	}
+	return false
+}
+
+// DefaultUntrackedExcludePatterns returns generated-output and credential-name
+// exclusions for untracked files. Git
 // tracked source is preserved even when a directory has a conventional build
 // output name. Explicit exclusions apply to tracked source too.
 func DefaultUntrackedExcludePatterns() []string {
-	return append([]string(nil), defaultUntrackedExcludePatterns...)
+	patterns := append([]string(nil), defaultUntrackedExcludePatterns...)
+	sort.Strings(patterns)
+	return patterns
 }
 
 // PathMatchesExcludePatterns reports whether a repository-relative path is
@@ -81,13 +110,18 @@ func PathMatchesExcludePatterns(patterns []string, rel string) bool {
 		if pattern == "." {
 			continue
 		}
-		// Match ancestors too: excluding a directory, including one selected
-		// by a glob, excludes all of its descendants. ** spans path segments.
-		for candidate := rel; candidate != "."; candidate = path.Dir(candidate) {
-			if ok, _ := doublestar.Match(pattern, candidate); ok {
-				return true
-			}
-			if ok, _ := doublestar.Match(pattern, path.Base(candidate)); ok {
+		if ok, _ := doublestar.Match(pattern, rel); ok {
+			return true
+		}
+		// Match directory descendants in one pass. Matching every ancestor
+		// separately repeatedly rescans deep paths for patterns containing **.
+		if ok, _ := doublestar.Match(pattern+"/**", rel); ok {
+			return true
+		}
+		// Basename matching also applies to every directory component, even
+		// when the full pattern only matches paths rooted at the repository.
+		for component := range strings.SplitSeq(rel, "/") {
+			if ok, _ := doublestar.Match(pattern, component); ok {
 				return true
 			}
 		}

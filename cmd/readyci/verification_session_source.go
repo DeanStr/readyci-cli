@@ -537,9 +537,13 @@ func watchVerificationSession(ctx context.Context, client *api.Client, sessionID
 		}
 		latest = session
 		for _, node := range session.Nodes {
-			if previous[node.ID] != node.Status {
-				emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressNodeStatus, RunName: node.Name, RunID: node.ID, Status: node.Status})
-				previous[node.ID] = node.Status
+			status := node.Status
+			if node.Scheduling.Reason == preflightapi.VerificationCapacityWaitReason {
+				status = node.Scheduling.Reason
+			}
+			if previous[node.ID] != status {
+				emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressNodeStatus, RunName: node.Name, RunID: node.ID, Status: status})
+				previous[node.ID] = status
 			}
 		}
 		if err := logs.observe(ctx, client, session); err != nil {

@@ -38,7 +38,7 @@ func validateSourceFilterEntries(manifest Manifest) error {
 				return fmt.Errorf("source policy excludes %s entry %q", group.name, entry.Path)
 			}
 			for _, pattern := range defaults {
-				if pattern == ".env*" && (IsPublicEnvExamplePath(entry.Path) || reviewed[entry.Path]) {
+				if pattern == ".env*" && IsPublicEnvExamplePath(entry.Path) || ReviewableSourceExclude(pattern) && reviewed[entry.Path] {
 					continue
 				}
 				if PathMatchesExcludePatterns([]string{pattern}, entry.Path) {

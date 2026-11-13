@@ -12,11 +12,17 @@ import (
 
 type IPValidator func(netip.Addr) bool
 
+// MaxAllowlistEntries bounds validation, DNS work and host firewall size.
+const MaxAllowlistEntries = 128
+
 func NormalizeAllowlistEntries(entries []string) ([]string, error) {
 	return NormalizeAllowlistEntriesWithIPValidator(entries, BasicPublicIPv4)
 }
 
 func NormalizeAllowlistEntriesWithIPValidator(entries []string, validator IPValidator) ([]string, error) {
+	if len(entries) > MaxAllowlistEntries {
+		return nil, fmt.Errorf("network allowlist exceeds %d entries", MaxAllowlistEntries)
+	}
 	seen := make(map[string]struct{})
 	out := make([]string, 0, len(entries))
 	for _, entry := range entries {

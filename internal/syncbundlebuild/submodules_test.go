@@ -214,3 +214,34 @@ func TestChangingPinnedCommitWithIdenticalFilesChangesSourceIdentity(t *testing.
 		t.Fatal("different pins with identical trees shared source identity")
 	}
 }
+
+// A tracked file inside a pinned submodule that a sync rule removes is absent
+// from the remote workspace like any other, so it is reported too.
+func TestOmittedTrackedFilesIncludeSubmoduleFiles(t *testing.T) {
+	parent, _ := pinnedSubmoduleFixture(t)
+	var archive bytes.Buffer
+	result, err := BuildWithOptions(context.Background(), parent, &archive, BuildOptions{ExcludePatterns: []string{"vendor/library/library.txt"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, files, err := syncbundle.ReadBundleContents(bytes.NewReader(archive.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, uploaded := files["baseline/vendor/library/library.txt"]; uploaded {
+		t.Fatal("excluded submodule file was uploaded")
+	}
+	if want := []string{"vendor/library/library.txt"}; !reflect.DeepEqual(result.OmittedTrackedFiles, want) {
+		t.Fatalf("omitted tracked files = %v, want %v", result.OmittedTrackedFiles, want)
+	}
+
+	// Excluding the whole module reports the module once, not each file in it.
+	archive.Reset()
+	result, err = BuildWithOptions(context.Background(), parent, &archive, BuildOptions{ExcludePatterns: []string{"vendor/library"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"vendor/library"}; !reflect.DeepEqual(result.OmittedTrackedFiles, want) {
+		t.Fatalf("omitted tracked files for an excluded module = %v, want %v", result.OmittedTrackedFiles, want)
+	}
+}

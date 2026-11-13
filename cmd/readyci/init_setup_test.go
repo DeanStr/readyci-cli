@@ -162,24 +162,28 @@ func TestDetectedTemplateKeepsExampleEnvFilesSyncable(t *testing.T) {
 		t.Fatal(err)
 	}
 	runGitForCLITest(t, "init")
-	for name, data := range map[string]string{".env": "private", ".env.example": "example"} {
+	for name, data := range map[string]string{".env": "private", ".env.example": "example", "new_test.go": "package example\n"} {
 		if err := os.WriteFile(filepath.Join(repo, name), []byte(data), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	manifest, err := syncbundlebuild.SnapshotWithOptions(context.Background(), repo, syncbundlebuild.BuildOptions{ExcludePatterns: cfg.Sync.Exclude, IncludeUntracked: boolPtr(true)})
+	manifest, err := syncbundlebuild.SnapshotWithOptions(context.Background(), repo, syncbundlebuild.BuildOptions{ExcludePatterns: cfg.Sync.Exclude, IncludeUntracked: cfg.Sync.IncludeUntracked})
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	found, foundTest := false, false
 	for _, entry := range manifest.Workspace {
 		if entry.Path == ".env" {
 			t.Fatal("generated config uploaded .env")
 		}
 		found = found || entry.Path == ".env.example"
+		foundTest = foundTest || entry.Path == "new_test.go"
 	}
 	if !found {
 		t.Fatal("generated config excluded .env.example")
+	}
+	if !foundTest {
+		t.Fatal("generated config omitted a new untracked test")
 	}
 
 }

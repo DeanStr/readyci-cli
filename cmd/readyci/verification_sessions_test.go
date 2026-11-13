@@ -601,11 +601,12 @@ func TestRegisteredPolicyBuildOptionsOverrideCandidateSourceFilter(t *testing.T)
 		IncludeUntracked: &includeCandidate,
 	}
 	active := &syncbundle.SourcePolicyBinding{
-		Digest:                 "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-		ExcludePatterns:        []string{"trusted-generated/**"},
-		DefaultExcludePatterns: syncbundle.DefaultSourceExcludePatterns(),
-		IncludeUntracked:       true,
-		ProjectIgnoreUsed:      false,
+		Digest:                          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ExcludePatterns:                 []string{"trusted-generated/**"},
+		DefaultExcludePatterns:          syncbundle.DefaultSourceExcludePatterns(),
+		DefaultUntrackedExcludePatterns: syncbundle.DefaultUntrackedExcludePatterns(),
+		IncludeUntracked:                true,
+		ProjectIgnoreUsed:               false,
 	}
 	options, err := registeredPolicyBuildOptions(fallback, active)
 	if err != nil {
@@ -622,6 +623,9 @@ func TestRegisteredPolicyBuildOptionsOverrideCandidateSourceFilter(t *testing.T)
 	}
 	if !reflect.DeepEqual(options.DefaultExcludePatterns, syncbundle.DefaultSourceExcludePatterns()) {
 		t.Fatalf("registered default excludes = %v, want trusted binding %v", options.DefaultExcludePatterns, syncbundle.DefaultSourceExcludePatterns())
+	}
+	if !reflect.DeepEqual(options.DefaultUntrackedExcludePatterns, active.DefaultUntrackedExcludePatterns) {
+		t.Fatalf("server untracked rules lost: %v", options.DefaultUntrackedExcludePatterns)
 	}
 	if options.SourcePolicyDigest != active.Digest {
 		t.Fatalf("source policy digest = %q, want %q", options.SourcePolicyDigest, active.Digest)

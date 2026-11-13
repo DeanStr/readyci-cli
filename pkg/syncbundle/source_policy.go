@@ -244,7 +244,7 @@ func SourcePolicyAllowsPath(binding SourcePolicyBinding, rel string, untracked b
 		}
 	}
 	for _, pattern := range append(DefaultSourceExcludePatterns(), binding.DefaultExcludePatterns...) {
-		if pattern == ".env*" && (IsPublicEnvExamplePath(rel) || reviewed) {
+		if pattern == ".env*" && IsPublicEnvExamplePath(rel) || ReviewableSourceExclude(pattern) && reviewed {
 			continue
 		}
 		if PathMatchesExcludePatterns([]string{pattern}, rel) {

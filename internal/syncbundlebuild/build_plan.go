@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,11 +64,14 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	if err != nil {
 		return plannedBundle{}, err
 	}
-	trackedPaths, indexModes, err := eligibleIndexPaths(ctx, root, matcher, changeMode)
+	trackedPaths, indexModes, omittedTracked, err := eligibleIndexPaths(ctx, root, matcher, changeMode)
 	if err != nil {
 		return plannedBundle{}, err
 	}
-	untrackedFiles, err := planIncludedUntrackedFiles(ctx, root, matcher, includeUntracked, changeMode)
+	omittedTracked = append(omittedTracked, submodules.omitted...)
+	sort.Strings(omittedTracked)
+	omittedTracked = slices.Compact(omittedTracked)
+	untrackedFiles, omittedUntracked, err := planIncludedUntrackedFiles(ctx, root, matcher, includeUntracked, changeMode)
 	if err != nil {
 		return plannedBundle{}, err
 	}
@@ -143,12 +147,14 @@ func planSource(ctx context.Context, cwd string, options BuildOptions, contentMo
 	}
 
 	return plannedBundle{
-		root:             root,
-		manifest:         manifest,
-		baseline:         baseline,
-		workspace:        workspace,
-		includeUntracked: includeUntracked,
-		untrackedFiles:   untrackedFiles,
+		root:                  root,
+		manifest:              manifest,
+		baseline:              baseline,
+		workspace:             workspace,
+		includeUntracked:      includeUntracked,
+		untrackedFiles:        untrackedFiles,
+		omittedUntrackedFiles: omittedUntracked,
+		omittedTrackedFiles:   omittedTracked,
 	}, nil
 }
 
@@ -184,33 +190,36 @@ func readProjectIgnore(root string) ([]string, error) {
 	return nil, nil
 }
 
-func planIncludedUntrackedFiles(ctx context.Context, root string, matcher ignoreMatcher, includeUntracked bool, changeMode string) ([]string, error) {
-	if !includeUntracked || changeMode == syncbundle.ChangeModeStaged {
-		return nil, nil
-	}
+func planIncludedUntrackedFiles(ctx context.Context, root string, matcher ignoreMatcher, includeUntracked bool, changeMode string) ([]string, []string, error) {
 	out, err := gitOutput(ctx, root, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var paths []string
+	var paths, omitted []string
 	seen := make(map[string]struct{})
 	for _, raw := range splitNUL(out) {
+		if !includeUntracked || changeMode == syncbundle.ChangeModeStaged {
+			omitted = append(omitted, raw)
+			continue
+		}
 		rel, err := syncbundle.ValidateRelativePath(raw)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if matcher.ignored(rel) {
+			omitted = append(omitted, rel)
 			continue
 		}
 		if ancestor, ok, err := symlinkAncestor(root, rel); err != nil {
-			return nil, err
+			return nil, nil, err
 		} else if ok && matcher.ignored(ancestor) {
+			omitted = append(omitted, rel)
 			continue
 		}
 		// Git collapses an untracked nested repository into a directory record.
 		// It does not enumerate an eligible set of files inside that checkout.
 		if strings.HasSuffix(raw, "/") {
-			return nil, fmt.Errorf("%w: untracked directory %q is unsupported; exclude nested repositories explicitly or use a checkout without them", ErrUnsupportedRepository, rel)
+			return nil, nil, fmt.Errorf("%w: untracked directory %q is unsupported; exclude nested repositories explicitly or use a checkout without them", ErrUnsupportedRepository, rel)
 		}
 		if _, ok := seen[rel]; ok {
 			continue
@@ -219,7 +228,8 @@ func planIncludedUntrackedFiles(ctx context.Context, root string, matcher ignore
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
-	return paths, nil
+	sort.Strings(omitted)
+	return paths, omitted, nil
 }
 
 func planBaseline(ctx context.Context, root, head string, matcher ignoreMatcher, contentMode sourceContentMode) ([]plannedEntry, error) {
@@ -246,6 +256,9 @@ func planBaseline(ctx context.Context, root, head string, matcher ignoreMatcher,
 		if err != nil {
 			return nil, err
 		}
+		if err := matcher.validateTrackedPath(rel); err != nil {
+			return nil, err
+		}
 		if matcher.ignoredTracked(rel) {
 			continue
 		}
@@ -262,44 +275,52 @@ func planBaseline(ctx context.Context, root, head string, matcher ignoreMatcher,
 
 // eligibleIndexPaths defines file eligibility independently of Git's diff and
 // stat cache. Tracked paths authorize themselves, never a directory's children.
-func eligibleIndexPaths(ctx context.Context, root string, matcher ignoreMatcher, changeMode string) ([]string, map[string]int64, error) {
+// eligibleIndexPaths also returns the tracked paths that sync rules remove.
+// Those files exist locally but not in the remote workspace, so callers report
+// them instead of dropping them silently.
+func eligibleIndexPaths(ctx context.Context, root string, matcher ignoreMatcher, changeMode string) ([]string, map[string]int64, []string, error) {
 	out, err := gitOutput(ctx, root, "ls-files", "-v", "-s", "-z", "--cached")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	var paths []string
+	var paths, omitted []string
 	indexModes := make(map[string]int64)
 	for _, record := range splitNUL(out) {
 		if len(record) < 3 || record[1] != ' ' {
-			return nil, nil, fmt.Errorf("parse git index flags %q", record)
+			return nil, nil, nil, fmt.Errorf("parse git index flags %q", record)
 		}
 		mode, _, stage, rel, err := parseIndexRecord(record[2:])
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		rel, err = syncbundle.ValidateRelativePath(rel)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
+		}
+		if err := matcher.validateTrackedPath(rel); err != nil {
+			return nil, nil, nil, err
 		}
 		if matcher.ignoredTracked(rel) {
+			omitted = append(omitted, rel)
 			continue
 		}
 		if mode == "160000" {
 			continue // Validated and flattened by planPinnedSubmodules.
 		}
 		if err := validateSourceGitMode(mode, rel); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if stage != "0" {
-			return nil, nil, fmt.Errorf("path %q has unresolved merge stage %s", rel, stage)
+			return nil, nil, nil, fmt.Errorf("path %q has unresolved merge stage %s", rel, stage)
 		}
 		if changeMode != syncbundle.ChangeModeStaged && (record[0] == 'S' || record[0] == 's') {
-			return nil, nil, fmt.Errorf("%w: path %q has skip-worktree set; sparse or partial working checkouts are unsupported; use a full checkout or staged mode", ErrUnsupportedRepository, rel)
+			return nil, nil, nil, fmt.Errorf("%w: path %q has skip-worktree set; sparse or partial working checkouts are unsupported; use a full checkout or staged mode", ErrUnsupportedRepository, rel)
 		}
 		paths = append(paths, rel)
 		indexModes[rel] = gitModeToFileMode(mode)
 	}
-	return paths, indexModes, nil
+	sort.Strings(omitted)
+	return paths, indexModes, omitted, nil
 }
 
 func validateSourceGitMode(mode, rel string) error {

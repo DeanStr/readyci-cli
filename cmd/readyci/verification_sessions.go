@@ -121,7 +121,7 @@ func createAndWatchVerificationSession(options verificationSessionOptions) (sess
 		options.Timings.PackageMS = time.Since(packagedAt).Milliseconds()
 		options.Timings.UploadBytes = bundle.Size
 	}
-	printUntrackedUploadWarning(bundle)
+	printSourceUploadSummary(bundle)
 	emitAgentProgress(progress, agentProgressEvent{Kind: agentProgressWorkspacePackaged, SizeBytes: bundle.Size})
 	req, err := verificationSessionRequest(options, intent, remote, projectID, bundle, buildOptions, matched, mode, warmPlans, plans)
 	if err != nil {

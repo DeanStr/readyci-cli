@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -269,5 +271,56 @@ checks:
 		if err := syncCommand(args); err != nil {
 			t.Fatalf("syncCommand(%v) error = %v", args, err)
 		}
+	}
+}
+
+// A tracked file removed by the confidentiality rules makes the remote
+// workspace differ from the local one, so the upload has to say so.
+func TestSyncReportsTrackedFilesOmittedBySyncRules(t *testing.T) {
+	cliTestWorkingDirectoryMu.Lock()
+	defer cliTestWorkingDirectoryMu.Unlock()
+
+	repo := t.TempDir()
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir repo: %v", err)
+	}
+	defer func() {
+		if err := os.Chdir(previousDir); err != nil {
+			t.Fatalf("restore wd: %v", err)
+		}
+	}()
+
+	runGitForCLITest(t, "init")
+	runGitForCLITest(t, "config", "user.email", "readyci@example.invalid")
+	runGitForCLITest(t, "config", "user.name", "Ready CI")
+	for name, content := range map[string]string{"main.go": "package main\n", ".env.test": "PUBLIC_FIXTURE=1\n", ".env.example": "PUBLIC_FIXTURE=\n", "skipped.txt": "excluded\n"} {
+		if err := os.WriteFile(name, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	runGitForCLITest(t, "add", "-f", ".")
+	runGitForCLITest(t, "commit", "-m", "init")
+
+	cfg := config.ProjectConfig{Sync: config.SyncConfig{Exclude: []string{"skipped.txt"}}}
+	report, err := buildSyncDryRunReport(context.Background(), repo, cfg, "", syncDryRunOptions{})
+	if err != nil {
+		t.Fatalf("build dry-run report: %v", err)
+	}
+	if !contains(report.BaselineFiles, "main.go") || !contains(report.BaselineFiles, ".env.example") || contains(report.BaselineFiles, ".env.test") {
+		t.Fatalf("baseline files = %v, want main.go and the public example without .env.test", report.BaselineFiles)
+	}
+	if want := []string{".env.test", "skipped.txt"}; !reflect.DeepEqual(report.OmittedTrackedFiles, want) {
+		t.Fatalf("omitted tracked files = %v, want %v", report.OmittedTrackedFiles, want)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"omitted_tracked_files":[".env.test","skipped.txt"]`) {
+		t.Fatalf("dry-run JSON does not name the omitted tracked files: %s", encoded)
 	}
 }

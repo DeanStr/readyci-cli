@@ -15,11 +15,14 @@ import (
 type pinnedSubmoduleSource struct {
 	entries []plannedEntry
 	pins    []syncbundle.Submodule
+	// omitted are tracked module paths that sync rules remove from the upload.
+	omitted []string
 }
 
 type submoduleGitView struct {
-	files []gitSourceEntry
-	pins  map[string]string
+	files   []gitSourceEntry
+	pins    map[string]string
+	omitted []string
 }
 
 // planPinnedSubmodules snapshots only locally initialized, unchanged Git pins.
@@ -119,6 +122,7 @@ func collectPinnedSubmodule(ctx context.Context, root string, workspace *os.Root
 	}
 	planned.pins = append(planned.pins, syncbundle.Submodule{Path: rel, Commit: commit})
 	planned.entries = append(planned.entries, entries...)
+	planned.omitted = append(planned.omitted, before.omitted...)
 	if len(planned.entries) >= syncbundle.MaxBundleEntries {
 		return fmt.Errorf("%w: recursive submodule source exceeds %d archive entries", ErrUnsupportedRepository, syncbundle.MaxBundleEntries)
 	}
@@ -166,7 +170,15 @@ func submoduleView(ctx context.Context, root, prefix, commit string, index bool,
 		if err != nil {
 			return view, err
 		}
+		if err := matcher.validateTrackedPath(rel); err != nil {
+			return view, err
+		}
 		if matcher.ignoredTracked(rel) {
+			// The ordinary planner reports the superproject's own omissions,
+			// including a module excluded as a whole.
+			if prefix != "" {
+				view.omitted = append(view.omitted, rel)
+			}
 			continue
 		}
 		if prefix == "" && mode != "160000" {

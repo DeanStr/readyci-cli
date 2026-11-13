@@ -315,6 +315,8 @@ type VerificationCurrentnessObservation struct {
 	ObservedBy             string    `json:"observed_by,omitempty"`
 }
 
+const VerificationCapacityWaitReason = "waiting for queue capacity"
+
 // VerificationNodeScheduling is a service-derived explanation of why a
 // logical node has or has not received a physical attempt. It is deliberately
 // separate from Status: status reports execution outcome, while scheduling

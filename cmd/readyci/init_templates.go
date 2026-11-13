@@ -26,7 +26,7 @@ func remoteCIProjectTemplateWithProfile(projectID, image, profile string) string
 	return fmt.Sprintf(`version: 1
 project_id: %s
 %ssync:
-  include_untracked: false
+  include_untracked: true
   # Built-in filtering excludes .env*, build outputs, and dependency directories.
   exclude: [".npmrc*", "test-results", "tmp"]
 
@@ -66,7 +66,7 @@ func remoteCIProjectTemplateWithStandardHelpers(projectID, image, profile string
 	return fmt.Sprintf(`version: 1
 project_id: %s
 %ssync:
-  include_untracked: false
+  include_untracked: true
   # Built-in filtering excludes .env*, build outputs, and dependency directories.
   exclude: [".npmrc*", "test-results", "tmp"]
 

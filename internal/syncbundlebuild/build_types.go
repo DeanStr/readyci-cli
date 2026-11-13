@@ -7,12 +7,16 @@ import (
 )
 
 type BuildResult struct {
-	SourceViews      map[string]syncbundle.Manifest
-	Root             string
-	Manifest         syncbundle.Manifest
-	Size             int64
-	IncludeUntracked bool
-	UntrackedFiles   []string
+	SourceViews           map[string]syncbundle.Manifest
+	Root                  string
+	Manifest              syncbundle.Manifest
+	Size                  int64
+	IncludeUntracked      bool
+	UntrackedFiles        []string
+	OmittedUntrackedFiles []string
+	// OmittedTrackedFiles are tracked paths removed by sync rules: present in
+	// the local checkout, absent from the remote workspace.
+	OmittedTrackedFiles []string
 }
 
 type BuildOptions struct {
@@ -64,10 +68,12 @@ type plannedEntry struct {
 }
 
 type plannedBundle struct {
-	root             string
-	manifest         syncbundle.Manifest
-	baseline         []plannedEntry
-	workspace        []plannedEntry
-	includeUntracked bool
-	untrackedFiles   []string
+	root                  string
+	manifest              syncbundle.Manifest
+	baseline              []plannedEntry
+	workspace             []plannedEntry
+	includeUntracked      bool
+	untrackedFiles        []string
+	omittedUntrackedFiles []string
+	omittedTrackedFiles   []string
 }
