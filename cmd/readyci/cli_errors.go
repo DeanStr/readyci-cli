@@ -259,6 +259,7 @@ func normalizeCodedAPIError(responseErr api.ResponseError, cause error) (cliErro
 		"verification_session_not_terminal":             {preflightapi.ClassificationStateConflict, cliExitTemporaryUnavailable, true},
 		"verification_session_not_open":                 {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		"idempotency_key_reused":                        {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
+		"predecessor_has_successor":                     {preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		"verification_task_mismatch":                    {preflightapi.ClassificationConfigInvalid, cliExitUsageOrConfig, false},
 		"verification_source_expired":                   {preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
 		"verification_source_policy_changed":            {preflightapi.ClassificationPreconditionFailed, cliExitAuthOrPolicy, false},

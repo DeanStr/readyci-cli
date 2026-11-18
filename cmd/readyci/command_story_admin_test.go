@@ -147,19 +147,22 @@ func TestAdminCommandStoriesExerciseTokenTeamWorkerAndStorageControls(t *testing
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminDeleteWorkerResponse{WorkerID: "worker_story", Deleted: true, ClearedRunReferences: 1, DeletedCacheLanes: 2})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/admin/queue/status":
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminQueueStatusResponse{
-				AwaitingUploadRuns:             1,
-				StaleAwaitingUploadRuns:        1,
-				OldestAwaitingUploadAgeSeconds: 901,
-				QueuedRuns:                     2,
-				ScheduledRuns:                  3,
-				RunningRuns:                    4,
-				StaleLeases:                    1,
-				FreshWorkers:                   5,
-				StaleWorkers:                   6,
-				PlatformEvents:                 7,
-				PlatformDiscards:               8,
-				PlatformErrors:                 9,
-				UpdatedAt:                      fixed,
+				AwaitingUploadRuns:                    1,
+				StaleAwaitingUploadRuns:               1,
+				OldestAwaitingUploadAgeSeconds:        901,
+				QueuedRuns:                            2,
+				ScheduledRuns:                         3,
+				RunningRuns:                           4,
+				StaleLeases:                           1,
+				RetiredArtifactObjects:                3,
+				StaleRetiredArtifactObjects:           2,
+				OldestRetiredArtifactObjectAgeSeconds: 1200,
+				FreshWorkers:                          5,
+				StaleWorkers:                          6,
+				PlatformEvents:                        7,
+				PlatformDiscards:                      8,
+				PlatformErrors:                        9,
+				UpdatedAt:                             fixed,
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/admin/queue/explain/run_story":
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminQueueExplainResponse{
@@ -335,7 +338,7 @@ func TestAdminCommandStoriesExerciseTokenTeamWorkerAndStorageControls(t *testing
 		t.Fatalf("delete worker reason = %q, want retired", deleteWorkerReq.Reason)
 	}
 
-	requireCLITestCommandOutputContains(t, "admin queue status", func() error { return adminQueueStatusCommand(adminArgs) }, "queued_runs: 2", "stale_awaiting_upload_runs: 1", "oldest_awaiting_upload_age_seconds: 901", "stale_leases: 1", "fresh_workers: 5", "platform_events: 7", "platform_event_discards: 8", "platform_event_errors: 9")
+	requireCLITestCommandOutputContains(t, "admin queue status", func() error { return adminQueueStatusCommand(adminArgs) }, "queued_runs: 2", "stale_awaiting_upload_runs: 1", "oldest_awaiting_upload_age_seconds: 901", "stale_leases: 1", "retired_artifact_objects: 3", "stale_retired_artifact_objects: 2", "oldest_retired_artifact_object_age_seconds: 1200", "fresh_workers: 5", "platform_events: 7", "platform_event_discards: 8", "platform_event_errors: 9")
 
 	requireCLITestCommandOutputContains(t, "admin queue explain", func() error {
 		return adminQueueExplainCommand(append(adminArgs, "run_story"))

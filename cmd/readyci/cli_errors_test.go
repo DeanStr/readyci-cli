@@ -189,6 +189,7 @@ func TestNormalizeCLIErrorUsesStableAPICodesBeforeStatus(t *testing.T) {
 		{"verification_source_direct_upload_unavailable", http.StatusServiceUnavailable, preflightapi.ClassificationPlatformInternalError, cliExitTemporaryUnavailable, true},
 		{"verification_source_legacy_ingress_retired", http.StatusGone, preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
 		{"idempotency_key_reused", http.StatusConflict, preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
+		{"predecessor_has_successor", http.StatusConflict, preflightapi.ClassificationStateConflict, cliExitUsageOrConfig, false},
 		{"verification_source_expired", http.StatusGone, preflightapi.ClassificationPreconditionFailed, cliExitUsageOrConfig, false},
 		{"verification_source_policy_changed", http.StatusPreconditionFailed, preflightapi.ClassificationPreconditionFailed, cliExitAuthOrPolicy, false},
 		{"source_upload_incomplete", http.StatusConflict, preflightapi.ClassificationStateConflict, cliExitTemporaryUnavailable, true},

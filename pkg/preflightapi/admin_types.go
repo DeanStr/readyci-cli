@@ -6,24 +6,29 @@ import (
 )
 
 type AdminQueueStatusResponse struct {
-	AwaitingUploadRuns             int       `json:"awaiting_upload_runs"`
-	StaleAwaitingUploadRuns        int       `json:"stale_awaiting_upload_runs"`
-	OldestAwaitingUploadAgeSeconds int64     `json:"oldest_awaiting_upload_age_seconds"`
-	QueuedRuns                     int       `json:"queued_runs"`
-	CapacityWaitingRuns            int       `json:"capacity_waiting_runs"`
-	ScheduledRuns                  int       `json:"scheduled_runs"`
-	StartingVMRuns                 int       `json:"starting_vm_runs"`
-	RunningRuns                    int       `json:"running_runs"`
-	BlockedRuns                    int       `json:"blocked_runs"`
-	DeniedRuns                     int       `json:"denied_runs"`
-	StaleLeases                    int       `json:"stale_leases"`
-	FreshWorkers                   int       `json:"fresh_workers"`
-	StaleWorkers                   int       `json:"stale_workers"`
-	DrainingWorkers                int       `json:"draining_workers"`
-	PlatformEvents                 int64     `json:"platform_events"`
-	PlatformDiscards               int64     `json:"platform_event_discards"`
-	PlatformErrors                 int64     `json:"platform_event_errors"`
-	UpdatedAt                      time.Time `json:"updated_at"`
+	AwaitingUploadRuns             int   `json:"awaiting_upload_runs"`
+	StaleAwaitingUploadRuns        int   `json:"stale_awaiting_upload_runs"`
+	OldestAwaitingUploadAgeSeconds int64 `json:"oldest_awaiting_upload_age_seconds"`
+	QueuedRuns                     int   `json:"queued_runs"`
+	CapacityWaitingRuns            int   `json:"capacity_waiting_runs"`
+	ScheduledRuns                  int   `json:"scheduled_runs"`
+	StartingVMRuns                 int   `json:"starting_vm_runs"`
+	RunningRuns                    int   `json:"running_runs"`
+	BlockedRuns                    int   `json:"blocked_runs"`
+	DeniedRuns                     int   `json:"denied_runs"`
+	StaleLeases                    int   `json:"stale_leases"`
+	// Artifact objects whose rows a claim retirement removed and whose
+	// deletion from object storage has not succeeded yet.
+	RetiredArtifactObjects                int       `json:"retired_artifact_objects"`
+	StaleRetiredArtifactObjects           int       `json:"stale_retired_artifact_objects"`
+	OldestRetiredArtifactObjectAgeSeconds int64     `json:"oldest_retired_artifact_object_age_seconds"`
+	FreshWorkers                          int       `json:"fresh_workers"`
+	StaleWorkers                          int       `json:"stale_workers"`
+	DrainingWorkers                       int       `json:"draining_workers"`
+	PlatformEvents                        int64     `json:"platform_events"`
+	PlatformDiscards                      int64     `json:"platform_event_discards"`
+	PlatformErrors                        int64     `json:"platform_event_errors"`
+	UpdatedAt                             time.Time `json:"updated_at"`
 }
 
 type AdminQueueExplainResponse struct {

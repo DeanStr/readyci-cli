@@ -18,37 +18,100 @@ func TestStepDeadlineKillsTermResistantChildrenAndRunsCleanup(t *testing.T) {
 		"trap '' TERM; (sleep 8; printf leaked > leaked.txt) & wait",
 		"bash -c 'trap \"\" TERM; sleep 8; printf leaked > leaked.txt' & wait",
 	} {
-		t.Run(testCommand, func(t *testing.T) {
-			command, err := CommandForRunSpec(RunSpec{Steps: []preflightapi.RunStepSpec{
-				{Name: "test", TimeoutSeconds: 1, Command: testCommand},
-				{Name: "after", Command: "printf after > after.txt"},
-				{Name: "cleanup", Command: "printf cleanup > cleanup.txt", Always: true},
-			}})
+		for _, shellOptions := range []string{"", "monitor"} {
+			t.Run(shellOptions+"/"+testCommand, func(t *testing.T) {
+				command, err := CommandForRunSpec(RunSpec{Steps: []preflightapi.RunStepSpec{
+					{Name: "test", TimeoutSeconds: 1, Command: testCommand},
+					{Name: "after", Command: "printf after > after.txt"},
+					{Name: "cleanup", Command: "printf cleanup > cleanup.txt", Always: true},
+				}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				workdir := t.TempDir()
+				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, "/bin/bash", "-lc", command)
+				cmd.Dir = workdir
+				cmd.Env = append(os.Environ(), "SHELLOPTS="+shellOptions)
+				start := time.Now()
+				out, err := cmd.CombinedOutput()
+				if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 124 {
+					t.Fatalf("exit = %v, want timeout 124; output=%s", err, out)
+				}
+				if elapsed := time.Since(start); elapsed > 4*time.Second {
+					t.Fatalf("one-second step exceeded termination grace: %s", elapsed)
+				}
+				if _, err := os.Stat(filepath.Join(workdir, "cleanup.txt")); err != nil {
+					t.Fatalf("always step did not execute: %v", err)
+				}
+				for _, name := range []string{"after.txt", "leaked.txt"} {
+					if _, err := os.Stat(filepath.Join(workdir, name)); !os.IsNotExist(err) {
+						t.Fatalf("unexpected %s: %v", name, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestStepDeadlineRejectsUnsupportedTimeoutBeforeRunningCommand(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "timeout"), []byte("#!/bin/bash\nprintf 'timeout (uutils coreutils) test\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, seconds := range []int{0, 1} {
+		cmd := exec.Command("/bin/bash", "--noprofile", "--norc", "-c", StepCommand("printf executed", seconds))
+		cmd.Env = append(os.Environ(), "PATH="+bin)
+		out, err := cmd.CombinedOutput()
+		if seconds == 0 {
+			if err != nil || string(out) != "executed" {
+				t.Fatalf("untimed step requires timeout: output=%q err=%v", out, err)
+			}
+			continue
+		}
+		if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 125 || !strings.Contains(string(out), "require GNU coreutils timeout") || strings.Contains(string(out), "executed") {
+			t.Fatalf("unsupported timeout ran command or lost diagnostic: output=%q err=%v", out, err)
+		}
+	}
+}
+
+func TestStepDeadlineSelectsGNUTimeoutAlongsideUutils(t *testing.T) {
+	var gnuTimeout string
+	for _, candidate := range []string{"timeout", "gnutimeout"} {
+		out, err := exec.Command(candidate, "--version").Output()
+		if err == nil && strings.HasPrefix(string(out), "timeout (GNU coreutils) ") {
+			gnuTimeout, err = exec.LookPath(candidate)
 			if err != nil {
 				t.Fatal(err)
 			}
-			workdir := t.TempDir()
-			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, "/bin/bash", "-lc", command)
-			cmd.Dir = workdir
-			start := time.Now()
-			out, err := cmd.CombinedOutput()
-			if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 124 {
-				t.Fatalf("exit = %v, want timeout 124; output=%s", err, out)
-			}
-			if elapsed := time.Since(start); elapsed > 4*time.Second {
-				t.Fatalf("one-second step exceeded termination grace: %s", elapsed)
-			}
-			if _, err := os.Stat(filepath.Join(workdir, "cleanup.txt")); err != nil {
-				t.Fatalf("always step did not execute: %v", err)
-			}
-			for _, name := range []string{"after.txt", "leaked.txt"} {
-				if _, err := os.Stat(filepath.Join(workdir, name)); !os.IsNotExist(err) {
-					t.Fatalf("unexpected %s: %v", name, err)
-				}
-			}
-		})
+			break
+		}
+	}
+	if gnuTimeout == "" {
+		t.Fatal("test environment requires GNU coreutils timeout")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "timeout"), []byte("#!/bin/bash\nprintf 'timeout (uutils coreutils) test\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gnuTimeout, filepath.Join(bin, "gnutimeout")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"mktemp", "grep", "cat", "rm"} {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(path, filepath.Join(bin, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("/bin/bash", "--noprofile", "--norc", "-c", StepCommand("printf stdout; printf stderr >&2; exit 137", 10))
+	cmd.Env = append(os.Environ(), "PATH="+bin)
+	out, err := cmd.CombinedOutput()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 137 || string(out) != "stdoutstderr" {
+		t.Fatalf("GNU timeout selection changed command exit or streams: output=%q err=%v", out, err)
 	}
 }
 
