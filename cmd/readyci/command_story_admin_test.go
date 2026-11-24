@@ -147,22 +147,25 @@ func TestAdminCommandStoriesExerciseTokenTeamWorkerAndStorageControls(t *testing
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminDeleteWorkerResponse{WorkerID: "worker_story", Deleted: true, ClearedRunReferences: 1, DeletedCacheLanes: 2})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/admin/queue/status":
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminQueueStatusResponse{
-				AwaitingUploadRuns:                    1,
-				StaleAwaitingUploadRuns:               1,
-				OldestAwaitingUploadAgeSeconds:        901,
-				QueuedRuns:                            2,
-				ScheduledRuns:                         3,
-				RunningRuns:                           4,
-				StaleLeases:                           1,
-				RetiredArtifactObjects:                3,
-				StaleRetiredArtifactObjects:           2,
-				OldestRetiredArtifactObjectAgeSeconds: 1200,
-				FreshWorkers:                          5,
-				StaleWorkers:                          6,
-				PlatformEvents:                        7,
-				PlatformDiscards:                      8,
-				PlatformErrors:                        9,
-				UpdatedAt:                             fixed,
+				AwaitingUploadRuns:                        1,
+				StaleAwaitingUploadRuns:                   1,
+				OldestAwaitingUploadAgeSeconds:            901,
+				QueuedRuns:                                2,
+				ScheduledRuns:                             3,
+				RunningRuns:                               4,
+				StaleLeases:                               1,
+				RetiredArtifactObjects:                    3,
+				StaleRetiredArtifactObjects:               2,
+				RetiredVerificationSources:                4,
+				StaleRetiredVerificationSources:           1,
+				OldestRetiredVerificationSourceAgeSeconds: 1500,
+				OldestRetiredArtifactObjectAgeSeconds:     1200,
+				FreshWorkers:                              5,
+				StaleWorkers:                              6,
+				PlatformEvents:                            7,
+				PlatformDiscards:                          8,
+				PlatformErrors:                            9,
+				UpdatedAt:                                 fixed,
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/admin/queue/explain/run_story":
 			writeCLITestJSON(w, http.StatusOK, preflightapi.AdminQueueExplainResponse{
@@ -193,7 +196,15 @@ func TestAdminCommandStoriesExerciseTokenTeamWorkerAndStorageControls(t *testing
 				QueuedWorkerLocalBundles: 1,
 				PendingCacheLaneDeletes:  6,
 				WorkersNotSeenRecently:   7,
-				Notes:                    []string{"story audit note"},
+				ObjectLifecycle: []preflightapi.AdminObjectLifecycleAudit{
+					{Store: "uploads", State: preflightapi.ObjectLifecycleNoncompliant, Prefix: "readyci/uploads/", Versioning: "enabled", ExpirationDays: 7, ExpectedExpirationDays: 7, NoncurrentVersionDays: 7, MaxNoncurrentVersionDays: 1, Problems: []string{"old versions under readyci/uploads/ are kept 7 days, expected at most 1"}},
+					{Store: "artifacts", State: preflightapi.ObjectLifecycleNotApplicable, ExpectedExpirationDays: 30, MaxNoncurrentVersionDays: 7},
+				},
+				OverdueSourceBundles: preflightapi.AdminOverdueSourceBundleSample{
+					State: preflightapi.OverdueSourceBundlesPresent, Checked: 5, Present: 2, Unreadable: 1,
+					Problems: []string{"the object store did not answer for 1 of 5 overdue source bundles: Forbidden"},
+				},
+				Notes: []string{"story audit note"},
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/admin/storage/cleanup-expired-artifacts":
 			if err := json.NewDecoder(r.Body).Decode(&cleanupReq); err != nil {
@@ -338,13 +349,19 @@ func TestAdminCommandStoriesExerciseTokenTeamWorkerAndStorageControls(t *testing
 		t.Fatalf("delete worker reason = %q, want retired", deleteWorkerReq.Reason)
 	}
 
-	requireCLITestCommandOutputContains(t, "admin queue status", func() error { return adminQueueStatusCommand(adminArgs) }, "queued_runs: 2", "stale_awaiting_upload_runs: 1", "oldest_awaiting_upload_age_seconds: 901", "stale_leases: 1", "retired_artifact_objects: 3", "stale_retired_artifact_objects: 2", "oldest_retired_artifact_object_age_seconds: 1200", "fresh_workers: 5", "platform_events: 7", "platform_event_discards: 8", "platform_event_errors: 9")
+	requireCLITestCommandOutputContains(t, "admin queue status", func() error { return adminQueueStatusCommand(adminArgs) }, "queued_runs: 2", "stale_awaiting_upload_runs: 1", "oldest_awaiting_upload_age_seconds: 901", "stale_leases: 1", "retired_artifact_objects: 3", "stale_retired_artifact_objects: 2", "oldest_retired_artifact_object_age_seconds: 1200", "retired_verification_sources: 4", "stale_retired_verification_sources: 1", "oldest_retired_verification_source_age_seconds: 1500", "fresh_workers: 5", "platform_events: 7", "platform_event_discards: 8", "platform_event_errors: 9")
 
 	requireCLITestCommandOutputContains(t, "admin queue explain", func() error {
 		return adminQueueExplainCommand(append(adminArgs, "run_story"))
 	}, "run_id: run_story", "queue_state: blocked_by_worker_capability", "reason: no fresh worker currently advertises all required run capabilities", "claimable: false")
 
-	requireCLITestCommandOutputContains(t, "admin storage audit", func() error { return adminStorageAuditCommand(adminArgs) }, "upload_store: /tmp/uploads", "expired_artifact_records: 1", "malformed_artifact_records: 1", "queued_worker_local_bundles: 1", "note: story audit note")
+	requireCLITestCommandOutputContains(t, "admin storage audit", func() error { return adminStorageAuditCommand(adminArgs) }, "upload_store: /tmp/uploads", "expired_artifact_records: 1", "malformed_artifact_records: 1", "queued_worker_local_bundles: 1",
+		"object_lifecycle: uploads state=noncompliant prefix=readyci/uploads/ versioning=enabled expiration_days=7 expected_expiration_days=7 noncurrent_version_days=7 max_noncurrent_version_days=1",
+		"object_lifecycle_problem: uploads old versions under readyci/uploads/ are kept 7 days, expected at most 1",
+		"object_lifecycle: artifacts state=not_applicable expiration_days=0 expected_expiration_days=30 noncurrent_version_days=0 max_noncurrent_version_days=7",
+		"overdue_source_bundles: state=present checked=5 present=2 unreadable=1",
+		"overdue_source_bundles_problem: the object store did not answer for 1 of 5 overdue source bundles: Forbidden",
+		"note: story audit note")
 
 	requireCLITestCommandOutputContains(t, "admin storage cleanup", func() error {
 		return adminStorageCleanupExpiredArtifactsCommand(append(adminArgs, "--dry-run", "--limit", "4", "--min-age-days", "2", "--include-malformed-artifacts", "--include-stale-uploads", "--include-run-logs", "--log-min-age-days", "14"))

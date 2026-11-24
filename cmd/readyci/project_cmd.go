@@ -59,6 +59,7 @@ func projectGetCommand(args []string) error {
 	}
 	fmt.Printf("project_id: %s\n", settings.ProjectID)
 	fmt.Printf("home_region: %s\n", preflightapi.NormalizeRegion(settings.HomeRegion))
+	printAvailableRegions(settings.AvailableRegions)
 	fmt.Printf("github_repository: %s\n", valueOrDash(settings.GitHubRepository))
 	fmt.Printf("github_default_branch: %s\n", valueOrDash(settings.GitHubDefaultBranch))
 	printTrustedSecretCommandHashes(settings.TrustedSecretCommandHashes)
@@ -123,10 +124,18 @@ func projectSetCommand(args []string) error {
 	}
 	fmt.Printf("updated project %s\n", settings.ProjectID)
 	fmt.Printf("home_region: %s\n", preflightapi.NormalizeRegion(settings.HomeRegion))
+	printAvailableRegions(settings.AvailableRegions)
 	fmt.Printf("github_repository: %s\n", valueOrDash(settings.GitHubRepository))
 	fmt.Printf("github_default_branch: %s\n", valueOrDash(settings.GitHubDefaultBranch))
 	printTrustedSecretCommandHashes(settings.TrustedSecretCommandHashes)
 	return nil
+}
+
+func printAvailableRegions(regions []string) {
+	if len(regions) == 0 {
+		return
+	}
+	fmt.Printf("available_regions: %s\n", strings.Join(regions, ", "))
 }
 
 func printTrustedSecretCommandHashes(hashes []string) {

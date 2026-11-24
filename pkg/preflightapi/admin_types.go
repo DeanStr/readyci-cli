@@ -19,16 +19,19 @@ type AdminQueueStatusResponse struct {
 	StaleLeases                    int   `json:"stale_leases"`
 	// Artifact objects whose rows a claim retirement removed and whose
 	// deletion from object storage has not succeeded yet.
-	RetiredArtifactObjects                int       `json:"retired_artifact_objects"`
-	StaleRetiredArtifactObjects           int       `json:"stale_retired_artifact_objects"`
-	OldestRetiredArtifactObjectAgeSeconds int64     `json:"oldest_retired_artifact_object_age_seconds"`
-	FreshWorkers                          int       `json:"fresh_workers"`
-	StaleWorkers                          int       `json:"stale_workers"`
-	DrainingWorkers                       int       `json:"draining_workers"`
-	PlatformEvents                        int64     `json:"platform_events"`
-	PlatformDiscards                      int64     `json:"platform_event_discards"`
-	PlatformErrors                        int64     `json:"platform_event_errors"`
-	UpdatedAt                             time.Time `json:"updated_at"`
+	RetiredArtifactObjects                    int       `json:"retired_artifact_objects"`
+	StaleRetiredArtifactObjects               int       `json:"stale_retired_artifact_objects"`
+	OldestRetiredArtifactObjectAgeSeconds     int64     `json:"oldest_retired_artifact_object_age_seconds"`
+	RetiredVerificationSources                int       `json:"retired_verification_sources"`
+	StaleRetiredVerificationSources           int       `json:"stale_retired_verification_sources"`
+	OldestRetiredVerificationSourceAgeSeconds int64     `json:"oldest_retired_verification_source_age_seconds"`
+	FreshWorkers                              int       `json:"fresh_workers"`
+	StaleWorkers                              int       `json:"stale_workers"`
+	DrainingWorkers                           int       `json:"draining_workers"`
+	PlatformEvents                            int64     `json:"platform_events"`
+	PlatformDiscards                          int64     `json:"platform_event_discards"`
+	PlatformErrors                            int64     `json:"platform_event_errors"`
+	UpdatedAt                                 time.Time `json:"updated_at"`
 }
 
 type AdminQueueExplainResponse struct {
@@ -283,19 +286,88 @@ type AdminBillingDisputeEvidenceExportResponse struct {
 }
 
 type AdminStorageAuditResponse struct {
-	UploadStoreRoot          string   `json:"upload_store_root"`
-	ArtifactStoreRoot        string   `json:"artifact_store_root"`
-	AwaitingUploadRuns       int      `json:"awaiting_upload_runs"`
-	QueuedRuns               int      `json:"queued_runs"`
-	ArtifactRecords          int      `json:"artifact_records"`
-	ExpiredArtifactRecords   int      `json:"expired_artifact_records"`
-	MalformedArtifactRecords int      `json:"malformed_artifact_records"`
-	TerminalRunsWithBundles  int      `json:"terminal_runs_with_bundles"`
-	RequeuedArtifactRecords  int      `json:"requeued_artifact_records"`
-	QueuedWorkerLocalBundles int      `json:"queued_worker_local_bundles"`
-	PendingCacheLaneDeletes  int      `json:"pending_cache_lane_deletes"`
-	WorkersNotSeenRecently   int      `json:"workers_not_seen_recently"`
-	Notes                    []string `json:"notes,omitempty"`
+	UploadStoreRoot          string `json:"upload_store_root"`
+	ArtifactStoreRoot        string `json:"artifact_store_root"`
+	AwaitingUploadRuns       int    `json:"awaiting_upload_runs"`
+	QueuedRuns               int    `json:"queued_runs"`
+	ArtifactRecords          int    `json:"artifact_records"`
+	ExpiredArtifactRecords   int    `json:"expired_artifact_records"`
+	MalformedArtifactRecords int    `json:"malformed_artifact_records"`
+	TerminalRunsWithBundles  int    `json:"terminal_runs_with_bundles"`
+	RequeuedArtifactRecords  int    `json:"requeued_artifact_records"`
+	QueuedWorkerLocalBundles int    `json:"queued_worker_local_bundles"`
+	PendingCacheLaneDeletes  int    `json:"pending_cache_lane_deletes"`
+	WorkersNotSeenRecently   int    `json:"workers_not_seen_recently"`
+	// ObjectLifecycle reports, for the upload store and then the artifact
+	// store, what the object-store provider's own rules do to the objects.
+	// Those rules are the only expiry session source bundles have, and on a
+	// versioned bucket the only thing that removes a deleted object's bytes.
+	ObjectLifecycle []AdminObjectLifecycleAudit `json:"object_lifecycle"`
+	// OverdueSourceBundles reports whether the provider acts on those rules:
+	// whether the object store still serves session source bundles old enough
+	// that it must have expired them.
+	OverdueSourceBundles AdminOverdueSourceBundleSample `json:"overdue_source_bundles"`
+	Notes                []string                       `json:"notes,omitempty"`
+}
+
+const (
+	// The provider's rules give the store's objects the expected retention.
+	ObjectLifecycleOK = "ok"
+	// The rules are missing or give a different retention; see Problems.
+	ObjectLifecycleNoncompliant = "noncompliant"
+	// The API could not read the bucket's versioning or lifecycle rules.
+	ObjectLifecycleUnreadable = "unreadable"
+	// The store is not a provider bucket, so nothing expires its objects.
+	ObjectLifecycleNotApplicable = "not_applicable"
+)
+
+type AdminObjectLifecycleAudit struct {
+	// Store is "uploads" or "artifacts".
+	Store string `json:"store"`
+	// State is one of the ObjectLifecycle constants.
+	State      string `json:"state"`
+	Prefix     string `json:"prefix,omitempty"`
+	Versioning string `json:"versioning,omitempty"`
+	// ExpirationDays is the age at which the provider stops serving an
+	// object; zero means no rule expires every object in the store.
+	ExpirationDays         int `json:"expiration_days"`
+	ExpectedExpirationDays int `json:"expected_expiration_days"`
+	// NoncurrentVersionDays is how long the provider keeps the bytes of a
+	// deleted or expired object on a versioned bucket; zero means no rule
+	// removes them.
+	NoncurrentVersionDays    int      `json:"noncurrent_version_days"`
+	MaxNoncurrentVersionDays int      `json:"max_noncurrent_version_days"`
+	Problems                 []string `json:"problems,omitempty"`
+}
+
+const (
+	// Every sampled session answered and none of its objects is still stored.
+	// A deployment with no session old enough to sample also reports this.
+	OverdueSourceBundlesOK = "ok"
+	// The object store still serves an object of at least one sampled session.
+	OverdueSourceBundlesPresent = "present"
+	// No sampled object was found, but the object store did not answer for
+	// every one, so their expiry is unverified; see Problems.
+	OverdueSourceBundlesUnreadable = "unreadable"
+	// The upload store is not a provider bucket, so nothing expires its objects.
+	OverdueSourceBundlesNotApplicable = "not_applicable"
+)
+
+// AdminOverdueSourceBundleSample covers the sessions whose source upload most
+// recently passed the age by which the provider must have expired it. Each
+// session counts once, whether it holds an uploaded bundle, a reconstructed
+// full workspace or both.
+type AdminOverdueSourceBundleSample struct {
+	// State is one of the OverdueSourceBundles constants.
+	State string `json:"state"`
+	// Checked is the number of sessions sampled.
+	Checked int `json:"checked"`
+	// Present is how many of them still have an object the store serves.
+	Present int `json:"present"`
+	// Unreadable is how many have no object known to be stored and at least
+	// one the object store did not answer for.
+	Unreadable int      `json:"unreadable"`
+	Problems   []string `json:"problems,omitempty"`
 }
 
 type AdminCleanupExpiredArtifactsRequest struct {

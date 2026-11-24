@@ -388,9 +388,13 @@ type RunSpec struct {
 	SecretEnv            map[string]string `json:"secret_env,omitempty"`
 }
 
+// ProjectSettings is a project's server-owned configuration. AvailableRegions
+// lists the regions HomeRegion may name: the default region plus every region
+// with a registered worker, sorted.
 type ProjectSettings struct {
 	ProjectID                  string                   `json:"project_id"`
 	HomeRegion                 string                   `json:"home_region"`
+	AvailableRegions           []string                 `json:"available_regions"`
 	GitHubRepository           string                   `json:"github_repository,omitempty"`
 	GitHubDefaultBranch        string                   `json:"github_default_branch,omitempty"`
 	TrustedSecretCommandHashes []string                 `json:"trusted_secret_command_hashes,omitempty"`

@@ -25,6 +25,7 @@ func TestProjectSecretsAndCacheCommandsExerciseHTTPStories(t *testing.T) {
 			writeCLITestJSON(w, http.StatusOK, preflightapi.ProjectSettings{
 				ProjectID:           "proj_story",
 				HomeRegion:          "us-east-1",
+				AvailableRegions:    []string{"default", "us-east-1"},
 				GitHubRepository:    "readyci/story",
 				GitHubDefaultBranch: "main",
 				TrustedSecretCommandHashes: []string{
@@ -39,6 +40,7 @@ func TestProjectSecretsAndCacheCommandsExerciseHTTPStories(t *testing.T) {
 			writeCLITestJSON(w, http.StatusOK, preflightapi.ProjectSettings{
 				ProjectID:                  "proj_story",
 				HomeRegion:                 stringPtrDeref(projectReq.HomeRegion),
+				AvailableRegions:           []string{"default", "us-east-1"},
 				GitHubRepository:           stringPtrDeref(projectReq.GitHubRepository),
 				GitHubDefaultBranch:        stringPtrDeref(projectReq.GitHubDefaultBranch),
 				TrustedSecretCommandHashes: append([]string(nil), projectReq.TrustedSecretCommandHashes...),
@@ -81,11 +83,11 @@ func TestProjectSecretsAndCacheCommandsExerciseHTTPStories(t *testing.T) {
 	defer server.Close()
 
 	baseArgs := []string{"--api-url", server.URL, "--token", "pfl_story", "--project", "proj_story"}
-	requireCLITestCommandOutputContains(t, "project get", func() error { return projectGetCommand(baseArgs) }, "project_id: proj_story", "home_region: us-east-1", "github_repository: readyci/story", "trusted_secret_command_hashes: 1", "trusted_secret_command_hash: "+trustedCommandHash, "secrets: 1")
+	requireCLITestCommandOutputContains(t, "project get", func() error { return projectGetCommand(baseArgs) }, "project_id: proj_story", "home_region: us-east-1", "available_regions: default, us-east-1", "github_repository: readyci/story", "trusted_secret_command_hashes: 1", "trusted_secret_command_hash: "+trustedCommandHash, "secrets: 1")
 
 	requireCLITestCommandOutputContains(t, "project set", func() error {
 		return projectSetCommand(append(baseArgs, "--home-region", "us-east-1", "--github-repo", "readyci/story-updated", "--default-branch", "trunk", "--trusted-secret-command", "printf ok"))
-	}, "updated project proj_story", "home_region: us-east-1", "github_repository: readyci/story-updated", "github_default_branch: trunk", "trusted_secret_command_hashes: 1", "trusted_secret_command_hash: "+trustedCommandHash)
+	}, "updated project proj_story", "home_region: us-east-1", "available_regions: default, us-east-1", "github_repository: readyci/story-updated", "github_default_branch: trunk", "trusted_secret_command_hashes: 1", "trusted_secret_command_hash: "+trustedCommandHash)
 	if projectReq.GitHubRepository == nil || *projectReq.GitHubRepository != "readyci/story-updated" ||
 		projectReq.GitHubDefaultBranch == nil || *projectReq.GitHubDefaultBranch != "trunk" ||
 		projectReq.HomeRegion == nil || *projectReq.HomeRegion != "us-east-1" {

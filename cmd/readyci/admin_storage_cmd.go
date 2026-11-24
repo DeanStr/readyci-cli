@@ -64,6 +64,25 @@ func adminStorageAuditCommand(args []string) error {
 	fmt.Printf("queued_worker_local_bundles: %d\n", audit.QueuedWorkerLocalBundles)
 	fmt.Printf("pending_cache_lane_deletes: %d\n", audit.PendingCacheLaneDeletes)
 	fmt.Printf("workers_not_seen_recently: %d\n", audit.WorkersNotSeenRecently)
+	for _, store := range audit.ObjectLifecycle {
+		line := fmt.Sprintf("object_lifecycle: %s state=%s", store.Store, store.State)
+		if store.Prefix != "" {
+			line += " prefix=" + store.Prefix
+		}
+		if store.Versioning != "" {
+			line += " versioning=" + store.Versioning
+		}
+		fmt.Printf("%s expiration_days=%d expected_expiration_days=%d noncurrent_version_days=%d max_noncurrent_version_days=%d\n",
+			line, store.ExpirationDays, store.ExpectedExpirationDays, store.NoncurrentVersionDays, store.MaxNoncurrentVersionDays)
+		for _, problem := range store.Problems {
+			fmt.Printf("object_lifecycle_problem: %s %s\n", store.Store, problem)
+		}
+	}
+	overdue := audit.OverdueSourceBundles
+	fmt.Printf("overdue_source_bundles: state=%s checked=%d present=%d unreadable=%d\n", overdue.State, overdue.Checked, overdue.Present, overdue.Unreadable)
+	for _, problem := range overdue.Problems {
+		fmt.Printf("overdue_source_bundles_problem: %s\n", problem)
+	}
 	for _, note := range audit.Notes {
 		fmt.Printf("note: %s\n", note)
 	}
