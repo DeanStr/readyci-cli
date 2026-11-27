@@ -186,6 +186,14 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				return nil, nil, err
 			}
 			createCommand, createSteps := CommandAndSteps(options, command)
+			commandSource := commandSourceForRun(options)
+			if commandSource != nil {
+				// Report what the service would refuse while planning, including
+				// in dry runs, rather than at submission.
+				if _, err := normalizeCommandSource(*commandSource); err != nil {
+					return nil, nil, fmt.Errorf("check %q requests secrets: %w: %w", plan.Name, ErrInvalidCommandSource, err)
+				}
+			}
 			id := uniqueNodeID(defaultString(identity.LogicalChildID, plan.Name), seen, used)
 			artifactPaths := append([]string(nil), options.ArtifactPaths...)
 			if options.KeepFailed {
@@ -217,7 +225,7 @@ func NodesForPlans(warmPlans, plans []CheckPlan, bundle BundleIdentity, client C
 				Retry:            preflightapi.VerificationRetryPolicy{MaxAttempts: plan.Retries + 1, RetryableClassifications: []string{preflightapi.ClassificationTransportFailure, preflightapi.ClassificationWorkerUnavailable, preflightapi.ClassificationWorkerInternalError, preflightapi.ClassificationPlatformInternalError}},
 				Run: preflightapi.CreateRunRequest{
 					EnvironmentRequirements: preflightapi.CloneEnvironmentRequirements(options.EnvironmentRequirements),
-					RuntimeRequirements:     preflightapi.CloneRuntimeRequirements(options.RuntimeRequirements), ProjectID: options.ProjectID, Region: runRequestRegion(options.Region), Image: defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage), Command: createCommand, CommandAlias: identity.CommandAlias, Steps: createSteps,
+					RuntimeRequirements:     preflightapi.CloneRuntimeRequirements(options.RuntimeRequirements), ProjectID: options.ProjectID, Region: runRequestRegion(options.Region), Image: defaultString(strings.TrimSpace(options.Image), preflightapi.DefaultImage), Command: createCommand, CommandSource: commandSource, CommandAlias: identity.CommandAlias, Steps: createSteps,
 					ConcurrencyGroup: options.ConcurrencyGroup, ConcurrencyLimit: options.ConcurrencyLimit, RunnerSize: defaultString(options.RunnerSize, preflightapi.DefaultRunnerSize), TimeoutSeconds: defaultInt(options.TimeoutSeconds, DefaultRunTimeoutSeconds), CacheMode: cacheMode, CacheLaneSizeBytes: CacheLaneSizeForMode(cacheMode, options.CacheLaneSizeBytes), ArtifactPaths: artifactPaths,
 					NetworkMode: defaultString(strings.TrimSpace(options.NetworkMode), preflightapi.DefaultNetworkMode), NetworkAllowlist: append([]string(nil), options.NetworkAllowlist...), Docker: options.Docker, Services: CloneRunServices(options.Services), WorkerSelector: copyStringMap(options.WorkerSelector), BundleBaselineKey: bundle.BaselineKey, SecretsRequested: options.SecretsRequested,
 					Client: client.Client, Git: preflightapi.GitInfo{Materialization: "minimal_git", Repository: client.Repository},

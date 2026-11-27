@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/DeanStr/readyci-cli/internal/api"
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
+	"github.com/DeanStr/readyci-cli/pkg/verificationplan"
 )
 
 func projectCommand(args []string) error {
@@ -76,37 +78,49 @@ func projectSetCommand(args []string) error {
 	homeRegion := fs.String("home-region", "", "default runner region for this project")
 	githubRepo := fs.String("github-repo", "", "GitHub repository as owner/repo")
 	defaultBranch := fs.String("default-branch", "", "default Git branch")
-	snapshot := fs.String("trusted-secret-snapshot", "", "workspace snapshot digest approved for --trusted-secret-command")
+	snapshot := fs.String("trusted-secret-snapshot", "", "workspace snapshot digest approved for --trusted-secret-check and --trusted-secret-command")
 	var trustedHashFlags stringSliceFlag
+	var trustedCheckFlags stringSliceFlag
 	var trustedCommandFlags stringSliceFlag
 	var removeApprovals stringSliceFlag
 	fs.Var(&removeApprovals, "remove-trusted-secret-command-hash", "revoke the exact HASH@DIGEST approval; repeatable")
 	fs.Var(&trustedHashFlags, "trusted-secret-command-hash", "HASH@DIGEST approval to add; repeatable")
-	fs.Var(&trustedCommandFlags, "trusted-secret-command", "command to hash and trust for native secret release; repeatable")
+	fs.Var(&trustedCheckFlags, "trusted-secret-check", "check in .readyci.yml to approve as a secret run plans it, including its cache paths and phases; repeatable")
+	fs.Var(&trustedCommandFlags, "trusted-secret-command", "plain command to approve for secret release; a check with cache paths, env or phases needs --trusted-secret-check; repeatable")
 	clearTrustedHashes := fs.Bool("clear-trusted-secret-command-hashes", false, "clear trusted command hashes for native secret release")
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci project set [--api-url URL] [--token TOKEN] [--project PROJECT] [--home-region REGION] [--github-repo OWNER/REPO] [--default-branch BRANCH] [--trusted-secret-command COMMAND --trusted-secret-snapshot DIGEST] [--trusted-secret-command-hash HASH@DIGEST] [--clear-trusted-secret-command-hashes | --remove-trusted-secret-command-hash HASH@DIGEST]", nil)
+		return cliConfigError("usage: readyci project set [--api-url URL] [--token TOKEN] [--project PROJECT] [--home-region REGION] [--github-repo OWNER/REPO] [--default-branch BRANCH] [--trusted-secret-check NAME | --trusted-secret-command COMMAND] [--trusted-secret-snapshot DIGEST] [--trusted-secret-command-hash HASH@DIGEST] [--clear-trusted-secret-command-hashes | --remove-trusted-secret-command-hash HASH@DIGEST]", nil)
 	}
-	addingApprovals := len(trustedHashFlags) > 0 || len(trustedCommandFlags) > 0
+	pairsWithSnapshot := len(trustedCheckFlags) > 0 || len(trustedCommandFlags) > 0
+	addingApprovals := len(trustedHashFlags) > 0 || pairsWithSnapshot
 	if len(removeApprovals) > 0 && (addingApprovals || *clearTrustedHashes) {
 		return cliConfigError("remove approvals in a separate update from adding or clearing them", nil)
 	}
 	if addingApprovals && *clearTrustedHashes {
 		return cliConfigError("cannot set and clear trusted secret approvals together", nil)
 	}
-	// A hash flag already names its digest; the snapshot only pairs with commands.
-	if flagProvided(fs, "trusted-secret-snapshot") != (len(trustedCommandFlags) > 0) || (len(trustedCommandFlags) > 0 && syncbundle.ValidateSnapshotDigest(*snapshot) != nil) {
-		return cliConfigError("--trusted-secret-command requires --trusted-secret-snapshot with a valid workspace digest, and the snapshot applies only to commands", nil)
+	// A hash flag already names its digest; the snapshot pairs with checks and commands.
+	if flagProvided(fs, "trusted-secret-snapshot") != pairsWithSnapshot || (pairsWithSnapshot && syncbundle.ValidateSnapshotDigest(*snapshot) != nil) {
+		return cliConfigError("--trusted-secret-check and --trusted-secret-command require --trusted-secret-snapshot with a valid workspace digest, and the snapshot applies only to them", nil)
 	}
 	if !flagProvided(fs, "home-region") && !flagProvided(fs, "github-repo") && !flagProvided(fs, "default-branch") && !addingApprovals && len(removeApprovals) == 0 && !*clearTrustedHashes {
-		return cliConfigError("provide --home-region, --github-repo, --default-branch, --trusted-secret-command-hash, --trusted-secret-command, --remove-trusted-secret-command-hash, or --clear-trusted-secret-command-hashes", nil)
+		return cliConfigError("provide --home-region, --github-repo, --default-branch, --trusted-secret-check, --trusted-secret-command, --trusted-secret-command-hash, --remove-trusted-secret-command-hash, or --clear-trusted-secret-command-hashes", nil)
 	}
 	projectIDValue, err := effectiveProjectID(*apiURL, *projectID)
 	if err != nil {
 		return err
+	}
+	for _, name := range trustedCheckFlags {
+		hashes, err := secretApprovalHashesForCheck(name, projectIDValue)
+		if err != nil {
+			return err
+		}
+		for _, hash := range hashes {
+			trustedHashFlags = append(trustedHashFlags, preflightapi.TrustedSecretCommandApproval(hash, *snapshot))
+		}
 	}
 	client, err := authenticatedClient(*apiURL, *apiToken)
 	if err != nil {
@@ -382,4 +396,39 @@ func displayRunName(options remoteRunOptions) string {
 		return options.CommandAlias
 	}
 	return truncate(oneLine(options.Command), 64)
+}
+
+// secretApprovalHashesForCheck plans NAME from the workspace's .readyci.yml as
+// a secret run plans it and returns each node's command hash, one per matrix
+// variant. The control plane computes the same hash from the run's command
+// source, so the approval covers the check's command and the cache paths,
+// environment and phases rendered around it.
+func secretApprovalHashesForCheck(name, projectID string) ([]string, error) {
+	cfg, path, err := config.LoadProjectConfig(".")
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, cliConfigError("--trusted-secret-check requires .readyci.yml in the current directory", nil)
+	}
+	plan, err := resolveCheckRunPlan(strings.TrimSpace(name), cfg, checkResolveOptions{RequestSecrets: true, SkipWarm: true, ProjectID: projectID})
+	if err != nil {
+		return nil, err
+	}
+	nodes, _, err := verificationNodesForPlans(nil, []checkRunPlan{plan}, syncbundlebuild.BuildResult{})
+	if err != nil {
+		return nil, cliConfigError(fmt.Sprintf("plan check %q: %v", name, err), err)
+	}
+	if len(nodes) == 0 {
+		return nil, cliConfigError(fmt.Sprintf("check %q plans no runs, so there is nothing to approve", name), nil)
+	}
+	hashes := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		hash, err := verificationplan.SecretApprovalCommandHash(node.Run)
+		if err != nil {
+			return nil, cliConfigError(fmt.Sprintf("check %q: %v", name, err), err)
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, nil
 }

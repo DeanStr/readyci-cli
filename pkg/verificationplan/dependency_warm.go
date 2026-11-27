@@ -93,6 +93,10 @@ func DependencyWarmPlansForTargets(warmPlan CheckPlan, targets []CheckPlan) ([]C
 	if !hasQuota {
 		return nil, nil
 	}
+	// Each consumer fits the cap on its own, but preparation links the union.
+	if len(cachePaths) > MaxCachePaths {
+		return nil, fmt.Errorf("dependency warm check %q would link %d distinct cache paths for its consumers, more than %d", warmPlan.Name, len(cachePaths), MaxCachePaths)
+	}
 
 	warmMode, err := NormalizeCacheMode(warmPlan.Run.CacheMode)
 	if err != nil {

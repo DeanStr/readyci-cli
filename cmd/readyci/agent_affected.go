@@ -23,6 +23,11 @@ func buildAgentAffectedPlanReport(apiURL, projectID, changes, goal, intent strin
 	}
 	plans, dryRun = agentAugmentAffectedPlansForIntent(cfg, plans, dryRun, intent, resolveOptions)
 	plans = applyAgentAffectedPlanOptionsForIntent(intent, requestSecrets, plans)
+	for _, selected := range plans {
+		if err := validateAgentSecretSources(selected.Plan); err != nil {
+			return agentPlanReport{}, err
+		}
+	}
 	// Resolve preparation as readyci verify will, so a plan reported ready
 	// never recommends a command that fails before submission.
 	warmPlans, err := agentDependencyWarmPlansForAffected(".", plans, cfg, resolveOptions, intent)

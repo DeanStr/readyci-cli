@@ -2,6 +2,8 @@ package preflightapi
 
 import (
 	"encoding/base64"
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -34,27 +36,72 @@ type CreateRunRequest struct {
 	Attempt                 int               `json:"attempt,omitempty"`
 	Image                   string            `json:"image"`
 	Command                 string            `json:"command"`
-	CommandAlias            string            `json:"command_alias,omitempty"`
-	Steps                   []RunStepSpec     `json:"steps,omitempty"`
-	ConcurrencyGroup        string            `json:"concurrency_group,omitempty"`
-	ConcurrencyLimit        int               `json:"concurrency_limit,omitempty"`
-	RunnerSize              string            `json:"runner_size"`
-	TimeoutSeconds          int               `json:"timeout_seconds"`
-	CacheMode               string            `json:"cache_mode"`
-	CacheLaneSizeBytes      int64             `json:"cache_lane_size_bytes,omitempty"`
-	ArtifactPaths           []string          `json:"artifact_paths,omitempty"`
-	NetworkMode             string            `json:"network_mode"`
-	NetworkAllowlist        []string          `json:"network_allowlist,omitempty"`
-	Docker                  bool              `json:"docker"`
-	Services                []RunServiceSpec  `json:"services,omitempty"`
-	WorkerSelector          map[string]string `json:"worker_selector,omitempty"`
-	ChangeMode              string            `json:"change_mode,omitempty"`
-	SnapshotDigest          string            `json:"snapshot_digest,omitempty"`
-	ChangedFilesDigest      string            `json:"changed_files_digest,omitempty"`
-	BundleBaselineKey       string            `json:"bundle_baseline_key,omitempty"`
-	SecretsRequested        *bool             `json:"secrets_requested,omitempty"`
-	Client                  ClientInfo        `json:"client"`
-	Git                     GitInfo           `json:"git"`
+	// CommandSource is the check definition a planner rendered into Command
+	// when the check needed a wrapper. A secret approval covers it rather
+	// than the generated script; see RunCommandSource.
+	CommandSource      *RunCommandSource `json:"command_source,omitempty"`
+	CommandAlias       string            `json:"command_alias,omitempty"`
+	Steps              []RunStepSpec     `json:"steps,omitempty"`
+	ConcurrencyGroup   string            `json:"concurrency_group,omitempty"`
+	ConcurrencyLimit   int               `json:"concurrency_limit,omitempty"`
+	RunnerSize         string            `json:"runner_size"`
+	TimeoutSeconds     int               `json:"timeout_seconds"`
+	CacheMode          string            `json:"cache_mode"`
+	CacheLaneSizeBytes int64             `json:"cache_lane_size_bytes,omitempty"`
+	ArtifactPaths      []string          `json:"artifact_paths,omitempty"`
+	NetworkMode        string            `json:"network_mode"`
+	NetworkAllowlist   []string          `json:"network_allowlist,omitempty"`
+	Docker             bool              `json:"docker"`
+	Services           []RunServiceSpec  `json:"services,omitempty"`
+	WorkerSelector     map[string]string `json:"worker_selector,omitempty"`
+	ChangeMode         string            `json:"change_mode,omitempty"`
+	SnapshotDigest     string            `json:"snapshot_digest,omitempty"`
+	ChangedFilesDigest string            `json:"changed_files_digest,omitempty"`
+	BundleBaselineKey  string            `json:"bundle_baseline_key,omitempty"`
+	SecretsRequested   *bool             `json:"secrets_requested,omitempty"`
+	Client             ClientInfo        `json:"client"`
+	Git                GitInfo           `json:"git"`
+}
+
+// RunCommandSource is a check's own command and the settings a planner
+// renders around it: cache paths, environment, prepare, post and always
+// phases, and failed-workspace retention. Planners send it with a run that
+// requests secrets and whose command needed such a wrapper. The control plane
+// renders it again, requires the result to equal the run's command, and hashes
+// this source for secret approval, so an approval covers the check as
+// configured and survives changes to the generated wrapper text.
+type RunCommandSource struct {
+	Command                  string            `json:"command,omitempty"`
+	Steps                    []RunStepSpec     `json:"steps,omitempty"`
+	Env                      map[string]string `json:"env,omitempty"`
+	Prepare                  []string          `json:"prepare,omitempty"`
+	Post                     []string          `json:"post,omitempty"`
+	Always                   []string          `json:"always,omitempty"`
+	CachePaths               []string          `json:"cache_paths,omitempty"`
+	CacheKeyFiles            []string          `json:"cache_key_files,omitempty"`
+	CacheRuntimeRequirements map[string]string `json:"cache_runtime_requirements,omitempty"`
+	CacheDependencyCheck     string            `json:"cache_dependency_check,omitempty"`
+	KeepFailed               bool              `json:"keep_failed,omitempty"`
+}
+
+// CloneRunCommandSource returns a deep copy, or nil for nil.
+func CloneRunCommandSource(source *RunCommandSource) *RunCommandSource {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	clone.Steps = append([]RunStepSpec(nil), source.Steps...)
+	for index := range clone.Steps {
+		clone.Steps[index].Env = maps.Clone(source.Steps[index].Env)
+	}
+	clone.Env = maps.Clone(source.Env)
+	clone.Prepare = slices.Clone(source.Prepare)
+	clone.Post = slices.Clone(source.Post)
+	clone.Always = slices.Clone(source.Always)
+	clone.CachePaths = slices.Clone(source.CachePaths)
+	clone.CacheKeyFiles = slices.Clone(source.CacheKeyFiles)
+	clone.CacheRuntimeRequirements = maps.Clone(source.CacheRuntimeRequirements)
+	return &clone
 }
 
 type RunServiceSpec struct {

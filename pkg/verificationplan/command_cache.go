@@ -302,8 +302,8 @@ __preflight_setup_cache_paths() {
 	for index := range paths {
 		fmt.Fprintf(&script, "  __preflight_cache_validate_mapping \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\" || { __preflight_report_cache_path_error \"$?\" \"mapping validation\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $?; }\n", index, index, index, index)
 		for other := 0; other < index; other++ {
-			fmt.Fprintf(&script, "  case \"$__preflight_cache_source_%d/\" in \"$__preflight_cache_source_%d/\"*) __preflight_report_cache_path_error 65 \"overlapping mappings\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $? ;; esac\n", index, other, index, index)
-			fmt.Fprintf(&script, "  case \"$__preflight_cache_source_%d/\" in \"$__preflight_cache_source_%d/\"*) __preflight_report_cache_path_error 65 \"overlapping mappings\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $? ;; esac\n", other, index, index, index)
+			fmt.Fprintf(&script, cacheOverlapCheckFormat, index, other, index, index)
+			fmt.Fprintf(&script, cacheOverlapCheckFormat, other, index, index, index)
 		}
 	}
 	script.WriteString("  __preflight_prune_failed_run_cache || return $?\n")
@@ -364,16 +364,37 @@ func normalizeCacheKeyFile(value string) (string, error) {
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", fmt.Errorf("cache key file %q escapes the workspace", value)
 	}
+	// "./~/x" cleans to "~/x", which reads as a home path; refuse it so that
+	// normalizing twice, as the service does with a command source, agrees.
+	if cleaned == "~" || strings.HasPrefix(cleaned, "~/") {
+		return "", fmt.Errorf("cache key file %q must be workspace-relative", value)
+	}
 	if cleaned == ".git" || strings.HasPrefix(cleaned, ".git/") {
 		return "", fmt.Errorf("cache key file %q targets git metadata", value)
 	}
 	return cleaned, nil
 }
 
+// cacheOverlapCheckFormat is written twice for every pair of cache paths, the
+// only part of the wrapper that grows faster than its inputs.
+const cacheOverlapCheckFormat = "  case \"$__preflight_cache_source_%d/\" in \"$__preflight_cache_source_%d/\"*) __preflight_report_cache_path_error 65 \"overlapping mappings\" \"$__preflight_cache_source_%d\" \"$__preflight_cache_target_%d\"; return $? ;; esac\n"
+
+// cacheOverlapChecksMinBytes is a lower bound on the bytes the overlap checks
+// for paths cache paths render: each index has at least one digit.
+func cacheOverlapChecksMinBytes(paths int) int {
+	pairs := paths * (paths - 1) / 2
+	return pairs * 2 * len(fmt.Sprintf(cacheOverlapCheckFormat, 0, 0, 0, 0))
+}
+
+// MaxCachePaths bounds the distinct cache paths a run may link. The wrapper
+// checks every pair of paths for overlap, so its size grows with the square of
+// the count; past 64 paths it no longer fits in a 1 MiB request.
+const MaxCachePaths = 64
+
 // NormalizeCachePaths validates and canonicalizes cache paths.
 func NormalizeCachePaths(values []string) ([]string, error) {
 	seen := make(map[string]struct{})
-	paths := make([]string, 0, len(values))
+	paths := make([]string, 0, min(len(values), MaxCachePaths))
 	for _, value := range values {
 		normalized, err := normalizeCachePath(value)
 		if err != nil {
@@ -381,6 +402,9 @@ func NormalizeCachePaths(values []string) ([]string, error) {
 		}
 		if _, ok := seen[normalized]; ok {
 			continue
+		}
+		if len(paths) == MaxCachePaths {
+			return nil, fmt.Errorf("cache paths may name at most %d distinct paths", MaxCachePaths)
 		}
 		seen[normalized] = struct{}{}
 		paths = append(paths, normalized)
@@ -416,6 +440,11 @@ func normalizeCachePath(value string) (string, error) {
 	cleaned := path.Clean(value)
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", fmt.Errorf("cache path %q escapes the workspace", value)
+	}
+	// "./~/x" would clean to "~/x" and then be linked as a home path. Name home
+	// paths as ~/..., and keep normalization idempotent.
+	if cleaned == "~" || strings.HasPrefix(cleaned, "~/") {
+		return "", fmt.Errorf("cache path %q names a directory called ~; write home paths as ~/...", value)
 	}
 	if cleaned == ".git" || strings.HasPrefix(cleaned, ".git/") {
 		return "", fmt.Errorf("cache path %q targets git metadata", value)

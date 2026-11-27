@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/DeanStr/readyci-cli/pkg/verificationplan"
 )
 
 var agentIntentValues = []string{
@@ -71,6 +73,20 @@ func applyAgentRemoteRunOptionsForIntent(intent string, requestSecrets bool, opt
 	// Make the run request explicit so secret-capable tokens cannot trigger
 	// legacy nil-as-requested behavior unless the agent opted in.
 	options.SecretsRequested = boolPtr(requestSecrets && intent != agentIntentSecurity)
+}
+
+// validateAgentSecretSources rejects, before a plan is reported ready, a secret
+// check whose command source the service would refuse at submission.
+func validateAgentSecretSources(plans ...checkRunPlan) error {
+	for _, plan := range plans {
+		if plan.Options.SecretsRequested == nil || !*plan.Options.SecretsRequested {
+			continue
+		}
+		if err := verificationplan.ValidateSecretCommandSource(plan.Name, runSpecFromRemoteRunOptions(plan.Options)); err != nil {
+			return cliConfigError(err.Error(), err)
+		}
+	}
+	return nil
 }
 
 func applyAgentAffectedPlanOptionsForIntent(intent string, requestSecrets bool, plans []affectedCheckPlan) []affectedCheckPlan {

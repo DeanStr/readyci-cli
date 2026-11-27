@@ -376,6 +376,14 @@ func resolveCheckCachePolicy(name string, cfg config.ProjectConfig, check config
 	cache.paths = append(cache.paths, options.CachePaths...)
 	cache.keyFiles = append(cache.keyFiles, cfg.Cache.KeyFiles...)
 	cache.keyFiles = append(cache.keyFiles, check.Cache.KeyFiles...)
+	// Rendering would fail on these anyway; failing here also rejects them when
+	// a policy is activated and before the service plans a registered check.
+	if _, err := NormalizeCachePaths(cache.paths); err != nil {
+		return resolvedCheckCache{}, fmt.Errorf("check %q cache.paths: %w", name, err)
+	}
+	if _, err := NormalizeCacheKeyFiles(cache.keyFiles); err != nil {
+		return resolvedCheckCache{}, fmt.Errorf("check %q cache.key_files: %w", name, err)
+	}
 	return cache, nil
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -122,6 +123,11 @@ func resolveCheckRunPlan(name string, cfg config.ProjectConfig, options checkRes
 	}
 	if err := validateExplicitDependencyWarmSecretRequest(cfg, name, agentIntentEditLoop, options.RequestSecrets); err != nil {
 		return checkRunPlan{}, cliConfigError(err.Error(), err)
+	}
+	if options.RequestSecrets {
+		if err := verificationplan.ValidateSecretCommandSource(resolved.Name, resolved.Run); err != nil {
+			return checkRunPlan{}, cliConfigError(err.Error(), err)
+		}
 	}
 	resolved.Run.SecretsRequested = boolPtr(options.RequestSecrets)
 	return checkRunPlan{
@@ -361,7 +367,7 @@ func verificationNodesForPlans(warmPlans, plans []checkRunPlan, bundle syncbundl
 	if err != nil {
 		return nil, nil, err
 	}
-	return verificationplan.NodesForPlans(
+	nodes, groups, err := verificationplan.NodesForPlans(
 		warm, checks,
 		verificationplan.BundleIdentity{BaselineKey: bundle.Manifest.BaselineKey},
 		verificationplan.ClientIdentity{
@@ -369,6 +375,10 @@ func verificationNodesForPlans(warmPlans, plans []checkRunPlan, bundle syncbundl
 			Repository: gitRepository(),
 		},
 	)
+	if errors.Is(err, verificationplan.ErrInvalidCommandSource) {
+		return nil, nil, cliConfigError(err.Error(), err)
+	}
+	return nodes, groups, err
 }
 
 func checkPlansWithSourceViews(plans []checkRunPlan, bundle syncbundlebuild.BuildResult) ([]verificationplan.CheckPlan, error) {

@@ -118,6 +118,9 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 		return report, nil
 	}
 	applyAgentRemoteRunOptionsForIntent(intent, requestSecrets, &plan.Options)
+	if err := validateAgentSecretSources(plan); err != nil {
+		return agentPlanReport{}, err
+	}
 	warmPlans, err := agentDependencyWarmPlansForAffected(".", []affectedCheckPlan{{Plan: plan}}, cfg, resolveOptions, intent)
 	if err != nil {
 		return agentPlanReport{}, err
