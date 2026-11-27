@@ -518,15 +518,6 @@ func newWarmRunCLITestServer(t *testing.T, runPrefix string) (*httptest.Server, 
 	return server, &created
 }
 
-func requireExplicitNoSecretCreateRequests(t *testing.T, requests []preflightapi.CreateRunRequest) {
-	t.Helper()
-	for _, req := range requests {
-		if req.SecretsRequested == nil || *req.SecretsRequested {
-			t.Fatalf("create request %s secrets_requested = %+v, want explicit false", req.CommandAlias, req.SecretsRequested)
-		}
-	}
-}
-
 func TestAffectedJSONActualRunWarmsDependenciesAndIncludesPlan(t *testing.T) {
 	setupRustAffectedWarmCLITestRepo(t, "affected-json-warm-run")
 	server, created := newWarmRunCLITestServer(t, "run_affected_json_")
@@ -566,102 +557,5 @@ func TestAffectedJSONRejectsWatchOnActualRun(t *testing.T) {
 	err := affectedCommand([]string{"--json", "--watch"})
 	if err == nil || !strings.Contains(err.Error(), "--json is not valid with --watch") {
 		t.Fatalf("affected --json --watch error = %v, want watch/json rejection", err)
-	}
-}
-
-func TestAgentVerifyAffectedWarmsDependenciesAutomatically(t *testing.T) {
-	setupRustAffectedWarmCLITestRepo(t, "agent-affected-warm-run")
-	server, created := newWarmRunCLITestServer(t, "run_agent_warm_")
-
-	output, err := captureStdoutForCLITest(t, func() error {
-		return agentVerifyCommand([]string{
-			"--api-url", server.URL,
-			"--token", "pfl_agent_warm",
-			"--project", "airline",
-			"--idempotency-key", "agent-warm",
-			"--json",
-		})
-	})
-	if err != nil {
-		t.Fatalf("agent verify affected warm: %v\n%s", err, output)
-	}
-	var report agentVerifyReport
-	if err := json.Unmarshal([]byte(output), &report); err != nil {
-		t.Fatalf("decode agent verify report: %v\n%s", err, output)
-	}
-	if len(report.Runs) != 2 {
-		t.Fatalf("agent runs = %+v, want warm and verify runs", report.Runs)
-	}
-	if report.Runs[0].Check != "dependencies" || report.Runs[0].Phase != "warm" {
-		t.Fatalf("agent warm run = %+v, want dependencies warm phase", report.Runs[0])
-	}
-	if report.Runs[1].Check != "db" || report.Runs[1].Phase != "verify" {
-		t.Fatalf("agent verify run = %+v, want db verify phase", report.Runs[1])
-	}
-	if report.RunID != "run_agent_warm_db" || !strings.Contains(report.LogsCommand, "run_agent_warm_db") || !strings.Contains(report.ExplainCommand, "run_agent_warm_db") {
-		t.Fatalf("top-level run pointers = run_id %q logs %q explain %q, want verify db run", report.RunID, report.LogsCommand, report.ExplainCommand)
-	}
-	if report.Summary != "Ready CI check db passed." {
-		t.Fatalf("summary = %q, want db-only success summary", report.Summary)
-	}
-	createdRequests := *created
-	if len(createdRequests) != 2 {
-		t.Fatalf("created requests = %d, want warm and verify: %+v", len(createdRequests), createdRequests)
-	}
-	requireExplicitNoSecretCreateRequests(t, createdRequests)
-	if createdRequests[0].CommandAlias != "dependencies" || createdRequests[0].NetworkMode != "allowlist" || !reflect.DeepEqual(createdRequests[0].NetworkAllowlist, []string{"crates.io"}) {
-		t.Fatalf("agent warm create request = %+v, want dependencies with the configured allowlist warm profile", createdRequests[0])
-	}
-	if createdRequests[0].IdempotencyKey != "agent-warm:check=warm:dependencies" {
-		t.Fatalf("agent warm idempotency = %q, want warm child idempotency", createdRequests[0].IdempotencyKey)
-	}
-	if createdRequests[1].CommandAlias != "db" || createdRequests[1].NetworkMode != "none" {
-		t.Fatalf("agent verify create request = %+v, want db with configured no network", createdRequests[1])
-	}
-	if createdRequests[1].IdempotencyKey != "agent-warm:check=db" {
-		t.Fatalf("agent verify idempotency = %q, want db child idempotency", createdRequests[1].IdempotencyKey)
-	}
-}
-
-func TestAgentVerifySecuritySensitiveSkipsDependencyWarmRun(t *testing.T) {
-	setupRustAffectedWarmCLITestRepo(t, "agent-security-no-warm-run")
-	server, created := newWarmRunCLITestServer(t, "run_agent_security_")
-
-	output, err := captureStdoutForCLITest(t, func() error {
-		return agentVerifyCommand([]string{
-			"--api-url", server.URL,
-			"--token", "pfl_agent_security",
-			"--project", "airline",
-			"--idempotency-key", "agent-security",
-			"--intent", "security-sensitive",
-			"--json",
-		})
-	})
-	if err != nil {
-		t.Fatalf("agent verify security-sensitive affected: %v\n%s", err, output)
-	}
-	var report agentVerifyReport
-	if err := json.Unmarshal([]byte(output), &report); err != nil {
-		t.Fatalf("decode agent verify report: %v\n%s", err, output)
-	}
-	if len(report.Runs) != 1 {
-		t.Fatalf("agent security-sensitive runs = %+v, want only verify run", report.Runs)
-	}
-	if report.Runs[0].Check != "db" || report.Runs[0].Phase != "verify" {
-		t.Fatalf("agent security-sensitive run = %+v, want db verify phase", report.Runs[0])
-	}
-	if report.Policy == nil || report.Policy.NetworkMode != "none" {
-		t.Fatalf("agent security-sensitive policy = %+v, want no-network policy", report.Policy)
-	}
-	createdRequests := *created
-	if len(createdRequests) != 1 {
-		t.Fatalf("created requests = %d, want only verify: %+v", len(createdRequests), createdRequests)
-	}
-	if createdRequests[0].CommandAlias != "db" || createdRequests[0].NetworkMode != "none" {
-		t.Fatalf("agent security-sensitive create request = %+v, want db with no network", createdRequests[0])
-	}
-	requireExplicitNoSecretCreateRequests(t, createdRequests)
-	if createdRequests[0].IdempotencyKey != "agent-security:check=db" {
-		t.Fatalf("agent security-sensitive idempotency = %q, want verify child idempotency", createdRequests[0].IdempotencyKey)
 	}
 }

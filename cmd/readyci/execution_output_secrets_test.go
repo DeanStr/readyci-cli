@@ -86,7 +86,10 @@ func TestExecutionExplicitlyRequestsProjectSecrets(t *testing.T) {
 	}
 }
 
-func TestExecutionSecretSelectionWarmExclusionAndRerun(t *testing.T) {
+// Secret-bearing runs cannot use prepared caches, so a secret request reaches
+// the service only when preparation is skipped. Every other path reports the
+// service's guidance locally: previews, submissions and reruns alike.
+func TestExecutionSecretSelectionSkipsPreparationOrFailsLocally(t *testing.T) {
 	chdirCLITestRepo(t, "secret-selection")
 	runGitForCLITest(t, "init")
 	if err := os.WriteFile(".readyci.yml", []byte(`project_id: review
@@ -111,50 +114,76 @@ affected:
 	var requests []preflightapi.CreateVerificationSessionRequest
 	server := captureExecutionRequests(t, &requests)
 	for _, command := range []string{"check", "affected"} {
-		for _, requested := range []bool{false, true} {
+		withCheck := func(args ...string) []string {
+			if command == "check" {
+				args = append(args, "test")
+			}
+			return args
+		}
+		requests = nil
+		if err := run(withCheck(command, "--api-url", server.URL, "--request-secrets", "--skip-warm")); err == nil {
+			t.Fatal("fixture did not stop creation")
+		}
+		if len(requests) != 1 {
+			t.Fatalf("%s: requests=%d", command, len(requests))
+		}
+		request := requests[0]
+		if !request.Recipe.RequestSecrets || !request.Recipe.SkipWarm {
+			t.Fatalf("recipe lost opt-in or skip: %+v", request.Recipe)
+		}
+		for _, node := range request.Plan.Nodes {
+			if node.Phase == preflightapi.VerificationNodePhaseWarm || node.Run.SecretsRequested == nil || !*node.Run.SecretsRequested {
+				t.Fatalf("incorrect secret selection: %+v", node)
+			}
+		}
+		prepared, err := prepareExecutionRerun(preflightapi.VerificationSession{ProjectID: "review", Recipe: request.Recipe}, server.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(prepared.WarmPlans) != 0 || len(prepared.Plans) == 0 {
+			t.Fatalf("rerun changed preparation: %+v", prepared)
+		}
+		for _, plan := range prepared.Plans {
+			if plan.Options.SecretsRequested == nil || !*plan.Options.SecretsRequested {
+				t.Fatal("rerun lost secret opt-in")
+			}
+		}
+		withoutSkip := request.Recipe
+		withoutSkip.SkipWarm = false
+		if _, err := prepareExecutionRerun(preflightapi.VerificationSession{ProjectID: "review", Recipe: withoutSkip}, server.URL); err == nil || !strings.Contains(err.Error(), preflightapi.SecretPreparationGuidance) {
+			t.Fatalf("%s: rerun with preparation err=%v, want local rejection with guidance", command, err)
+		}
+
+		for _, dryRun := range []bool{true, false} {
+			args := withCheck(command, "--api-url", server.URL, "--request-secrets")
+			if dryRun {
+				args = withCheck(command, "--api-url", server.URL, "--request-secrets", "--dry-run", "--json")
+			}
 			requests = nil
-			args := []string{command, "--api-url", server.URL}
-			if requested {
-				args = append(args, "--request-secrets")
-			}
-			if err := run(args); err == nil {
-				t.Fatal("fixture did not stop creation")
-			}
-			if len(requests) != 1 {
-				t.Fatalf("%s: requests=%d", command, len(requests))
-			}
-			request := requests[0]
-			if request.Recipe.RequestSecrets != requested {
-				t.Fatalf("recipe lost opt-in: %+v", request.Recipe)
-			}
-			hasWarm := false
-			for _, node := range request.Plan.Nodes {
-				warm := node.Phase == "warm"
-				hasWarm = hasWarm || warm
-				if node.Run.SecretsRequested == nil || *node.Run.SecretsRequested != (requested && !warm) {
-					t.Fatalf("incorrect secret selection: %+v", node)
-				}
-			}
-			if !hasWarm {
-				t.Fatal("fixture did not include dependency preparation")
-			}
-			prepared, err := prepareExecutionRerun(preflightapi.VerificationSession{ProjectID: "review", Recipe: request.Recipe}, server.URL)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, plan := range prepared.Plans {
-				if plan.Options.SecretsRequested == nil || *plan.Options.SecretsRequested != requested {
-					t.Fatal("rerun lost secret opt-in")
-				}
-			}
-			for _, plan := range prepared.WarmPlans {
-				if plan.Options.SecretsRequested == nil || *plan.Options.SecretsRequested {
-					t.Fatal("rerun enabled secrets during preparation")
-				}
+			_, err := captureStdoutForCLITest(t, func() error { return run(args) })
+			if err == nil || !strings.Contains(err.Error(), preflightapi.SecretPreparationGuidance) || len(requests) != 0 {
+				t.Fatalf("%v: err=%v requests=%d, want local rejection with guidance", args, err, len(requests))
 			}
 		}
 	}
-	output, err := captureStdoutForCLITest(t, func() error { return checkCommand([]string{"--request-secrets", "--dry-run", "--json", "test"}) })
+	// Agent planning resolves preparation as readyci verify does, so it never
+	// reports ready for a verify command that fails before submission.
+	report, err := buildAgentPlanReport(server.URL, "", "", "", "", "", false)
+	if err != nil || report.Status != "ready" || report.Mode != "affected_rules" {
+		t.Fatalf("agent plan = %+v, %v; want a ready affected-rules plan", report, err)
+	}
+	for name, attempt := range map[string]func() error{
+		"agent plan": func() error { _, err := buildAgentPlanReport(server.URL, "", "", "", "", "", true); return err },
+		"verify":     func() error { return run([]string{"verify", "--api-url", server.URL, "--request-secrets"}) },
+	} {
+		requests = nil
+		if _, err := captureStdoutForCLITest(t, attempt); err == nil || !strings.Contains(err.Error(), preflightapi.SecretPreparationGuidance) || len(requests) != 0 {
+			t.Fatalf("%s with secrets: err=%v requests=%d, want local rejection with guidance", name, err, len(requests))
+		}
+	}
+	output, err := captureStdoutForCLITest(t, func() error {
+		return checkCommand([]string{"--request-secrets", "--skip-warm", "--dry-run", "--json", "test"})
+	})
 	if err != nil || !strings.Contains(output, `"secrets_requested": true`) {
 		t.Fatalf("dry-run omitted opt-in: %s %v", output, err)
 	}

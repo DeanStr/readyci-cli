@@ -67,13 +67,14 @@ func TestDeviceLoginStoresCredentialWithoutLocalhostCallback(t *testing.T) {
 	}
 }
 
-func TestDeviceLoginRejectsVerificationURLCarryingTheCode(t *testing.T) {
+func TestDeviceLoginRejectsUnsafeVerificationURL(t *testing.T) {
 	t.Setenv("READYCI_CONFIG_DIR", t.TempDir())
 	var polls atomic.Int32
 	for _, uri := range []string{
 		"https://app.readyci.test/cli/device?code=ABCDE-FGHIJ",
 		"https://app.readyci.test/cli/device?user_code=abcdefghij",
 		"https://app.readyci.test/cli/device#ABCDE-FGHIJ",
+		"http://app.readyci.test/cli/device",
 		"/cli/device",
 		"javascript:alert(1)",
 	} {

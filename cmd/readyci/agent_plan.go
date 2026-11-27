@@ -128,12 +128,7 @@ func buildAgentPlanReport(apiURL, projectID, checkName, goal, intentFlag, change
 	if err != nil {
 		return agentPlanReport{}, err
 	}
-	warnings := agentSourceViewWarnings(build)
-	for _, warm := range warmPlans {
-		warnings = append(warnings, agentWarning{Section: "preparation", Message: "Automatic dependency preparation: " + warm.Plan.Name +
-			"; network_mode=" + warm.Plan.Options.NetworkMode + "; network_allowlist=" + strings.Join(warm.Plan.Options.NetworkAllowlist, ",") +
-			". Verification uses the prepared cache in this session and retains its configured network policy."})
-	}
+	warnings := append(agentSourceViewWarnings(build), agentPreparationWarnings(warmPlans)...)
 	variantNames := make([]string, 0, len(plan.Variants))
 	for _, variant := range plan.Variants {
 		if variant.Name != "" {

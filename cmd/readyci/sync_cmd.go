@@ -13,17 +13,21 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 type syncDryRunOptions struct {
-	CheckName  string
-	ChangeMode string
+	CheckName        string
+	ChangeMode       string
+	RegisteredClient *api.Client
+	ProjectID        string
 }
 
 type syncDryRunReport struct {
+	SnapshotDigest        string                       `json:"snapshot_digest"`
 	Root                  string                       `json:"root"`
 	ConfigPath            string                       `json:"config_path,omitempty"`
 	CheckName             string                       `json:"check,omitempty"`
@@ -55,6 +59,9 @@ type syncDryRunReport struct {
 func syncCommand(args []string) error {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	apiURL, apiToken := apiFlags(fs)
+	projectID := fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id for the registered policy")
+	registered := fs.Bool("registered", false, "preview the named check using its active registered source policy")
 	dryRun := fs.Bool("dry-run", false, "preview the workspace bundle without creating a run")
 	checkName := fs.String("check", "", "named check whose sync settings should be previewed")
 	changes := fs.String("changes", "", "changed-file mode override: working, staged, or all")
@@ -63,7 +70,7 @@ func syncCommand(args []string) error {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 || !*dryRun {
-		return cliConfigError("usage: readyci sync --dry-run [--check NAME] [--changes MODE] [--json]", nil)
+		return cliConfigError("usage: readyci sync --dry-run [--check NAME] [--registered] [--project PROJECT] [--changes MODE] [--json]", nil)
 	}
 
 	cfg, path, err := config.LoadProjectConfig(".")
@@ -72,10 +79,21 @@ func syncCommand(args []string) error {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	report, err := buildSyncDryRunReport(ctx, ".", cfg, path, syncDryRunOptions{
-		CheckName:  *checkName,
-		ChangeMode: *changes,
-	})
+	options := syncDryRunOptions{CheckName: *checkName, ChangeMode: *changes}
+	if *registered {
+		if strings.TrimSpace(*checkName) == "" {
+			return cliConfigError("--registered requires --check NAME", nil)
+		}
+		options.ProjectID, err = effectiveProjectID(*apiURL, *projectID)
+		if err != nil {
+			return err
+		}
+		options.RegisteredClient, err = authenticatedClient(*apiURL, *apiToken)
+		if err != nil {
+			return err
+		}
+	}
+	report, err := buildSyncDryRunReport(ctx, ".", cfg, path, options)
 	if err != nil {
 		return err
 	}
@@ -93,11 +111,11 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 	checkName := strings.TrimSpace(options.CheckName)
 	syncConfig := cfg.Sync
 	if checkName != "" {
-		if configPath == "" {
+		if configPath == "" && options.RegisteredClient == nil {
 			return syncDryRunReport{}, cliConfigError("--check requires .readyci.yml", nil)
 		}
 		check, ok := cfg.Checks[checkName]
-		if !ok {
+		if !ok && options.RegisteredClient == nil {
 			return syncDryRunReport{}, cliConfigError(fmt.Sprintf("unknown check %q (available: %s)", checkName, strings.Join(sortedCheckNames(cfg.Checks), ", ")), nil)
 		}
 		if changeMode == "" {
@@ -109,28 +127,38 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 	if err != nil {
 		return syncDryRunReport{}, cliConfigError(err.Error(), err)
 	}
-	includeUntracked := true
-	if syncConfig.IncludeUntracked != nil {
-		includeUntracked = *syncConfig.IncludeUntracked
-	}
-	if normalizedChangeMode == syncbundle.ChangeModeStaged {
-		includeUntracked = false
-	}
-
-	bundlePath, result, err := syncbundlebuild.BuildToTempWithOptions(ctx, cwd, syncbundlebuild.BuildOptions{
+	buildOptions := syncbundlebuild.BuildOptions{
 		ChangeMode:       normalizedChangeMode,
-		ExcludePatterns:  append([]string(nil), syncConfig.Exclude...),
+		ExcludePatterns:  syncConfig.Exclude,
 		IncludeUntracked: syncConfig.IncludeUntracked,
-		ReviewedFixtures: append([]syncbundle.ReviewedFixture(nil), syncConfig.ReviewedFixtures...),
-	})
-	if err != nil {
-		var admission *syncbundle.AdmissionError
-		if errors.As(err, &admission) {
-			return syncDryRunReport{}, cliConfigError(err.Error(), err)
+		ReviewedFixtures: syncConfig.ReviewedFixtures,
+	}
+	sessionViewDigest := ""
+	if options.RegisteredClient != nil {
+		policy, err := options.RegisteredClient.ProjectVerificationSourcePolicy(ctx, options.ProjectID, normalizedChangeMode, checkName)
+		if err != nil {
+			return syncDryRunReport{}, err
 		}
-		return syncDryRunReport{}, err
+		if policy.Active == nil || policy.CheckSource == nil {
+			return syncDryRunReport{}, cliConfigError("active registered check source policy is required", nil)
+		}
+		if sessionViewDigest, err = registeredSessionViewDigest(ctx, cwd, buildOptions, *policy.Active, *policy.CheckSource); err != nil {
+			return syncDryRunReport{}, err
+		}
+		buildOptions, err = registeredPolicyBuildOptions(buildOptions, policy.CheckSource)
+		if err != nil {
+			return syncDryRunReport{}, err
+		}
+	}
+	includeUntracked := normalizedChangeMode != syncbundle.ChangeModeStaged && (buildOptions.IncludeUntracked == nil || *buildOptions.IncludeUntracked)
+	bundlePath, result, err := syncbundlebuild.BuildToTempWithOptions(ctx, cwd, buildOptions)
+	if err != nil {
+		return syncDryRunReport{}, syncBuildError(err)
 	}
 	defer os.Remove(bundlePath)
+	if sessionViewDigest != "" && result.Manifest.SnapshotDigest != sessionViewDigest {
+		return syncDryRunReport{}, fmt.Errorf("check preview digest %s differs from the session's view %s of the same workspace", result.Manifest.SnapshotDigest, sessionViewDigest)
+	}
 	expandedBytes, err := decompressedBundleBytes(bundlePath)
 	if err != nil {
 		return syncDryRunReport{}, err
@@ -140,12 +168,13 @@ func buildSyncDryRunReport(ctx context.Context, cwd string, cfg config.ProjectCo
 		return syncDryRunReport{}, cliConfigError(err.Error(), err)
 	}
 	report := syncDryRunReport{
+		SnapshotDigest:        result.Manifest.SnapshotDigest,
 		Root:                  result.Root,
 		ConfigPath:            configPath,
 		CheckName:             checkName,
 		ChangeMode:            result.Manifest.ChangeMode,
 		IncludeUntracked:      includeUntracked,
-		ExcludePatterns:       append([]string(nil), syncConfig.Exclude...),
+		ExcludePatterns:       buildOptions.ExcludePatterns,
 		ReviewedFixtures:      append([]syncbundle.ReviewedFixture(nil), result.Manifest.ReviewedFixtures...),
 		Git:                   result.Manifest.Git,
 		CompressedBytes:       result.Size,
@@ -184,6 +213,41 @@ func decompressedBundleBytes(bundlePath string) (int64, error) {
 	return io.Copy(io.Discard, reader)
 }
 
+// registeredSessionViewDigest builds the combined source a session uploads
+// under the active policy and returns the digest of the check's view of it, so
+// a preview fails wherever that upload would.
+func registeredSessionViewDigest(ctx context.Context, cwd string, base syncbundlebuild.BuildOptions, active, check syncbundle.SourcePolicyBinding) (string, error) {
+	options, err := registeredPolicyBuildOptions(base, &active)
+	if err != nil {
+		return "", err
+	}
+	options.SealSourceViews = true
+	built, err := syncbundlebuild.BuildWithOptions(ctx, cwd, io.Discard, options)
+	if err != nil {
+		return "", syncBuildError(err)
+	}
+	if len(options.SourceScopes) == 0 {
+		return built.Manifest.SnapshotDigest, nil
+	}
+	check, err = syncbundle.NormalizeSourcePolicyBinding(check)
+	if err != nil {
+		return "", fmt.Errorf("invalid registered check source policy: %w", err)
+	}
+	view, ok := built.SourceViews[syncbundle.SourcePolicyScopeKey(check)]
+	if !ok {
+		return "", errors.New("registered check source is not a scope of the active policy")
+	}
+	return view.SnapshotDigest, nil
+}
+
+func syncBuildError(err error) error {
+	var admission *syncbundle.AdmissionError
+	if errors.As(err, &admission) {
+		return cliConfigError(err.Error(), err)
+	}
+	return err
+}
+
 func printSyncDryRunReport(report syncDryRunReport) {
 	fmt.Println("sync: dry-run")
 	fmt.Printf("root: %s\n", report.Root)
@@ -194,6 +258,7 @@ func printSyncDryRunReport(report syncDryRunReport) {
 		fmt.Printf("check: %s\n", report.CheckName)
 	}
 	fmt.Printf("change_mode: %s\n", report.ChangeMode)
+	fmt.Printf("snapshot_digest: %s\n", report.SnapshotDigest)
 	fmt.Printf("include_untracked: %t\n", report.IncludeUntracked)
 	fmt.Printf("compressed_bytes: %d\n", report.CompressedBytes)
 	fmt.Printf("expanded_bytes: %d\n", report.ExpandedBytes)

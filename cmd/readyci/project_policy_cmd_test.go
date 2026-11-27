@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestProjectPolicyInputDiscoversConfiguration(t *testing.T) {

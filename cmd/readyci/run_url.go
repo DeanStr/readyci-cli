@@ -1,24 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"net/url"
-	"os"
 	"strings"
 )
-
-func openRunURL(dashboardURL, runID string) {
-	runURL := runDashboardURL(dashboardURL, runID)
-	if runURL == "" {
-		fmt.Fprintf(os.Stderr, "readyci: run %s created; set READYCI_DASHBOARD_URL to use --open\n", runID)
-		return
-	}
-	if err := openBrowser(runURL); err != nil {
-		fmt.Fprintf(os.Stderr, "readyci: open %s\n", runURL)
-		return
-	}
-	fmt.Fprintf(os.Stderr, "readyci: opened %s\n", runURL)
-}
 
 func runDashboardURL(dashboardURL, runID string) string {
 	dashboardURL = normalizeDashboardURLBase(dashboardURL)

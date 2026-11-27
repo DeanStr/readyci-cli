@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func newSuccessfulRunCommandServer(t *testing.T, created *preflightapi.CreateRunRequest, createBody *[]byte) *httptest.Server {
@@ -123,26 +124,6 @@ resources:
 	}
 	if strings.Contains(string(createBody), `"region"`) {
 		t.Fatalf("create request sent region despite no CLI/config region: %s", createBody)
-	}
-}
-
-func TestCreateRunRequestRegionOnlyDefaultsWhenExplicit(t *testing.T) {
-	tests := []struct {
-		name   string
-		region string
-		want   string
-	}{
-		{name: "omitted", region: "", want: ""},
-		{name: "whitespace", region: "  ", want: ""},
-		{name: "explicit default", region: "default", want: "default"},
-		{name: "normalizes explicit", region: " US-East_1 ", want: "us-east_1"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := createRunRequestRegion(tc.region); got != tc.want {
-				t.Fatalf("createRunRequestRegion(%q) = %q, want %q", tc.region, got, tc.want)
-			}
-		})
 	}
 }
 

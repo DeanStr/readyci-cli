@@ -81,8 +81,9 @@ func TestRunOutputHelpersPrintSecretPolicyAndSeconds(t *testing.T) {
 	output, err := captureStdoutForCLITest(t, func() error {
 		printRunSecretPolicy(&preflightapi.RunSecretPolicyEvaluation{
 			Requested:   true,
-			Eligible:    false,
+			Eligible:    true,
 			CommandHash: "sha256:test",
+			Release:     preflightapi.SecretReleaseApprovalFree,
 			Reasons:     []string{"command hash mismatch"},
 		})
 		return nil
@@ -92,8 +93,9 @@ func TestRunOutputHelpersPrintSecretPolicyAndSeconds(t *testing.T) {
 	}
 	requireCLITestOutputContains(t, output,
 		"secret_policy_requested: true",
-		"secret_policy_eligible: false",
+		"secret_policy_eligible: true",
 		"secret_policy_command_hash: sha256:test",
+		"secret_policy_release: approval_free",
 		"secret_policy_reason: command hash mismatch",
 	)
 	if got := secondsLabel(0); got != "" {

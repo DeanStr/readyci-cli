@@ -120,6 +120,7 @@ func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 		{Type: preflightapi.EventCommandExited, RunID: "run_other", Timestamp: fixed.Add(7 * time.Second), ExitCode: &successExitCode},
 		{Type: preflightapi.EventRunFinished, RunID: "run_other", Timestamp: fixed.Add(8 * time.Second), Status: preflightapi.StatusSucceeded, ExitCode: &successExitCode},
 	}
+	secretsRequested := true
 	detail := preflightapi.RunDetail{
 		Summary: preflightapi.RunSummary{
 			RunID:     "run_fail",
@@ -130,11 +131,12 @@ func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 			CreatedAt: fixed,
 		},
 		Spec: preflightapi.RunSpec{
-			RunID:          "run_fail",
-			ProjectID:      "proj_story",
-			IdempotencyKey: "task-1:GO=1",
-			Command:        "go test ./...",
-			CommandAlias:   "touched [GO=1]",
+			RunID:            "run_fail",
+			ProjectID:        "proj_story",
+			IdempotencyKey:   "task-1:GO=1",
+			SecretsRequested: &secretsRequested,
+			Command:          "go test ./...",
+			CommandAlias:     "touched [GO=1]",
 		},
 	}
 	retryDetail := preflightapi.RunDetail{
@@ -221,7 +223,7 @@ func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 	baseRerun := "readyci verify --json --progress=status --api-url " + shellQuoteArg(server.URL) + " --check touched"
 	expectedRerun := baseRerun + " --request-secrets"
 	if explain.Diagnosis.Kind != "test_failed" || explain.Check != "touched" || explain.MatrixVariant != "GO=1" || explain.RerunCommand != expectedRerun {
-		t.Fatalf("agent explain diagnosis = %+v rerun=%q, want legacy secret-preserving rerun touched", explain.Diagnosis, explain.RerunCommand)
+		t.Fatalf("agent explain diagnosis = %+v rerun=%q, want secret-preserving rerun touched", explain.Diagnosis, explain.RerunCommand)
 	}
 	if explain.SchemaVersion != agentSchemaVersion || explain.Repair.Classification != preflightapi.ClassificationTestFailed || explain.Repair.AgentAction != preflightapi.AgentActionFixCode || explain.Repair.PrimaryFile != "platform/internal/runs/store_test.go" || explain.Repair.FailingTest != "TestStore" {
 		t.Fatalf("agent explain repair = schema %q packet %+v, want structured repair packet", explain.SchemaVersion, explain.Repair)
@@ -239,8 +241,7 @@ func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 		t.Fatalf("warnings = %+v, want artifact lookup warning", explain.Warnings)
 	}
 
-	secretsRequested := false
-	detail.Spec.SecretsRequested = &secretsRequested
+	secretsRequested = false
 	output, err = captureStdoutForCLITest(t, func() error {
 		return agentExplainCommand([]string{"--api-url", server.URL, "--token", "pfl_story", "--json", "run_fail"})
 	})
@@ -303,7 +304,7 @@ func TestAgentExplainAndResumeUseStructuredRunData(t *testing.T) {
 	}
 }
 
-func TestAgentRunReportFromDetailPreservesLegacySecretRequest(t *testing.T) {
+func TestAgentRunReportFromDetailReportsSecretRequest(t *testing.T) {
 	exitCode := 1
 	fixed := time.Date(2026, 6, 22, 6, 7, 8, 0, time.UTC)
 	detail := preflightapi.RunDetail{
@@ -335,16 +336,9 @@ func TestAgentRunReportFromDetailPreservesLegacySecretRequest(t *testing.T) {
 	defer server.Close()
 	client := api.NewClient(server.URL, api.WithToken("pfl_story"))
 
-	report, err := agentRunReportFromDetail(context.Background(), client, server.URL, detail)
-	if err != nil {
-		t.Fatalf("agent run report from nil secret detail: %v", err)
-	}
-	if !report.SecretsRequested {
-		t.Fatalf("nil secrets_requested report = %+v, want legacy requested", report)
-	}
 	secretsRequested := false
 	detail.Spec.SecretsRequested = &secretsRequested
-	report, err = agentRunReportFromDetail(context.Background(), client, server.URL, detail)
+	report, err := agentRunReportFromDetail(context.Background(), client, server.URL, detail)
 	if err != nil {
 		t.Fatalf("agent run report from false secret detail: %v", err)
 	}

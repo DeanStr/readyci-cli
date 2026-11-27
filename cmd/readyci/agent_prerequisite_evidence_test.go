@@ -233,28 +233,3 @@ func TestAgentEnvironmentPreparationEvidenceAfterWarningTail(t *testing.T) {
 		t.Fatalf("preparation diagnostic lost behind warnings: %+v", evidence)
 	}
 }
-
-func TestAgentRecoveredSummaryZeroKeepsRecordedPrecedence(t *testing.T) {
-	one, zero := 1, 0
-	result := remoteRunResult{Status: preflightapi.StatusRunning}
-	observer := remoteRunEventObserver{result: &result, outputMode: remoteRunOutputCollect}
-	for _, event := range []preflightapi.RunEvent{
-		{Type: preflightapi.EventStderr, Phase: "command", Step: "cross", Data: "go: cannot install cross-compiled binaries when GOBIN is set\n"},
-		{Type: preflightapi.EventCommandExited, ExitCode: &one},
-	} {
-		if err := observer.handle(event); err != nil {
-			t.Fatal(err)
-		}
-	}
-	terminal, err := observer.finishFromRunDetail(preflightapi.RunDetail{Summary: preflightapi.RunSummary{Status: preflightapi.StatusFailed, ExitCode: &zero}})
-	if err != nil || !terminal || result.ExitCode != 0 {
-		t.Fatalf("recovery=%+v terminal=%t err=%v", result, terminal, err)
-	}
-	code := runFailureExitCode(result, result.Status)
-	if code == nil || *code != 0 {
-		t.Fatalf("earlier command failure replaced recovered terminal zero: %+v", code)
-	}
-	if analysis := localAnalyzeRunFailure(result.Status, "go install .", code, result.Events, ""); analysis.Classification == preflightapi.ClassificationEnvironmentSetupFailed {
-		t.Fatalf("recovered zero authorized prerequisite evidence: %+v", analysis)
-	}
-}

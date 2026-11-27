@@ -23,6 +23,12 @@ func buildAgentAffectedPlanReport(apiURL, projectID, changes, goal, intent strin
 	}
 	plans, dryRun = agentAugmentAffectedPlansForIntent(cfg, plans, dryRun, intent, resolveOptions)
 	plans = applyAgentAffectedPlanOptionsForIntent(intent, requestSecrets, plans)
+	// Resolve preparation as readyci verify will, so a plan reported ready
+	// never recommends a command that fails before submission.
+	warmPlans, err := agentDependencyWarmPlansForAffected(".", plans, cfg, resolveOptions, intent)
+	if err != nil {
+		return agentPlanReport{}, err
+	}
 	status := "ready"
 	reason := "matched_changed_paths"
 	if len(plans) == 0 {
@@ -48,7 +54,7 @@ func buildAgentAffectedPlanReport(apiURL, projectID, changes, goal, intent strin
 			SelectedReason: "Configured affected rules decide which checks match the changed files.",
 		})),
 		Policy:        agentPolicyForPlansForIntent(dryRun.ChangeMode, intent, requestSecrets, checkRunPlansFromAffected(plans)),
-		Warnings:      agentWarningsForAffectedProfileExpansion(warnings),
+		Warnings:      append(agentWarningsForAffectedProfileExpansion(warnings), agentPreparationWarnings(warmPlans)...),
 		VerifyCommand: agentAffectedVerifyCommand(apiURL, dryRun.ProjectID, dryRun.ChangeMode, intent, requestSecrets),
 	}
 	if len(plans) == 1 {
@@ -75,6 +81,18 @@ func checkRunPlansFromAffected(plans []affectedCheckPlan) []checkRunPlan {
 	return out
 }
 
+// Preparation may reach the network while the checks keep their own policy,
+// so every plan preview names each preparation step and its access.
+func agentPreparationWarnings(warmPlans []affectedCheckPlan) []agentWarning {
+	var warnings []agentWarning
+	for _, warm := range warmPlans {
+		warnings = append(warnings, agentWarning{Section: "preparation", Message: "Automatic dependency preparation: " + warm.Plan.Name +
+			"; network_mode=" + warm.Plan.Options.NetworkMode + "; network_allowlist=" + strings.Join(warm.Plan.Options.NetworkAllowlist, ",") +
+			". Verification uses the prepared cache in this session and retains its configured network policy."})
+	}
+	return warnings
+}
+
 func agentDependencyWarmPlansForAffected(cwd string, plans []affectedCheckPlan, cfg config.ProjectConfig, resolveOptions checkResolveOptions, intent string) ([]affectedCheckPlan, error) {
 	if intent == agentIntentSecurity {
 		return nil, nil
@@ -97,21 +115,6 @@ func agentPrePRReasonPath(paths []string) string {
 		}
 	}
 	return "changed files"
-}
-
-func agentAffectedArtifactPaths(plans []affectedCheckPlan) []string {
-	seen := map[string]bool{}
-	var paths []string
-	for _, selected := range plans {
-		for _, path := range selected.Plan.Options.ArtifactPaths {
-			if path == "" || seen[path] {
-				continue
-			}
-			seen[path] = true
-			paths = append(paths, path)
-		}
-	}
-	return paths
 }
 
 func buildAgentAffectedRulePlans(ctx context.Context, cwd string, cfg config.ProjectConfig, configPath string, resolveOptions checkResolveOptions) ([]affectedCheckPlan, affectedDryRunReport, []string, error) {
@@ -206,15 +209,6 @@ func affectedRuleReasonText(match affectedRuleMatch) string {
 		return fmt.Sprintf("%s selected because %s changed", match.Pattern, match.Path)
 	}
 	return fmt.Sprintf("affected.rules[%d] matched %s with %s", match.Rule, match.Path, match.Pattern)
-}
-
-func agentAffectedChildIdempotencyKey(baseKey, check string) string {
-	baseKey = strings.TrimSpace(baseKey)
-	check = strings.TrimSpace(check)
-	if baseKey == "" || check == "" {
-		return baseKey
-	}
-	return baseKey + ":check=" + check
 }
 
 func agentAffectedVerifyCommand(apiURL, projectID, changes, intent string, requestSecrets bool) string {

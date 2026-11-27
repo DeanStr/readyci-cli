@@ -15,7 +15,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-func TestEnvironmentRequirementsReachRemoteRequestAndSealedPlan(t *testing.T) {
+func TestEnvironmentRequirementsReachSealedPlan(t *testing.T) {
 	cfg, err := config.ParseProjectConfig([]byte("version: 1\nenvironment_requirements: [network:ipv6-loopback]\nchecks:\n  unit:\n    command: cargo test\n    environment_requirements: [filesystem:btrfs]\n"), "requirements.yml")
 	if err != nil {
 		t.Fatal(err)
@@ -25,10 +25,6 @@ func TestEnvironmentRequirementsReachRemoteRequestAndSealedPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{preflightapi.EnvironmentFilesystemBtrfs, preflightapi.EnvironmentIPv6Loopback}
-	request := buildRemoteRunRequest(plan.Options, syncbundlebuild.BuildResult{}, "cargo test", "project", "requirements")
-	if !reflect.DeepEqual(request.EnvironmentRequirements, want) {
-		t.Fatalf("request lost guest requirements: %v", request.EnvironmentRequirements)
-	}
 	nodes, _, err := verificationNodesForPlans(nil, []checkRunPlan{plan}, syncbundlebuild.BuildResult{})
 	if err != nil || len(nodes) != 1 {
 		t.Fatalf("nodes=%v err=%v", nodes, err)
@@ -36,10 +32,9 @@ func TestEnvironmentRequirementsReachRemoteRequestAndSealedPlan(t *testing.T) {
 	if !reflect.DeepEqual(nodes[0].Run.EnvironmentRequirements, want) {
 		t.Fatalf("sealed node lost guest requirements: %v", nodes[0].Run.EnvironmentRequirements)
 	}
-	request.EnvironmentRequirements[0] = preflightapi.EnvironmentFilesystemMinix
 	nodes[0].Run.EnvironmentRequirements[1] = preflightapi.EnvironmentIPv6Interface
 	if !reflect.DeepEqual(plan.Options.EnvironmentRequirements, want) {
-		t.Fatal("request or node mutations changed resolved requirements")
+		t.Fatal("node mutations changed resolved requirements")
 	}
 }
 

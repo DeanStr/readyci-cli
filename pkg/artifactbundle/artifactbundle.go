@@ -564,17 +564,20 @@ func hasPatternMeta(pattern string) bool {
 	return strings.ContainsAny(pattern, "*?[")
 }
 
+// FindPathPrefixConflict checks every ancestor, not sorted neighbours:
+// "d.txt" sorts between "d" and "d/x", hiding that conflict from them.
 func FindPathPrefixConflict(paths []string) (string, string, bool) {
-	if len(paths) < 2 {
-		return "", "", false
+	set := make(map[string]struct{}, len(paths))
+	for _, rel := range paths {
+		set[rel] = struct{}{}
 	}
 	sorted := append([]string(nil), paths...)
 	sort.Strings(sorted)
-	for i := 1; i < len(sorted); i++ {
-		previous := sorted[i-1]
-		current := sorted[i]
-		if strings.HasPrefix(current, previous+"/") {
-			return previous, current, true
+	for _, rel := range sorted {
+		for ancestor := path.Dir(rel); ancestor != "." && ancestor != "/"; ancestor = path.Dir(ancestor) {
+			if _, ok := set[ancestor]; ok {
+				return ancestor, rel, true
+			}
 		}
 	}
 	return "", "", false

@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"flag"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestCommandFromArgsPreservesSingleShellString(t *testing.T) {

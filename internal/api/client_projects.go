@@ -100,8 +100,8 @@ func (c *Client) ListProjectSecrets(ctx context.Context, projectID string) (pref
 	return getJSON[preflightapi.ListProjectSecretsResponse](ctx, c, "/v1/projects/"+url.PathEscape(projectID)+"/secrets")
 }
 
-func (c *Client) UpsertProjectSecret(ctx context.Context, projectID, name, value string) (preflightapi.UpsertProjectSecretResponse, error) {
-	return putJSONResponse[preflightapi.UpsertProjectSecretResponse](ctx, c, "/v1/projects/"+url.PathEscape(projectID)+"/secrets/"+url.PathEscape(name), preflightapi.UpsertProjectSecretRequest{Value: value})
+func (c *Client) UpsertProjectSecret(ctx context.Context, projectID, name string, req preflightapi.UpsertProjectSecretRequest) (preflightapi.UpsertProjectSecretResponse, error) {
+	return putJSONResponse[preflightapi.UpsertProjectSecretResponse](ctx, c, "/v1/projects/"+url.PathEscape(projectID)+"/secrets/"+url.PathEscape(name), req)
 }
 
 func (c *Client) DeleteProjectSecret(ctx context.Context, projectID, name, reason string) (preflightapi.DeleteProjectSecretResponse, error) {

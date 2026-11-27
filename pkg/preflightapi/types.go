@@ -94,6 +94,12 @@ func TrustedSecretCommandHash(command string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// TrustedSecretCommandApproval pairs an effective command hash with the exact
+// workspace approved by a project secret administrator.
+func TrustedSecretCommandApproval(commandHash, snapshotDigest string) string {
+	return commandHash + "@" + snapshotDigest
+}
+
 func TrustedSecretStepsHash(steps []RunStepSpec) string {
 	type trustedStep struct {
 		Name           string            `json:"name"`

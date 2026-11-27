@@ -67,7 +67,7 @@ func agentRunReportFromDetail(ctx context.Context, client *api.Client, apiURL st
 	}
 	return agentVerifyRunReport{
 		APIURL:           apiURL,
-		SecretsRequested: persistedRunSecretsRequested(detail.Spec.SecretsRequested),
+		SecretsRequested: boolPtrValue(detail.Spec.SecretsRequested),
 		RunID:            detail.Summary.RunID,
 		RunGroupID:       detail.Summary.RunGroupID,
 		Status:           status,
@@ -223,10 +223,6 @@ func stringPtrValue(value string) *string {
 
 func boolPtrValue(value *bool) bool {
 	return value != nil && *value
-}
-
-func persistedRunSecretsRequested(value *bool) bool {
-	return value == nil || *value
 }
 
 func selectAgentOverallRun(runs []agentVerifyRunReport) agentVerifyRunReport {

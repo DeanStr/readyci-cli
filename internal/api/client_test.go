@@ -118,7 +118,7 @@ func TestClientEndpointWrappersBuildExpectedRequests(t *testing.T) {
 		{
 			name: "upsert project secret",
 			run: func() error {
-				_, err := client.UpsertProjectSecret(ctx, "proj dev", "READYCI TOKEN", "secret")
+				_, err := client.UpsertProjectSecret(ctx, "proj dev", "READYCI TOKEN", preflightapi.UpsertProjectSecretRequest{Value: secretValue("secret")})
 				return err
 			},
 			method:    http.MethodPut,
@@ -543,3 +543,6 @@ func TestClientIgnoresRemovedLegacyHeaderEnvironment(t *testing.T) {
 		t.Fatalf("removed legacy environment affected client: host=%q forwarded_for=%q", client.hostHeader, client.forwardedFor)
 	}
 }
+
+// secretValue gives a project secret request its value field.
+func secretValue(value string) *string { return &value }

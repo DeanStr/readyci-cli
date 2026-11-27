@@ -11,24 +11,6 @@ func isExitLikeError(err error) bool {
 	return errors.As(err, &exitErr)
 }
 
-func agentExitError(err error) error {
-	var exitErr exitCodeError
-	if errors.As(err, &exitErr) {
-		if exitErr.code == 0 {
-			return nil
-		}
-		return exitCodeError{code: exitErr.code}
-	}
-	return exitCodeError{code: 1}
-}
-
-func agentRunErrorCoveredByReport(report agentVerifyReport, err error) bool {
-	return errors.Is(err, errRunStreamEndedBeforeTerminal) &&
-		!report.Terminal &&
-		report.Classification == preflightapi.ClassificationPending &&
-		report.AgentAction == preflightapi.AgentActionWait
-}
-
 func agentCommandErrorReport(classification string, err error) agentVerifyReport {
 	report := agentVerifyReport{
 		SchemaVersion:  agentSchemaVersion,

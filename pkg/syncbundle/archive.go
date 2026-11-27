@@ -127,19 +127,26 @@ func materializedWorkspaceEntries(baseline, workspace []ArchiveEntry, deleted []
 	for _, item := range baseline {
 		materialized[item.Entry.Path] = item
 	}
-	for _, path := range deleted {
-		delete(materialized, path)
-		prefix := path + "/"
-		for candidate := range materialized {
-			if strings.HasPrefix(candidate, prefix) {
-				delete(materialized, candidate)
-			}
-		}
-	}
+	DeleteWithDescendants(materialized, deleted)
 	for _, item := range workspace {
 		materialized[item.Entry.Path] = item
 	}
 	return materialized
+}
+
+// DeleteWithDescendants applies the snapshot digest's deletion rule: a deleted
+// path removes its entry and every entry beneath it. Anything that
+// materializes a snapshot must use the same rule as the digest.
+func DeleteWithDescendants[T any](entries map[string]T, deleted []string) {
+	for _, path := range deleted {
+		delete(entries, path)
+		prefix := path + "/"
+		for candidate := range entries {
+			if strings.HasPrefix(candidate, prefix) {
+				delete(entries, candidate)
+			}
+		}
+	}
 }
 
 func archiveEntriesEqual(left, right ArchiveEntry) (bool, error) {

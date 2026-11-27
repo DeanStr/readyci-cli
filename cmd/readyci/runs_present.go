@@ -57,6 +57,9 @@ func printRunDetail(detail preflightapi.RunDetail) {
 	fmt.Printf("completed_at: %s\n", timeOrDash(summary.CompletedAt))
 	fmt.Printf("events: %d\n", summary.EventCount)
 	fmt.Printf("command: %s\n", detail.Spec.Command)
+	if detail.Spec.SecretRelease != "" {
+		fmt.Printf("secret_release: %s\n", detail.Spec.SecretRelease)
+	}
 	for _, reason := range detail.PolicyReasons {
 		fmt.Printf("policy_reason: %s\n", reason)
 	}
@@ -74,6 +77,9 @@ func printRunSecretPolicy(policy *preflightapi.RunSecretPolicyEvaluation) {
 	fmt.Printf("secret_policy_eligible: %t\n", policy.Eligible)
 	if policy.CommandHash != "" {
 		fmt.Printf("secret_policy_command_hash: %s\n", policy.CommandHash)
+	}
+	if policy.Release != "" {
+		fmt.Printf("secret_policy_release: %s\n", policy.Release)
 	}
 	for _, reason := range policy.Reasons {
 		fmt.Printf("secret_policy_reason: %s\n", reason)

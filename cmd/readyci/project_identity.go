@@ -28,7 +28,10 @@ func localAPIEndpoint(value string) bool {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return false
 	}
-	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	// Use the spelling the transport accepts over plain HTTP for every scheme:
+	// only exactly localhost or a loopback address is local, so LOCALHOST or a
+	// trailing-dot localhost is treated as remote.
+	host := parsed.Hostname()
 	if host == "localhost" {
 		return true
 	}

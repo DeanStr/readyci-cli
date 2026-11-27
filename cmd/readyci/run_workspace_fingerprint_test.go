@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestWorkspaceFingerprintIncludesDirtyAndUntrackedContent(t *testing.T) {
@@ -91,68 +89,5 @@ func TestWorkspaceFingerprintIncludesDirtyAndUntrackedContent(t *testing.T) {
 	}
 	if fifth == fourth {
 		t.Fatal("fingerprint did not change after editing a repo-root untracked file from a subdirectory")
-	}
-}
-
-func TestShouldPrintFailedWorkspaceHint(t *testing.T) {
-	if !shouldPrintFailedWorkspaceHint(true, preflightapi.EventRunFailed, true, 7, true, true, false) {
-		t.Fatal("complete failed-workspace artifact signals did not print hint")
-	}
-	for name, tt := range map[string]struct {
-		keepFailed       bool
-		terminalEvent    string
-		commandExited    bool
-		commandExitCode  int
-		artifactUploaded bool
-		retained         bool
-		skipped          bool
-	}{
-		"successful command with artifact failure": {
-			keepFailed:       true,
-			terminalEvent:    preflightapi.EventRunFailed,
-			commandExited:    true,
-			commandExitCode:  0,
-			artifactUploaded: false,
-			retained:         false,
-		},
-		"startup failure": {
-			keepFailed:       true,
-			terminalEvent:    preflightapi.EventRunFailed,
-			commandExited:    false,
-			commandExitCode:  127,
-			artifactUploaded: false,
-			retained:         false,
-		},
-		"artifact upload missing": {
-			keepFailed:       true,
-			terminalEvent:    preflightapi.EventRunFailed,
-			commandExited:    true,
-			commandExitCode:  7,
-			artifactUploaded: false,
-			retained:         true,
-		},
-		"failed workspace skipped": {
-			keepFailed:       true,
-			terminalEvent:    preflightapi.EventRunFailed,
-			commandExited:    true,
-			commandExitCode:  7,
-			artifactUploaded: true,
-			retained:         true,
-			skipped:          true,
-		},
-		"timeout": {
-			keepFailed:       true,
-			terminalEvent:    preflightapi.EventRunTimedOut,
-			commandExited:    true,
-			commandExitCode:  124,
-			artifactUploaded: true,
-			retained:         true,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if shouldPrintFailedWorkspaceHint(tt.keepFailed, tt.terminalEvent, tt.commandExited, tt.commandExitCode, tt.artifactUploaded, tt.retained, tt.skipped) {
-				t.Fatal("hint printed unexpectedly")
-			}
-		})
 	}
 }

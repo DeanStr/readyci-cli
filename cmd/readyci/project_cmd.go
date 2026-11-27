@@ -12,6 +12,7 @@ import (
 	"github.com/DeanStr/readyci-cli/internal/api"
 	"github.com/DeanStr/readyci-cli/pkg/config"
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
+	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
 func projectCommand(args []string) error {
@@ -75,19 +76,33 @@ func projectSetCommand(args []string) error {
 	homeRegion := fs.String("home-region", "", "default runner region for this project")
 	githubRepo := fs.String("github-repo", "", "GitHub repository as owner/repo")
 	defaultBranch := fs.String("default-branch", "", "default Git branch")
+	snapshot := fs.String("trusted-secret-snapshot", "", "workspace snapshot digest approved for --trusted-secret-command")
 	var trustedHashFlags stringSliceFlag
 	var trustedCommandFlags stringSliceFlag
-	fs.Var(&trustedHashFlags, "trusted-secret-command-hash", "trusted command hash for native secret release; repeatable")
+	var removeApprovals stringSliceFlag
+	fs.Var(&removeApprovals, "remove-trusted-secret-command-hash", "revoke the exact HASH@DIGEST approval; repeatable")
+	fs.Var(&trustedHashFlags, "trusted-secret-command-hash", "HASH@DIGEST approval to add; repeatable")
 	fs.Var(&trustedCommandFlags, "trusted-secret-command", "command to hash and trust for native secret release; repeatable")
 	clearTrustedHashes := fs.Bool("clear-trusted-secret-command-hashes", false, "clear trusted command hashes for native secret release")
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() != 0 {
-		return cliConfigError("usage: readyci project set [--api-url URL] [--token TOKEN] [--project PROJECT] [--home-region REGION] [--github-repo OWNER/REPO] [--default-branch BRANCH] [--trusted-secret-command-hash HASH] [--trusted-secret-command COMMAND] [--clear-trusted-secret-command-hashes]", nil)
+		return cliConfigError("usage: readyci project set [--api-url URL] [--token TOKEN] [--project PROJECT] [--home-region REGION] [--github-repo OWNER/REPO] [--default-branch BRANCH] [--trusted-secret-command COMMAND --trusted-secret-snapshot DIGEST] [--trusted-secret-command-hash HASH@DIGEST] [--clear-trusted-secret-command-hashes | --remove-trusted-secret-command-hash HASH@DIGEST]", nil)
 	}
-	if !flagProvided(fs, "home-region") && !flagProvided(fs, "github-repo") && !flagProvided(fs, "default-branch") && len(trustedHashFlags) == 0 && len(trustedCommandFlags) == 0 && !*clearTrustedHashes {
-		return cliConfigError("provide --home-region, --github-repo, --default-branch, --trusted-secret-command-hash, --trusted-secret-command, or --clear-trusted-secret-command-hashes", nil)
+	addingApprovals := len(trustedHashFlags) > 0 || len(trustedCommandFlags) > 0
+	if len(removeApprovals) > 0 && (addingApprovals || *clearTrustedHashes) {
+		return cliConfigError("remove approvals in a separate update from adding or clearing them", nil)
+	}
+	if addingApprovals && *clearTrustedHashes {
+		return cliConfigError("cannot set and clear trusted secret approvals together", nil)
+	}
+	// A hash flag already names its digest; the snapshot only pairs with commands.
+	if flagProvided(fs, "trusted-secret-snapshot") != (len(trustedCommandFlags) > 0) || (len(trustedCommandFlags) > 0 && syncbundle.ValidateSnapshotDigest(*snapshot) != nil) {
+		return cliConfigError("--trusted-secret-command requires --trusted-secret-snapshot with a valid workspace digest, and the snapshot applies only to commands", nil)
+	}
+	if !flagProvided(fs, "home-region") && !flagProvided(fs, "github-repo") && !flagProvided(fs, "default-branch") && !addingApprovals && len(removeApprovals) == 0 && !*clearTrustedHashes {
+		return cliConfigError("provide --home-region, --github-repo, --default-branch, --trusted-secret-command-hash, --trusted-secret-command, --remove-trusted-secret-command-hash, or --clear-trusted-secret-command-hashes", nil)
 	}
 	projectIDValue, err := effectiveProjectID(*apiURL, *projectID)
 	if err != nil {
@@ -109,14 +124,19 @@ func projectSetCommand(args []string) error {
 	if flagProvided(fs, "default-branch") {
 		req.GitHubDefaultBranch = defaultBranch
 	}
-	if *clearTrustedHashes || len(trustedHashFlags) > 0 || len(trustedCommandFlags) > 0 {
-		req.TrustedSecretCommandHashes = []string{}
-		if !*clearTrustedHashes {
-			req.TrustedSecretCommandHashes = append(req.TrustedSecretCommandHashes, trustedHashFlags...)
-			for _, command := range trustedCommandFlags {
-				req.TrustedSecretCommandHashes = append(req.TrustedSecretCommandHashes, preflightapi.TrustedSecretCommandHash(command))
-			}
-		}
+	for _, command := range trustedCommandFlags {
+		trustedHashFlags = append(trustedHashFlags, preflightapi.TrustedSecretCommandApproval(preflightapi.TrustedSecretCommandHash(command), *snapshot))
+	}
+	switch {
+	case *clearTrustedHashes:
+		req.ClearTrustedSecretCommandHashes = true
+	case len(removeApprovals) > 0:
+		req.RemoveTrustedSecretCommandHashes, err = parseSecretApprovals(removeApprovals)
+	case addingApprovals:
+		req.AddTrustedSecretCommandHashes, err = parseSecretApprovals(trustedHashFlags)
+	}
+	if err != nil {
+		return err
 	}
 	settings, err := client.UpdateProjectSettings(ctx, projectIDValue, req)
 	if err != nil {
@@ -136,6 +156,24 @@ func printAvailableRegions(regions []string) {
 		return
 	}
 	fmt.Printf("available_regions: %s\n", strings.Join(regions, ", "))
+}
+
+func parseSecretApprovals(entries []string) ([]string, error) {
+	approvals := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		hash, digest, paired := strings.Cut(entry, "@")
+		if !paired {
+			return nil, cliConfigError("secret approvals must be HASH@DIGEST pairs, as printed by readyci project get", nil)
+		}
+		if err := syncbundle.ValidateSnapshotDigest(hash); err != nil {
+			return nil, cliConfigError("invalid trusted secret command hash", err)
+		}
+		if err := syncbundle.ValidateSnapshotDigest(digest); err != nil {
+			return nil, cliConfigError("each command hash requires a valid workspace digest", err)
+		}
+		approvals = append(approvals, preflightapi.TrustedSecretCommandApproval(hash, digest))
+	}
+	return approvals, nil
 }
 
 func printTrustedSecretCommandHashes(hashes []string) {
@@ -194,7 +232,7 @@ func secretsListCommand(args []string) error {
 	}
 	fmt.Printf("secrets for project %s\n", resp.ProjectID)
 	for _, secret := range resp.Secrets {
-		fmt.Printf("%-32s updated_at=%s\n", secret.Name, secret.UpdatedAt.Format(time.RFC3339))
+		fmt.Printf("%-32s requires_approval=%t updated_at=%s\n", secret.Name, secret.RequiresApproval, secret.UpdatedAt.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -206,27 +244,47 @@ func secretsSetCommand(args []string) error {
 	projectID := fs.String("project", envDefault("READYCI_PROJECT_ID", ""), "project id")
 	valueFlag := fs.String("value", "", "secret value")
 	fromEnv := fs.String("from-env", "", "read the secret value from this local environment variable")
+	requiresApproval := fs.Bool("requires-approval", true, "release the secret only to approved commands and workspaces; false also releases it to unapproved runs, so use false only for low-value credentials such as sandbox keys")
+	const usage = "usage: readyci secrets set [--api-url URL] [--token TOKEN] [--project PROJECT] [--value VALUE|--from-env ENV] [--requires-approval=false] NAME [VALUE]"
 	if err := fs.Parse(args); err != nil {
 		return cliConfigError(err.Error(), err)
 	}
 	if fs.NArg() < 1 || fs.NArg() > 2 {
-		return cliConfigError("usage: readyci secrets set [--api-url URL] [--token TOKEN] [--project PROJECT] [--value VALUE|--from-env ENV] NAME [VALUE]", nil)
+		return cliConfigError(usage, nil)
 	}
+	// Presence, not content, decides whether a value was given: an empty
+	// --value "$UNSET" must fail instead of changing only the approval rule
+	// of the credential it was meant to replace.
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	name := fs.Arg(0)
 	value := *valueFlag
-	if *fromEnv != "" {
-		if *valueFlag != "" || fs.NArg() == 2 {
+	if set["from-env"] {
+		if set["value"] || fs.NArg() == 2 {
 			return cliConfigError("--from-env cannot be combined with --value or a positional value", nil)
 		}
 		value = os.Getenv(*fromEnv)
 	} else if fs.NArg() == 2 {
-		if *valueFlag != "" {
+		if set["value"] {
 			return cliConfigError("provide the secret value only once", nil)
 		}
 		value = fs.Arg(1)
+		// Flags after NAME are not parsed, so "NAME --requires-approval=false"
+		// would store the flag text as the secret value.
+		if strings.HasPrefix(value, "-") {
+			return cliConfigError("flags must come before NAME; pass a value that starts with - through --value or --from-env", nil)
+		}
 	}
-	if value == "" {
-		return cliConfigError("secret value is required; use --value, --from-env, or NAME VALUE", nil)
+	valueGiven := set["value"] || set["from-env"] || fs.NArg() == 2
+	if value == "" && (valueGiven || !set["requires-approval"]) {
+		return cliConfigError("secret value is required; use --value, --from-env, or NAME VALUE, or pass only --requires-approval to change an existing secret", nil)
+	}
+	var req preflightapi.UpsertProjectSecretRequest
+	if valueGiven {
+		req.Value = &value
+	}
+	if set["requires-approval"] {
+		req.RequiresApproval = requiresApproval
 	}
 	projectIDValue, err := effectiveProjectID(*apiURL, *projectID)
 	if err != nil {
@@ -238,11 +296,14 @@ func secretsSetCommand(args []string) error {
 	}
 	ctx, stop := signalContext()
 	defer stop()
-	resp, err := client.UpsertProjectSecret(ctx, projectIDValue, name, value)
+	resp, err := client.UpsertProjectSecret(ctx, projectIDValue, name, req)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("saved secret %s for project %s\n", resp.Secret.Name, projectIDValue)
+	fmt.Printf("saved secret %s for project %s; requires_approval=%t\n", resp.Secret.Name, projectIDValue, resp.Secret.RequiresApproval)
+	if !resp.Secret.RequiresApproval {
+		fmt.Fprintln(os.Stderr, "readyci: warning: unapproved runs receive this secret and can print it, so anyone who can request secrets or read the project's runs may see it; those runs must use network_mode none or a registered policy's allowlist")
+	}
 	return nil
 }
 

@@ -30,6 +30,11 @@ func dependencyWarmPlansForAffected(_ string, plans []affectedCheckPlan, cfg con
 	if resolveOptions.SkipWarm {
 		return nil, nil
 	}
+	// Preparation shares its consumers' workspace, so it uses the change mode
+	// they were resolved with, including the affected selector's default.
+	if len(plans) > 0 && plans[0].Plan.Options.ChangeMode != "" {
+		resolveOptions.Changes = plans[0].Plan.Options.ChangeMode
+	}
 	targets := make([]checkRunPlan, 0, len(plans))
 	for _, selected := range plans {
 		targets = append(targets, selected.Plan)
@@ -40,6 +45,12 @@ func dependencyWarmPlansForAffected(_ string, plans []affectedCheckPlan, cfg con
 	}
 	if len(resolved) == 0 {
 		return nil, nil
+	}
+	// The service rejects this session, so previews must not announce it.
+	for _, selected := range plans {
+		if requested := selected.Plan.Options.SecretsRequested; requested != nil && *requested {
+			return nil, cliConfigError(fmt.Sprintf("check %q requests project secrets but needs dependency preparation; %s", selected.Plan.Name, preflightapi.SecretPreparationGuidance), nil)
+		}
 	}
 	warmResolve, err := warmDependencyResolveOptions(resolveOptions, cfg)
 	if err != nil {

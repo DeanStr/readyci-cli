@@ -2,15 +2,18 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -246,6 +249,62 @@ func TestJSONRequestHonorsParentCancellationAndDeadline(t *testing.T) {
 		}
 		if !errors.Is(err, want) || attempts != 1 {
 			t.Fatalf("error=%v attempts=%d, want original %v and one attempt", err, attempts, want)
+		}
+	}
+}
+
+func TestAPITransportRejectsInsecureDestinationsBeforeDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		base      string
+		redirect  string
+		wantCalls int
+		wantError bool
+	}{
+		{"http://remote.invalid", "", 0, true},
+		{"https://remote.invalid", "http://remote.invalid/next", 1, true},
+		{"https://remote.invalid", "https://different.invalid/next", 1, true},
+		{"https://remote.invalid", "/next", 2, false},
+		{"http://localhost:8080", "", 1, false},
+		{"http://127.0.0.1:8080", "", 1, false},
+		{"http://[::1]:8080", "", 1, false},
+		// Go would proxy these spellings, sending plaintext off the host.
+		{"http://LocalHost:8080", "", 0, true},
+		{"http://localhost.:8080", "", 0, true},
+		{"http://localhost:8080", "http://LOCALHOST:8080/next", 1, true},
+	} {
+		client := NewClient(tc.base, WithToken("test"))
+		calls := 0
+		client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			calls++
+			resp := &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}")), Request: req}
+			if calls == 1 && tc.redirect != "" {
+				resp.StatusCode = http.StatusTemporaryRedirect
+				resp.Header.Set("Location", tc.redirect)
+			}
+			return resp, nil
+		})
+		_, err := client.UpsertProjectSecret(t.Context(), "project", "NAME", preflightapi.UpsertProjectSecretRequest{Value: secretValue("fixture")})
+		if calls != tc.wantCalls || (err != nil) != tc.wantError {
+			t.Errorf("%s redirect %q: calls=%d err=%v", tc.base, tc.redirect, calls, err)
+		}
+	}
+}
+
+func TestTransportErrorsExposeOnlySafeCause(t *testing.T) {
+	for _, tc := range []struct {
+		cause error
+		want  string
+	}{
+		{&net.DNSError{Name: "private.example"}, "DNS lookup failed"},
+		{&tls.CertificateVerificationError{Err: errors.New("private.example")}, "TLS certificate verification failed"},
+		{tls.RecordHeaderError{Msg: "private.example"}, "TLS handshake failed"},
+		{syscall.ECONNREFUSED, "connection refused"},
+		{errors.New("private.example"), "request failed"},
+	} {
+		wrapped := &url.Error{Op: "Get", URL: "https://private.example/?sig=sensitive", Err: tc.cause}
+		err := RequestError{Err: wrapped}
+		if err.Error() != "API "+tc.want || !errors.Is(err, wrapped) {
+			t.Fatalf("transport classification = %q, want %q and original cause", err, tc.want)
 		}
 	}
 }

@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
-	"github.com/DeanStr/readyci-cli/pkg/config"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/internal/syncbundlebuild"
+	"github.com/DeanStr/readyci-cli/pkg/config"
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestSetupConfigGenerationWritesRemoteCITemplate(t *testing.T) {

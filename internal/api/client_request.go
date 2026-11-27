@@ -3,15 +3,18 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
@@ -26,12 +29,27 @@ type RequestError struct {
 }
 
 func (e RequestError) Error() string {
+	var dnsErr *net.DNSError
+	var certErr *tls.CertificateVerificationError
+	var tlsHeaderErr tls.RecordHeaderError
 	reason := "request failed"
 	switch {
+	case errors.Is(e.Err, errInsecureEndpoint):
+		reason = errInsecureEndpoint.Error()
+	case errors.Is(e.Err, errCrossOriginRedirect):
+		reason = errCrossOriginRedirect.Error()
 	case errors.Is(e.Err, context.DeadlineExceeded):
 		reason = "context deadline exceeded"
 	case errors.Is(e.Err, context.Canceled):
 		reason = "context canceled"
+	case errors.As(e.Err, &dnsErr):
+		reason = "DNS lookup failed"
+	case errors.As(e.Err, &certErr):
+		reason = "TLS certificate verification failed"
+	case errors.As(e.Err, &tlsHeaderErr):
+		reason = "TLS handshake failed"
+	case errors.Is(e.Err, syscall.ECONNREFUSED):
+		reason = "connection refused"
 	case errors.Is(e.Err, io.ErrUnexpectedEOF):
 		reason = "response ended unexpectedly"
 	case errors.Is(e.Err, io.EOF):

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/DeanStr/readyci-cli/pkg/config"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/config"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"

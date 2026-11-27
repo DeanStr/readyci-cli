@@ -1,11 +1,12 @@
 package main
 
 import (
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 func TestSetupDeclaredRuntimesPreserveSourceSemantics(t *testing.T) {

@@ -307,6 +307,18 @@ func TestWriteArchiveRejectsPrefixConflictsBeforeWriting(t *testing.T) {
 	}
 }
 
+// Sorting puts "report.txt.bak" between a path and its descendant, so the
+// conflict must be found through ancestors rather than sorted neighbours.
+func TestFindPathPrefixConflictChecksEveryAncestor(t *testing.T) {
+	parent, nested, ok := FindPathPrefixConflict([]string{"report.txt/details.json", "report.txt.bak", "report.txt"})
+	if !ok || parent != "report.txt" || nested != "report.txt/details.json" {
+		t.Fatalf("conflict = %q %q %t, want report.txt and its descendant", parent, nested, ok)
+	}
+	if _, _, ok := FindPathPrefixConflict([]string{"report.txt", "report.txt.bak", "reports/a.json"}); ok {
+		t.Fatal("siblings reported as nested")
+	}
+}
+
 func TestWriteArchiveRejectsNonNormalizedPathsBeforeWriting(t *testing.T) {
 	var buf bytes.Buffer
 	_, err := WriteArchive(&buf, []ArchiveFile{{Path: "reports/../report.txt", Data: []byte("bad")}})

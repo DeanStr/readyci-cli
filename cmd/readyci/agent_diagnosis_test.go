@@ -128,10 +128,6 @@ func TestAgentRecommendationAndDiagnosis(t *testing.T) {
 	if got := rerunCommandForDiagnosis(preflightapi.StatusFailed, agentDiagnosis{Action: preflightapi.AgentActionFixCode}, "https://staging.readyci.test", "touched", true); got != "readyci verify --json --progress=status --api-url https://staging.readyci.test --check touched --request-secrets" {
 		t.Fatalf("secret rerun command = %q, want api-url and request-secrets preserved", got)
 	}
-	retryOptions := optionsForAgentRetryAttempt(remoteRunOptions{IdempotencyKey: "task-1:GO=1"}, 2)
-	if retryOptions.IdempotencyKey != "task-1:GO=1:__readyci_retry=2" {
-		t.Fatalf("retry idempotency key = %q, want retry child key", retryOptions.IdempotencyKey)
-	}
 	current := latestAgentRunReportsByIdempotencyGroup("task-1", []agentVerifyRunReport{
 		{RunID: "run_fail", IdempotencyKey: "task-1:GO=1", Status: preflightapi.StatusFailed, ExitCode: intPtr(1)},
 		{RunID: "run_pass", IdempotencyKey: "task-1:GO=1:__readyci_retry=2", Status: preflightapi.StatusSucceeded, ExitCode: intPtr(0)},
@@ -172,16 +168,6 @@ func TestAgentRecommendationAndDiagnosis(t *testing.T) {
 		serverDiagnosisReport.AgentAction != preflightapi.AgentActionRetry ||
 		serverDiagnosisReport.Summary != "Dependency download failed." {
 		t.Fatalf("server diagnosis report = %+v, want hosted dependency diagnosis", serverDiagnosisReport)
-	}
-	streamEndedReport := agentRunReportFromResult(
-		"touched",
-		"",
-		remoteRunOptions{Command: "go test ./..."},
-		remoteRunResult{RunID: "run_stream", Status: preflightapi.StatusQueued},
-		runStreamEndedError{runID: "run_stream", status: preflightapi.StatusQueued},
-	)
-	if streamEndedReport.Terminal || streamEndedReport.ExitCode != nil || streamEndedReport.Status != preflightapi.StatusQueued || streamEndedReport.AgentAction != preflightapi.AgentActionWait {
-		t.Fatalf("stream-ended report = %+v, want queued wait without remote exit code", streamEndedReport)
 	}
 	unknownReport := agentRunReportFromResult("touched", "", remoteRunOptions{Command: "go test ./..."}, remoteRunResult{RunID: "run_unknown", Status: preflightapi.StatusRunning}, api.EventStreamError{Err: api.ResponseError{StatusCode: 503, Status: "unavailable"}})
 	if unknownReport.Status != "unknown" || unknownReport.Terminal || unknownReport.ExitCode != nil || unknownReport.Classification != preflightapi.ClassificationVerificationUnknown {

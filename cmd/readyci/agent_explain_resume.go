@@ -81,7 +81,7 @@ func buildAgentExplainReport(ctx context.Context, client *api.Client, apiURL, ru
 	if checkName == "" {
 		checkName = detail.Spec.CommandAlias
 	}
-	requestSecrets := persistedRunSecretsRequested(detail.Spec.SecretsRequested)
+	requestSecrets := boolPtrValue(detail.Spec.SecretsRequested)
 	rerunCommand := rerunCommandForDiagnosis(status, diagnosis, apiURL, checkName, requestSecrets)
 	logsCommand := readyCILogsCommand(apiURL, runID)
 	evidencePacks, evidencePackErr := evidencePacksFromRunArtifactFiles(ctx, client, apiURL, runID, detail.Spec.ArtifactPaths, artifactsResp.Artifacts)

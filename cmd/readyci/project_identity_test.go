@@ -2,9 +2,24 @@ package main
 
 import (
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/internal/api"
 )
+
+func TestRequestIdentifiersRejectControlCharacters(t *testing.T) {
+	if _, err := executionProjectID("http://127.0.0.1:8080", "proj\nother"); err == nil {
+		t.Fatal("project id with a newline was accepted")
+	}
+	if _, err := normalizeIdempotencyKey("key\x00other"); err == nil {
+		t.Fatal("idempotency key with a NUL byte was accepted")
+	}
+	if got, err := normalizeIdempotencyKey(" task-1 "); err != nil || got != "task-1" {
+		t.Fatalf("normalized idempotency key = %q, %v", got, err)
+	}
+}
 
 func TestExecutionProjectIDFailsClosedForRemoteAPI(t *testing.T) {
 	_, err := executionProjectID("https://api.readyci.com", "")
@@ -51,5 +66,29 @@ func TestCachePurgeFailsBeforeRemoteMutationWithoutProject(t *testing.T) {
 	err := cachePurgeCommand([]string{"--api-url", "https://api.readyci.test", "--token", "pfl_test"})
 	if err == nil || !strings.Contains(err.Error(), "project id is required") {
 		t.Fatalf("cache purge error = %v, want missing project rejection", err)
+	}
+}
+
+// The CLI treats an endpoint as local only when the transport will accept it
+// over plain HTTP; other spellings fail before any request instead.
+func TestLocalAPIEndpointMatchesTransportLoopbackRule(t *testing.T) {
+	for endpoint, want := range map[string]bool{
+		"http://localhost:8080":       true,
+		"http://LOCALHOST:8080":       false,
+		"http://127.0.0.1:8080":       true,
+		"http://[::1]:8080":           true,
+		"http://localhost.:8080":      false,
+		"https://api.readyci.example": false,
+	} {
+		if got := localAPIEndpoint(endpoint); got != want {
+			t.Fatalf("localAPIEndpoint(%q) = %t, want %t", endpoint, got, want)
+		}
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want && api.ValidateEndpoint(parsed) != nil {
+			t.Fatalf("transport rejects local endpoint %q", endpoint)
+		}
 	}
 }

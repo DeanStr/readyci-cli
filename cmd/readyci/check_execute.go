@@ -84,7 +84,3 @@ func executeCheckPlan(plan checkRunPlan, cfg config.ProjectConfig, configPath st
 func ptrVerificationPlan(plan verificationPlan) *verificationPlan {
 	return &plan
 }
-
-func checkPlanRequiresSuccessfulStatus(plan checkRunPlan) bool {
-	return plan.WhenConfig.Status == "success" || (plan.When != nil && plan.When.Status == "success")
-}

@@ -212,6 +212,11 @@ func loginCommand(args []string) error {
 		return cliConfigError("usage: readyci login [--api-url URL] [--sso SLUG] [--no-browser|--device] [--timeout DURATION]", nil)
 	}
 
+	endpoint, err := url.Parse(normalizeAPIURL(*apiURL))
+	if err != nil || api.ValidateEndpoint(endpoint) != nil {
+		return cliConfigError("login requires an HTTPS API endpoint or loopback HTTP", nil)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), shutdownSignals()...)
 	defer stop()
 

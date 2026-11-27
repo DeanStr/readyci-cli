@@ -180,3 +180,64 @@ func TestExecutionPurposeIsSealedAndCannotClaimAuthority(t *testing.T) {
 		t.Fatal("verification accepted execution baseline hint")
 	}
 }
+
+// A rerun rebuilds preparation from warm_checks, so a warm recipe must not
+// request secrets even when its supplied plan contains no warm node.
+func TestNormalizeCreateVerificationSessionRequestRejectsSecretWarmRecipe(t *testing.T) {
+	secrets := true
+	for _, test := range []struct {
+		name          string
+		recipeSecrets bool
+		nodeSecrets   *bool
+		wantRejection bool
+	}{
+		{name: "recipe requests secrets", recipeSecrets: true, wantRejection: true},
+		{name: "node requests secrets", nodeSecrets: &secrets, wantRejection: true},
+		{name: "no secrets"},
+	} {
+		req := validVerificationRequest()
+		req.Recipe.Purpose = ExecutionPurpose
+		req.Recipe.WarmChecks = []string{"test"}
+		req.Recipe.RequestSecrets = test.recipeSecrets
+		req.Plan.Nodes[0].Run.SecretsRequested = test.nodeSecrets
+		_, err := NormalizeCreateVerificationSessionRequest(req)
+		if rejected := err != nil && strings.Contains(err.Error(), SecretPreparationGuidance); rejected != test.wantRejection || (err != nil && !rejected) {
+			t.Fatalf("%s: error = %v, want rejection %t", test.name, err, test.wantRejection)
+		}
+	}
+}
+
+func TestNormalizeCreateVerificationSessionRequestRejectsSecretsWithPreparation(t *testing.T) {
+	secrets := true
+	for _, test := range []struct {
+		name          string
+		recipeSecrets bool
+		firstPhase    string
+		firstSecrets  *bool
+		secondSecrets *bool
+		secondDepends []string
+		wantRejection bool
+	}{
+		{name: "secret recipe with preparation", recipeSecrets: true, firstPhase: VerificationNodePhaseWarm, secondDepends: []string{"test"}, wantRejection: true},
+		{name: "secret consumer of preparation", firstPhase: VerificationNodePhaseWarm, secondSecrets: &secrets, secondDepends: []string{"test"}, wantRejection: true},
+		{name: "preparation node requests secrets", firstPhase: VerificationNodePhaseWarm, firstSecrets: &secrets, secondDepends: []string{"test"}, wantRejection: true},
+		{name: "secret node beside unrelated preparation", firstPhase: VerificationNodePhaseWarm, secondSecrets: &secrets, wantRejection: true},
+		{name: "ordinary consumer of preparation", firstPhase: VerificationNodePhaseWarm, secondDepends: []string{"test"}},
+		{name: "secret consumer of a verify node", firstPhase: VerificationNodePhaseVerify, secondSecrets: &secrets, secondDepends: []string{"test"}},
+		{name: "secret recipe without preparation", recipeSecrets: true, firstPhase: VerificationNodePhaseVerify},
+	} {
+		req := validVerificationRequest()
+		req.Recipe.RequestSecrets = test.recipeSecrets
+		req.Plan.Nodes[0].Phase = test.firstPhase
+		req.Plan.Nodes[0].Run.SecretsRequested = test.firstSecrets
+		req.Plan.Nodes = append(req.Plan.Nodes, VerificationNodePlan{
+			ID: "integration", Name: "integration", Kind: "check", Required: true,
+			SuccessDependsOn: test.secondDepends,
+			Run:              CreateRunRequest{Command: "go test -tags integration ./...", SecretsRequested: test.secondSecrets},
+		})
+		_, err := NormalizeCreateVerificationSessionRequest(req)
+		if rejected := err != nil && strings.Contains(err.Error(), SecretPreparationGuidance); rejected != test.wantRejection || (err != nil && !rejected) {
+			t.Fatalf("%s: error = %v, want rejection %t", test.name, err, test.wantRejection)
+		}
+	}
+}

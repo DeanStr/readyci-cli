@@ -151,11 +151,23 @@ type RunDetail struct {
 }
 
 type RunSecretPolicyEvaluation struct {
-	Requested   bool     `json:"requested"`
-	Eligible    bool     `json:"eligible"`
-	CommandHash string   `json:"command_hash,omitempty"`
-	Reasons     []string `json:"reasons,omitempty"`
+	Requested   bool   `json:"requested"`
+	Eligible    bool   `json:"eligible"`
+	CommandHash string `json:"command_hash,omitempty"`
+	// Release says which project secrets current policy releases to an
+	// eligible run. RunSpec.SecretRelease records what a claim released.
+	Release string   `json:"release,omitempty"`
+	Reasons []string `json:"reasons,omitempty"`
 }
+
+const (
+	// SecretReleaseAll releases every project secret to an approved command
+	// and workspace.
+	SecretReleaseAll = "all"
+	// SecretReleaseApprovalFree releases only secrets that do not require
+	// approval, to a run whose command and workspace have none.
+	SecretReleaseApprovalFree = "approval_free"
+)
 
 type RunGroupSummary struct {
 	RunGroupID         string     `json:"run_group_id"`
@@ -374,9 +386,12 @@ type RunSpec struct {
 	BundleBaselineKey       string            `json:"bundle_baseline_key,omitempty"`
 	SecretsRequested        *bool             `json:"secrets_requested,omitempty"`
 	// SecretRevisionDigest identifies the exact server-selected project-secret
-	// revision set without exposing secret names or values. It is populated by
-	// the control plane when a worker claim is finalized, never by run creation.
+	// revision set without exposing secret names or values. SecretRelease
+	// records which secrets that set covers: SecretReleaseAll or
+	// SecretReleaseApprovalFree. The control plane sets both when a worker
+	// claim is finalized, never at run creation.
 	SecretRevisionDigest string            `json:"secret_revision_digest,omitempty"`
+	SecretRelease        string            `json:"secret_release,omitempty"`
 	Git                  GitInfo           `json:"git,omitempty"`
 	ClaimToken           string            `json:"claim_token,omitempty"`
 	LeaseExpiresAt       *time.Time        `json:"lease_expires_at,omitempty"`
@@ -435,16 +450,21 @@ type ListProjectsResponse struct {
 }
 
 type UpsertProjectSettingsRequest struct {
-	HomeRegion                 *string  `json:"home_region,omitempty"`
-	GitHubRepository           *string  `json:"github_repository,omitempty"`
-	GitHubDefaultBranch        *string  `json:"github_default_branch,omitempty"`
-	TrustedSecretCommandHashes []string `json:"trusted_secret_command_hashes"`
+	HomeRegion                       *string  `json:"home_region,omitempty"`
+	GitHubRepository                 *string  `json:"github_repository,omitempty"`
+	GitHubDefaultBranch              *string  `json:"github_default_branch,omitempty"`
+	AddTrustedSecretCommandHashes    []string `json:"add_trusted_secret_command_hashes,omitempty"`
+	RemoveTrustedSecretCommandHashes []string `json:"remove_trusted_secret_command_hashes,omitempty"`
+	ClearTrustedSecretCommandHashes  bool     `json:"clear_trusted_secret_command_hashes,omitempty"`
 }
 
 type ProjectSecretSummary struct {
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Name string `json:"name"`
+	// RequiresApproval false releases the secret to runs whose command and
+	// workspace have no approval. Use it only for low-value credentials.
+	RequiresApproval bool      `json:"requires_approval"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type ListProjectSecretsResponse struct {
@@ -452,8 +472,14 @@ type ListProjectSecretsResponse struct {
 	Secrets   []ProjectSecretSummary `json:"secrets"`
 }
 
+// UpsertProjectSecretRequest sets a value, changes whether the secret
+// requires approval, or both. A new secret needs a value and requires
+// approval unless RequiresApproval says otherwise; an omitted field keeps the
+// stored setting. A present but empty Value is rejected, never treated as
+// omitted.
 type UpsertProjectSecretRequest struct {
-	Value string `json:"value"`
+	Value            *string `json:"value,omitempty"`
+	RequiresApproval *bool   `json:"requires_approval,omitempty"`
 }
 
 type UpsertProjectSecretResponse struct {

@@ -329,17 +329,18 @@ func parentPath(rel string) string {
 	return ""
 }
 
+// rejectPathPrefixConflicts checks every ancestor, not sorted neighbours:
+// "d.txt" sorts between "d" and "d/x", hiding that conflict from them.
 func rejectPathPrefixConflicts(group string, entries []Entry) error {
-	paths := make([]string, 0, len(entries))
+	paths := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		paths = append(paths, entry.Path)
+		paths[entry.Path] = struct{}{}
 	}
-	sort.Strings(paths)
-	for i := 1; i < len(paths); i++ {
-		previous := paths[i-1]
-		current := paths[i]
-		if strings.HasPrefix(current, previous+"/") {
-			return fmt.Errorf("%s entry %q conflicts with nested entry %q", group, previous, current)
+	for _, entry := range entries {
+		for ancestor := parentPath(entry.Path); ancestor != ""; ancestor = parentPath(ancestor) {
+			if _, ok := paths[ancestor]; ok {
+				return fmt.Errorf("%s entry %q conflicts with nested entry %q", group, ancestor, entry.Path)
+			}
 		}
 	}
 	return nil

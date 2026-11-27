@@ -123,12 +123,56 @@ func NewClient(baseURL string, opts ...Option) *Client {
 		baseURL:      normalizeClientBaseURL(baseURL),
 		hostHeader:   strings.TrimSpace(os.Getenv("READYCI_API_HOST_HEADER")),
 		forwardedFor: strings.TrimSpace(os.Getenv("READYCI_API_FORWARDED_FOR")),
-		httpClient:   http.DefaultClient,
+		httpClient:   &http.Client{CheckRedirect: checkAPIRedirect},
 	}
 	for _, opt := range opts {
 		opt(client)
 	}
 	return client
+}
+
+var (
+	errInsecureEndpoint    = errors.New("Ready CI endpoints require HTTPS except on loopback")
+	errCrossOriginRedirect = errors.New("refusing cross-origin Ready CI redirect")
+)
+
+// ValidateEndpoint also protects browser login, which opens the URL outside this client.
+func ValidateEndpoint(u *url.URL) error {
+	if u != nil && u.Hostname() != "" {
+		if u.Scheme == "https" {
+			return nil
+		}
+		// Plain HTTP must not leave the host. Go's proxy selection bypasses
+		// loopback addresses and exactly "localhost", so any other spelling
+		// would reach HTTP_PROXY in cleartext.
+		host := u.Hostname()
+		if u.Scheme == "http" && (host == "localhost" || net.ParseIP(host).IsLoopback()) {
+			return nil
+		}
+	}
+	return errInsecureEndpoint
+}
+
+func checkAPIRedirect(req *http.Request, via []*http.Request) error {
+	if !sameOrigin(via[0].URL, req.URL) {
+		return errCrossOriginRedirect
+	}
+	if len(via) >= 10 {
+		return errors.New("too many Ready CI redirects")
+	}
+	return ValidateEndpoint(req.URL)
+}
+
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	if err := ValidateEndpoint(req.URL); err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		// net/http errors can include a signed URL, including a redirect target.
+		return nil, RequestError{Err: err}
+	}
+	return resp, nil
 }
 
 func normalizeClientBaseURL(value string) string {
@@ -236,7 +280,7 @@ func (c *Client) doJSONWithResponseLimitAndTimeout(ctx context.Context, method, 
 		return err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return observation.failure(err)
 	}
@@ -286,7 +330,7 @@ func (c *Client) downloadResponse(ctx context.Context, method, path string, writ
 	req.Header.Set("Accept", "application/json")
 	c.authorize(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return err
 	}
@@ -447,7 +491,7 @@ func (c *Client) resolveReturnedURL(rawURL string) (string, bool, error) {
 	}
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
-		return "", false, err
+		return "", false, errors.New("invalid URL returned by Ready CI")
 	}
 	var resolved *url.URL
 	if parsed.IsAbs() || parsed.Host != "" {

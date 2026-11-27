@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 	"io"
 	"net/http"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 
 var cliTestWorkingDirectoryMu sync.Mutex

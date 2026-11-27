@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"testing"
-	"time"
 
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
@@ -307,25 +306,6 @@ func TestUntrackedPathHashingRejectsUnsafePathsAndHandlesMissing(t *testing.T) {
 	}
 	if len(digest.Sum(nil)) != sha256.Size {
 		t.Fatalf("digest size = %d, want %d", len(digest.Sum(nil)), sha256.Size)
-	}
-}
-
-func waitForStartedVariants(t *testing.T, started <-chan string, names ...string) {
-	t.Helper()
-	want := make(map[string]bool, len(names))
-	for _, name := range names {
-		want[name] = true
-	}
-	seen := make(map[string]bool, len(names))
-	for len(seen) < len(want) {
-		select {
-		case variant := <-started:
-			if want[variant] {
-				seen[variant] = true
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("started variants = %v, want %v", seen, names)
-		}
 	}
 }
 

@@ -43,6 +43,7 @@ type ProjectVerificationSourcePolicyResponse struct {
 	SchemaVersion string                          `json:"schema_version"`
 	ProjectID     string                          `json:"project_id"`
 	Active        *syncbundle.SourcePolicyBinding `json:"active,omitempty"`
+	CheckSource   *syncbundle.SourcePolicyBinding `json:"check_source,omitempty"`
 }
 
 type PreviewProjectVerificationPolicyRequest struct {

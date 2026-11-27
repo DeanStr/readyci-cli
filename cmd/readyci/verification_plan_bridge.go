@@ -305,10 +305,6 @@ func normalizeCacheKeyFiles(values []string) ([]string, error) {
 	return verificationplan.NormalizeCacheKeyFiles(values)
 }
 
-func remoteCommandForOptions(options remoteRunOptions) (string, error) {
-	return verificationplan.CommandForRunSpec(runSpecFromRemoteRunOptions(options))
-}
-
 func createRunCommandAndSteps(options remoteRunOptions, command string) (string, []preflightapi.RunStepSpec) {
 	return verificationplan.CommandAndSteps(runSpecFromRemoteRunOptions(options), command)
 }

@@ -2,99 +2,12 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
-
-func TestAgentVerifyProgressKeepsStdoutAsOneFinalJSONDocument(t *testing.T) {
-	t.Setenv("READYCI_API_TOKEN", "")
-	t.Setenv("READYCI_PROGRESS", "")
-	cliTestWorkingDirectoryMu.Lock()
-	defer cliTestWorkingDirectoryMu.Unlock()
-	repo := t.TempDir()
-	previousDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
-	if err := os.Chdir(repo); err != nil {
-		t.Fatalf("chdir repo: %v", err)
-	}
-	defer func() {
-		if err := os.Chdir(previousDir); err != nil {
-			t.Fatalf("restore cwd: %v", err)
-		}
-	}()
-	runGitForCLITest(t, "init")
-	runGitForCLITest(t, "config", "user.email", "readyci@example.invalid")
-	runGitForCLITest(t, "config", "user.name", "Ready CI")
-	if err := os.WriteFile(filepath.Join(repo, ".readyci.yml"), []byte(`
-affected:
-  rules:
-    - paths: ["apps/**"]
-      checks: ["web"]
-checks:
-  web:
-    command: pnpm test
-`), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("initial\n"), 0o644); err != nil {
-		t.Fatalf("write readme: %v", err)
-	}
-	runGitForCLITest(t, "add", ".")
-	runGitForCLITest(t, "commit", "-m", "initial")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("changed\n"), 0o644); err != nil {
-		t.Fatalf("change readme: %v", err)
-	}
-
-	var stdout string
-	var commandErr error
-	stderr, captureErr := captureStderrForCLITest(t, func() error {
-		stdout, commandErr = captureStdoutForCLITest(t, func() error {
-			return agentVerifyCommand([]string{"--json", "--progress=status"})
-		})
-		return commandErr
-	})
-	if captureErr != nil || commandErr != nil {
-		t.Fatalf("agent verify progress: capture=%v command=%v\nstdout=%s\nstderr=%s", captureErr, commandErr, stdout, stderr)
-	}
-	var report agentVerifyReport
-	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
-		t.Fatalf("stdout is not one JSON document: %v\n%s", err, stdout)
-	}
-	if report.Status != "skipped" || !report.Terminal {
-		t.Fatalf("agent report = %+v, want terminal skipped", report)
-	}
-	if !strings.Contains(stderr, "readyci: verification planned · affected checks: none") {
-		t.Fatalf("stderr missing semantic progress: %q", stderr)
-	}
-	if strings.Contains(stdout, "readyci:") || strings.Contains(stderr, `"schema_version"`) {
-		t.Fatalf("progress/final output streams mixed:\nstdout=%s\nstderr=%s", stdout, stderr)
-	}
-
-	stdout = ""
-	stderr, captureErr = captureStderrForCLITest(t, func() error {
-		stdout, commandErr = captureStdoutForCLITest(t, func() error {
-			return agentVerifyCommand([]string{"--json"})
-		})
-		return commandErr
-	})
-	if captureErr != nil || commandErr != nil {
-		t.Fatalf("agent verify quiet auto: capture=%v command=%v", captureErr, commandErr)
-	}
-	if strings.TrimSpace(stderr) != "" {
-		t.Fatalf("default JSON progress stderr = %q, want quiet", stderr)
-	}
-	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
-		t.Fatalf("default JSON stdout invalid: %v\n%s", err, stdout)
-	}
-}
 
 func TestNormalizeAgentProgressMode(t *testing.T) {
 	for _, value := range []string{"", "auto", "status", "quiet", "logs", " STATUS "} {
@@ -232,33 +145,5 @@ func TestAgentProgressReporterSerializesParallelMatrixUpdates(t *testing.T) {
 		if !strings.HasPrefix(line, "readyci: ") || !strings.Contains(line, " · accepted · ") {
 			t.Fatalf("interleaved progress line = %q", line)
 		}
-	}
-}
-
-func TestRemoteRunObserverSendsSemanticProgressInCollectMode(t *testing.T) {
-	var output bytes.Buffer
-	reporter, err := newAgentProgressReporter("status", true, &output, false)
-	if err != nil {
-		t.Fatalf("new progress reporter: %v", err)
-	}
-	result := &remoteRunResult{RunID: "run_cli"}
-	observer := remoteRunEventObserver{
-		result:     result,
-		outputMode: remoteRunOutputCollect,
-		progress:   reporter,
-		runName:    "cli",
-	}
-	if err := observer.handle(preflightapi.RunEvent{Type: preflightapi.EventCommandStarted}); err != nil {
-		t.Fatalf("handle command started: %v", err)
-	}
-	if err := observer.handle(preflightapi.RunEvent{Type: preflightapi.EventStdout, Step: "unit", Data: "raw output\n"}); err != nil {
-		t.Fatalf("handle stdout: %v", err)
-	}
-	got := output.String()
-	if !strings.Contains(got, "cli · command running") || !strings.Contains(got, "cli · step: unit") {
-		t.Fatalf("observer progress = %q", got)
-	}
-	if strings.Contains(got, "raw output") {
-		t.Fatalf("observer status progress leaked stdout: %q", got)
 	}
 }

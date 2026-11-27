@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
 

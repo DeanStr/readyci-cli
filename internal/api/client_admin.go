@@ -90,7 +90,7 @@ func (c *Client) DownloadArtifactArchive(ctx context.Context, runID string, writ
 	req.Header.Set("Accept", "*/*")
 	c.authorize(req)
 
-	resp, err := (&http.Client{Timeout: uploadTimeout}).Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return err
 	}

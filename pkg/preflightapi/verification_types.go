@@ -441,6 +441,24 @@ type ListVerificationSessionsResponse struct {
 	HasMore        bool                         `json:"has_more"`
 }
 
+// SecretPreparationGuidance explains why secret-bearing checks cannot use
+// dependency preparation: they run on cache lanes no preparation run can write.
+const SecretPreparationGuidance = "secret-bearing runs cannot use prepared caches; install dependencies in the check itself and run it with `readyci check --skip-warm`, or do not request secrets"
+
+// VerificationSessionRequestsSecrets reports whether the recipe or any node
+// asks for project secrets. Admission and authorization share this predicate.
+func VerificationSessionRequestsSecrets(req CreateVerificationSessionRequest) bool {
+	if req.Recipe.RequestSecrets {
+		return true
+	}
+	for _, node := range req.Plan.Nodes {
+		if node.Run.SecretsRequested != nil && *node.Run.SecretsRequested {
+			return true
+		}
+	}
+	return false
+}
+
 func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequest) (CreateVerificationSessionRequest, error) {
 	if strings.TrimSpace(req.SchemaVersion) == "" {
 		req.SchemaVersion = VerificationSchemaVersion
@@ -471,9 +489,23 @@ func NormalizeCreateVerificationSessionRequest(req CreateVerificationSessionRequ
 			}
 		}
 	}
+	// Secret-bearing runs use their own cache lanes, which no preparation run
+	// writes, so a session that requests secrets anywhere cannot prepare.
+	if VerificationSessionRequestsSecrets(req) {
+		for _, node := range req.Plan.Nodes {
+			if strings.TrimSpace(node.Phase) == VerificationNodePhaseWarm {
+				return req, fmt.Errorf("a session that requests project secrets cannot include preparation node %q; %s", strings.TrimSpace(node.ID), SecretPreparationGuidance)
+			}
+		}
+	}
 	if len(req.Recipe.WarmChecks) > 0 {
 		if req.Recipe.Purpose != ExecutionPurpose || req.Recipe.Check != "" || req.Recipe.Command != "" {
 			return req, fmt.Errorf("warm recipe requires execution purpose and cannot select another check or command")
+		}
+		// A rerun rebuilds preparation from warm_checks, so the recipe itself
+		// must not request secrets even when the supplied plan has no warm node.
+		if VerificationSessionRequestsSecrets(req) {
+			return req, fmt.Errorf("a warm recipe cannot request project secrets; %s", SecretPreparationGuidance)
 		}
 		for _, name := range req.Recipe.WarmChecks {
 			if strings.TrimSpace(name) == "" || containsVerificationControl(name) {

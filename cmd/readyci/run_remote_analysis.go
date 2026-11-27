@@ -2,24 +2,10 @@ package main
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"strings"
 
 	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
-	"github.com/DeanStr/readyci-cli/pkg/textlimit"
 )
-
-func observeStreamMessage(buffer string, data []byte, message string, alreadySeen bool) (string, bool) {
-	if alreadySeen {
-		return buffer, true
-	}
-	buffer += string(data)
-	if strings.Contains(buffer, message) {
-		return trimStreamMarkerBuffer(buffer), true
-	}
-	return trimStreamMarkerBuffer(buffer), false
-}
 
 func trimStreamMarkerBuffer(buffer string) string {
 	const maxMarkerBufferRunes = 4096
@@ -28,40 +14,6 @@ func trimStreamMarkerBuffer(buffer string) string {
 		return buffer
 	}
 	return string(runes[len(runes)-maxMarkerBufferRunes:])
-}
-
-func printRunFailureDiagnosis(w io.Writer, result remoteRunResult, err error, command string) {
-	if w == nil || err == nil || isSuccessfulExit(err) {
-		return
-	}
-	analysis := analyzeRemoteRunFailure(result, err, command)
-	if analysis.Classification == "" || analysis.Classification == preflightapi.ClassificationSuccess {
-		return
-	}
-	runLabel := "run"
-	if result.RunID != "" {
-		runLabel += " " + result.RunID
-	}
-	status := defaultString(result.Status, runFailureStatusFromError(err))
-	if status != "" {
-		fmt.Fprintf(w, "readyci: %s %s: %s", runLabel, status, analysis.Classification)
-	} else {
-		fmt.Fprintf(w, "readyci: %s failed: %s", runLabel, analysis.Classification)
-	}
-	if analysis.Retryable {
-		fmt.Fprint(w, " (retryable)")
-	}
-	if summary := strings.TrimSpace(oneLine(analysis.Summary)); summary != "" {
-		fmt.Fprintf(w, ": %s", summary)
-	}
-	fmt.Fprintln(w)
-	if hint := runFailureDiagnosisHint(analysis.Classification); hint != "" {
-		fmt.Fprintf(w, "readyci: hint: %s\n", hint)
-	}
-	if result.RunID != "" {
-		runID := shellQuoteArg(result.RunID)
-		fmt.Fprintf(w, "readyci: inspect with `readyci agent explain %s` or `readyci runs logs --tail 200 --errors-only %s`\n", runID, runID)
-	}
 }
 
 func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) preflightapi.RunFailureAnalysis {
@@ -90,9 +42,6 @@ func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) 
 		}
 		if result.Classification == preflightapi.ClassificationTestFailed || result.Classification == preflightapi.ClassificationEnvironmentSetupFailed {
 			events := result.Events
-			if len(events) == 0 {
-				events = result.AnalysisEvents
-			}
 			if result.Classification == preflightapi.ClassificationTestFailed {
 				events = repositoryTestOutputEvents(events)
 			}
@@ -112,19 +61,8 @@ func analyzeRemoteRunFailure(result remoteRunResult, err error, command string) 
 		return analysis
 	}
 	status := defaultString(result.Status, runFailureStatusFromError(err))
-	events := result.Events
-	if len(events) == 0 {
-		events = result.AnalysisEvents
-	}
 	exitCode := runFailureExitCode(result, status)
-	return localAnalyzeRunFailureWithNetworkMode(status, command, exitCode, events, result.FailureReason, result.NetworkMode)
-}
-
-func analyzeRemoteRunFailureForRetry(result remoteRunResult, err error, command string) preflightapi.RunFailureAnalysis {
-	if len(result.AnalysisEvents) > 0 {
-		result.Events = nil
-	}
-	return analyzeRemoteRunFailure(result, err, command)
+	return localAnalyzeRunFailureWithNetworkMode(status, command, exitCode, result.Events, result.FailureReason, result.NetworkMode)
 }
 
 func runFailureExitCode(result remoteRunResult, status string) *int {
@@ -205,20 +143,6 @@ func runFailureAnalysisContainsAny(text string, needles ...string) bool {
 		}
 	}
 	return false
-}
-
-func trimRunFailureAnalysisData(text string) string {
-	if len(text) <= runFailureAnalysisDataLimit {
-		return text
-	}
-	marker := "\n[readyci: diagnostic log chunk truncated]\n"
-	if len(marker) >= runFailureAnalysisDataLimit {
-		return textlimit.PrefixUTF8WithinBytes(marker, runFailureAnalysisDataLimit)
-	}
-	half := (runFailureAnalysisDataLimit - len(marker)) / 2
-	head := textlimit.PrefixUTF8WithinBytes(text, half)
-	tail := textlimit.SuffixUTF8WithinBytes(text, runFailureAnalysisDataLimit-len(marker)-len(head))
-	return head + marker + tail
 }
 
 func trimRunFailureAnalysisSearchText(text string) string {

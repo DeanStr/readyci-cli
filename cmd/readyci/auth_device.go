@@ -28,8 +28,8 @@ func validateDeviceAuthorization(authorization preflightapi.CLIDeviceAuthorizati
 		return fmt.Errorf("invalid device authorization response")
 	}
 	verification, err := url.Parse(authorization.VerificationURI)
-	if err != nil || (verification.Scheme != "https" && verification.Scheme != "http") || verification.Host == "" || verification.User != nil {
-		return fmt.Errorf("invalid device authorization response: verification URL must be an absolute http(s) URL")
+	if err != nil || api.ValidateEndpoint(verification) != nil || verification.User != nil {
+		return fmt.Errorf("invalid device authorization response: verification URL requires HTTPS or loopback HTTP and must omit userinfo")
 	}
 	// The user must type the code; a link that carries it enables one-click
 	// phishing of the approval.

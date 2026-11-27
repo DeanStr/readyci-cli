@@ -18,6 +18,23 @@ import (
 	"github.com/DeanStr/readyci-cli/pkg/syncbundle"
 )
 
+func TestUploadRejectsRedirectWithoutPrintingSignedURL(t *testing.T) {
+	const signature = "test-storage-signature"
+	client := NewClient("https://api.test")
+	client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusTemporaryRedirect,
+			Header:     http.Header{"Location": {"https://other.test/source?signature=" + signature}},
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})
+	err := client.UploadBundle(t.Context(), "https://storage.test/source", strings.NewReader("content"), 7)
+	if err == nil || !strings.Contains(err.Error(), "cross-origin") || strings.Contains(err.Error(), signature) {
+		t.Fatalf("unsafe or missing upload redirect diagnostic: %v", err)
+	}
+}
+
 func TestClientSpecialRunEventAndArtifactMethods(t *testing.T) {
 	var eventPageRequests int
 	var streamed []preflightapi.RunEvent

@@ -79,12 +79,3 @@ func applyAgentAffectedPlanOptionsForIntent(intent string, requestSecrets bool, 
 	}
 	return plans
 }
-
-func agentRunGroupNameForIntent(intent, label string) string {
-	intent = defaultString(strings.TrimSpace(intent), agentIntentEditLoop)
-	label = strings.TrimSpace(label)
-	if label == "" {
-		return "agent " + intent + " verification"
-	}
-	return "agent " + intent + " " + label
-}

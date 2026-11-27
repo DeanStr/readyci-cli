@@ -3,37 +3,7 @@ package main
 import (
 	"os/exec"
 	"strings"
-
-	"github.com/DeanStr/readyci-cli/pkg/preflightapi"
 )
-
-func remoteDisplayCommand(options remoteRunOptions) string {
-	if command := strings.TrimSpace(options.Command); command != "" {
-		return command
-	}
-	if len(options.Steps) > 0 {
-		commands := make([]string, 0, len(options.Steps))
-		for _, step := range options.Steps {
-			if command := strings.TrimSpace(step.Command); command != "" {
-				commands = append(commands, command)
-			}
-		}
-		if len(commands) > 0 {
-			return strings.Join(commands, "\n")
-		}
-	}
-	return strings.TrimSpace(options.CommandAlias)
-}
-
-func shouldPrintFailedWorkspaceHint(keepFailed bool, terminalEventType string, commandExited bool, commandExitCode int, artifactUploaded, failedWorkspaceArtifactRetained, failedWorkspaceArtifactSkipped bool) bool {
-	return keepFailed &&
-		terminalEventType == preflightapi.EventRunFailed &&
-		commandExited &&
-		commandExitCode != 0 &&
-		artifactUploaded &&
-		failedWorkspaceArtifactRetained &&
-		!failedWorkspaceArtifactSkipped
-}
 
 func appendUniqueString(values []string, value string) []string {
 	for _, existing := range values {

@@ -46,7 +46,7 @@ func (c *Client) UploadBundleWithOptions(ctx context.Context, uploadURL string, 
 		return err
 	}
 	if c.token != "" && !sameOrigin && !options.AllowCrossOrigin {
-		return fmt.Errorf("refusing to send bearer token to cross-origin upload URL %q", resolvedURL)
+		return errors.New("refusing to send bearer token to cross-origin upload URL")
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, uploadTimeout)
 	defer cancel()
@@ -55,7 +55,6 @@ func (c *Client) UploadBundleWithOptions(ctx context.Context, uploadURL string, 
 	if method == "" {
 		method = http.MethodPut
 	}
-	client := &http.Client{Timeout: uploadTimeout}
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
 			seeker, ok := reader.(io.Seeker)
@@ -89,7 +88,7 @@ func (c *Client) UploadBundleWithOptions(ctx context.Context, uploadURL string, 
 		}
 		req.ContentLength = size
 
-		resp, err := client.Do(req)
+		resp, err := c.send(req)
 		if err != nil {
 			return err
 		}
@@ -165,7 +164,7 @@ func (c *Client) StreamEvents(ctx context.Context, eventsURL string, handle func
 		return err
 	}
 	if c.token != "" && !sameOrigin {
-		return fmt.Errorf("refusing to send bearer token to cross-origin events URL %q", resolvedURL)
+		return errors.New("refusing to send bearer token to cross-origin events URL")
 	}
 
 	var lastEventID int64
@@ -252,7 +251,7 @@ func (c *Client) streamEventsOnce(ctx context.Context, resolvedURL string, sameO
 		c.authorize(req)
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return false, false, err
 	}
